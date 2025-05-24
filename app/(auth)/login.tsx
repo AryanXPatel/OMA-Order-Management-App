@@ -412,7 +412,9 @@ const LoginScreen = () => {
                   resizeMode="contain"
                 />
               </View>
-              <Text style={styles.welcomeText}>Welcome to CJ Parikh</Text>
+              <Text style={styles.welcomeText}>
+                Welcome to Order Management App
+              </Text>
               <Text style={styles.welcomeSubText}>Seeds Solutions</Text>
             </Animated.View>
 

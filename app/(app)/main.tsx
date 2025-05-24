@@ -881,7 +881,7 @@ export default function MainScreen() {
     <View style={styles.container}>
       <StatusBar barStyle={isDark ? "light-content" : "light-content"} />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>CJ Parikh</Text>
+        <Text style={styles.headerTitle}>Order Management App</Text>
         <TouchableOpacity style={styles.themeToggle} onPress={toggleTheme}>
           <Ionicons
             name={isDark ? "sunny" : "moon"}
