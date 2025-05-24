@@ -1,29 +1,72 @@
 {
   "expo": {
-    "name": "OMA",
-    "slug": "OMA",
-    "version": "1.0.0",
+    "name": "oma",
+    "slug": "oma",
+    "version": "2.4",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "icon": "./assets/images/icon.png",
+    "scheme": "oma",
+    "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/images/splash-icon.png",
+      "imageWidth": 250,
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1a1a1a"
     },
+    "androidStatusBar": {
+      "backgroundColor": "#1a1a1a",
+      "translucent": true,
+      "barStyle": "light-content"
+    },
+    "androidNavigationBar": {
+      "backgroundColor": "#1a1a1a",
+      "barStyle": "light-content"
+    },
+    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.parikhseeds.myapp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.parikhseeds.myapp",
+      "versionCode": 2,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#1a1a1a"
       },
-      "edgeToEdgeEnabled": true
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-splash-screen"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "expo-doctor": {
+        "reactNativeDirectoryCheck": {
+          "listUnknownPackages": false
+        }
+      },
+      "eas": {
+        "projectId": "cd96de1b-68da-4857-b6ba-c859eb6d0c59"
+      }
+    },
+    "owner": "patelaryan"
   }
 }

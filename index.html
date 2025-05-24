@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1.00001, viewport-fit=cover"
+    />
+    <title>OMA</title>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #root {
+        display: flex;
+        flex-direction: column;
+      }
+      @media (min-width: 1200px) {
+        body {
+          background-color: #f0f0f0;
+        }
+        #root {
+          max-width: 1200px;
+          margin: 0 auto;
+        }
+      }
+    </style>
+    <!-- Redirects script for client-side routing -->
+    <script type="text/javascript">
+      (function (l) {
+        if (l.search[1] === "/") {
+          var decoded = l.search
+            .slice(1)
+            .split("&")
+            .map(function (s) {
+              return s.replace(/~and~/g, "&");
+            })
+            .join("?");
+          window.history.replaceState(
+            null,
+            null,
+            l.pathname.slice(0, -1) + decoded + l.hash
+          );
+        }
+      })(window.location);
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Load your app's entry script -->
+    <script src="/_expo/static/js/web/entry-6a7bedc575305fd98892af2ab51eb5cc.js"></script>
+  </body>
+</html>
