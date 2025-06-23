@@ -16,7 +16,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
+  Alert,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
@@ -230,20 +230,12 @@ const LoginScreen = () => {
         container: {
           flex: 1,
           backgroundColor: isDark ? colors.background : colors.background,
-          minHeight: "100vh", // Ensures full viewport height on web
-          justifyContent: "center", // Vertically center for desktop/web
-          alignItems: "center", // Horizontally center for desktop/web
         },
         innerContainer: {
-          width: "100%",
-          maxWidth: 400, // Prevents form from being too wide on desktop
-          backgroundColor: isDark ? "rgba(30,30,30,0.98)" : "#fff",
-          borderRadius: 18,
-          padding: 32,
-          marginVertical: 32,
-          alignSelf: "center",
-          boxShadow:
-            Platform.OS === "web" ? "0 4px 24px rgba(0,0,0,0.08)" : undefined,
+          flex: 1,
+          justifyContent: "flex-start",
+          paddingHorizontal: 30,
+          paddingTop: 100,
         },
         logoContainer: {
           marginTop: 20,
@@ -393,164 +385,157 @@ const LoginScreen = () => {
           />
         </TouchableOpacity>
 
-        {/* Add ScrollView here */}
-        <ScrollView
-          contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
-          keyboardShouldPersistTaps="handled"
-          style={{ width: "100%" }}
+        {/* Content area */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1, marginBottom: 40 }}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 0}
         >
-          {/* Content area */}
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            style={{ flex: 1, marginBottom: 40 }}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 0}
-          >
-            <View style={styles.innerContainer}>
-              {/* Welcome message that fades out */}
-              <Animated.View
-                style={{
-                  opacity: showForm
-                    ? Animated.subtract(1, formOpacity)
-                    : fadeAnim,
-                  transform: [{ translateY: slideAnim }],
-                  position: showForm ? "absolute" : "relative",
-                  alignSelf: "center",
-                  width: "100%",
-                  pointerEvents: showForm ? "none" : "auto",
-                }}
-              >
-                <View style={styles.logoContainer}>
-                  <Image
-                    source={require("../../assets/images/logo.png")}
-                    style={styles.logo}
-                    resizeMode="contain"
-                  />
-                </View>
-                <Text style={styles.welcomeText}>
-                  Welcome to Order Management App
-                </Text>
-                <Text style={styles.welcomeSubText}>Seeds Solutions</Text>
-              </Animated.View>
+          <View style={styles.innerContainer}>
+            {/* Welcome message that fades out */}
+            <Animated.View
+              style={{
+                opacity: showForm
+                  ? Animated.subtract(1, formOpacity)
+                  : fadeAnim,
+                transform: [{ translateY: slideAnim }],
+                position: showForm ? "absolute" : "relative",
+                alignSelf: "center",
+                width: "100%",
+                pointerEvents: showForm ? "none" : "auto",
+              }}
+            >
+              <View style={styles.logoContainer}>
+                <Image
+                  source={require("../../assets/images/logo.png")}
+                  style={styles.logo}
+                  resizeMode="contain"
+                />
+              </View>
+              <Text style={styles.welcomeText}>
+                Welcome to Order Management App
+              </Text>
+              <Text style={styles.welcomeSubText}>Seeds Solutions</Text>
+            </Animated.View>
 
-              {/* Login form that fades in */}
-              <Animated.View
-                style={{
-                  opacity: formOpacity,
-                  flex: 1,
-                  justifyContent: "flex-start",
-                  display: showForm ? "flex" : "none",
-                  paddingTop: 0,
-                }}
-              >
-                <View style={styles.logoContainer}>
-                  <Image
-                    source={require("../../assets/images/logo.png")}
-                    style={styles.logo}
-                    resizeMode="contain"
-                  />
-                </View>
-                <Text style={styles.companyName}>SIGN IN</Text>
-                <View style={styles.signInUnderline} />
-                <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Username</Text>
+            {/* Login form that fades in */}
+            <Animated.View
+              style={{
+                opacity: formOpacity,
+                flex: 1,
+                justifyContent: "flex-start",
+                display: showForm ? "flex" : "none",
+                paddingTop: 0,
+              }}
+            >
+              <View style={styles.logoContainer}>
+                <Image
+                  source={require("../../assets/images/logo.png")}
+                  style={styles.logo}
+                  resizeMode="contain"
+                />
+              </View>
+              <Text style={styles.companyName}>SIGN IN</Text>
+              <View style={styles.signInUnderline} />
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Username</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter username"
+                  value={username}
+                  onChangeText={setUsername}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="default"
+                  placeholderTextColor={
+                    isDark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)"
+                  }
+                />
+              </View>
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <View style={styles.passwordContainer}>
                   <TextInput
-                    style={styles.input}
-                    placeholder="Enter username"
-                    value={username}
-                    onChangeText={setUsername}
+                    style={styles.passwordInput}
+                    placeholder="Enter password"
+                    value={password}
+                    onChangeText={setPassword}
+                    onBlur={() => setPassword(password.trim())}
+                    secureTextEntry={!showPassword}
                     autoCapitalize="none"
                     autoCorrect={false}
-                    keyboardType="default"
                     placeholderTextColor={
                       isDark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)"
                     }
                   />
-                </View>
-                <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Password</Text>
-                  <View style={styles.passwordContainer}>
-                    <TextInput
-                      style={styles.passwordInput}
-                      placeholder="Enter password"
-                      value={password}
-                      onChangeText={setPassword}
-                      onBlur={() => setPassword(password.trim())}
-                      secureTextEntry={!showPassword}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      placeholderTextColor={
-                        isDark ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)"
+                  <TouchableOpacity
+                    style={styles.eyeIcon}
+                    onPress={togglePasswordVisibility}
+                  >
+                    <Ionicons
+                      name={showPassword ? "eye" : "eye-off"}
+                      size={24}
+                      color={
+                        isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)"
                       }
                     />
-                    <TouchableOpacity
-                      style={styles.eyeIcon}
-                      onPress={togglePasswordVisibility}
-                    >
-                      <Ionicons
-                        name={showPassword ? "eye" : "eye-off"}
-                        size={24}
-                        color={
-                          isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.5)"
-                        }
-                      />
-                    </TouchableOpacity>
-                  </View>
+                  </TouchableOpacity>
                 </View>
+              </View>
 
-                {/* Credentials hint */}
-                <View style={{ marginTop: 20, alignItems: "center" }}>
-                  <Text
-                    style={{
-                      color: isDark ? "#aaa" : "#555",
-                      fontSize: 13,
-                      textAlign: "center",
-                      backgroundColor: isDark ? "#222" : "#f0f0f0",
-                      padding: 8,
-                      borderRadius: 8,
-                      marginHorizontal: 10,
-                    }}
-                  >
-                    Manager: <Text style={{ fontWeight: "bold" }}>1 / 1</Text>{" "}
-                    {"\n"}
-                    User: <Text style={{ fontWeight: "bold" }}>0 / 0</Text>
-                  </Text>
-                  <Text style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>
-                    (Username / Password)
-                  </Text>
-                </View>
-
-                {/* Remember me option */}
-                <TouchableOpacity
-                  style={styles.rememberMeContainer}
-                  onPress={toggleRememberMe}
+              {/* Credentials hint */}
+              <View style={{ marginTop: 20, alignItems: "center" }}>
+                <Text
+                  style={{
+                    color: isDark ? "#aaa" : "#555",
+                    fontSize: 13,
+                    textAlign: "center",
+                    backgroundColor: isDark ? "#222" : "#f0f0f0",
+                    padding: 8,
+                    borderRadius: 8,
+                    marginHorizontal: 10,
+                  }}
                 >
-                  <Ionicons
-                    name={rememberMe ? "checkbox" : "square-outline"}
-                    size={20}
-                    color={
-                      rememberMe
-                        ? colors.primary
-                        : isDark
-                        ? colors.textSecondary
-                        : "#555"
-                    }
-                  />
-                  <Text style={styles.rememberMeText}>Remember username</Text>
-                </TouchableOpacity>
+                  Manager: <Text style={{ fontWeight: "bold" }}>1 / 1</Text>{" "}
+                  {"\n"}
+                  User: <Text style={{ fontWeight: "bold" }}>0 / 0</Text>
+                </Text>
+                <Text style={{ color: "#aaa", fontSize: 11, marginTop: 4 }}>
+                  (Username / Password)
+                </Text>
+              </View>
 
-                <TouchableOpacity
-                  style={[styles.loginButton, isLoading && { opacity: 0.7 }]}
-                  onPress={handleLogin}
-                  disabled={isLoading}
-                >
-                  <Text style={styles.loginButtonText}>
-                    {isLoading ? "Logging in..." : "Login"}
-                  </Text>
-                </TouchableOpacity>
-              </Animated.View>
-            </View>
-          </KeyboardAvoidingView>
-        </ScrollView>
+              {/* Remember me option */}
+              <TouchableOpacity
+                style={styles.rememberMeContainer}
+                onPress={toggleRememberMe}
+              >
+                <Ionicons
+                  name={rememberMe ? "checkbox" : "square-outline"}
+                  size={20}
+                  color={
+                    rememberMe
+                      ? colors.primary
+                      : isDark
+                      ? colors.textSecondary
+                      : "#555"
+                  }
+                />
+                <Text style={styles.rememberMeText}>Remember username</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.loginButton, isLoading && { opacity: 0.7 }]}
+                onPress={handleLogin}
+                disabled={isLoading}
+              >
+                <Text style={styles.loginButtonText}>
+                  {isLoading ? "Logging in..." : "Login"}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
+        </KeyboardAvoidingView>
 
         {/* Version text fixed at bottom outside KeyboardAvoidingView */}
         <View style={styles.versionContainer}>
