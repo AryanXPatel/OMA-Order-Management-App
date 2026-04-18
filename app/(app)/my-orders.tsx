@@ -1,342 +1,397 @@
-import React, { useState, useEffect, useContext } from "react";
-import { scale, moderateScale, isTablet } from "../utils/responsive";
-import { useMemo, useCallback } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  ActivityIndicator,
-  Alert,
-  StatusBar,
-  RefreshControl,
-  TextInput,
-  SectionList,
-  ScrollView,
-} from "react-native";
-import { router } from "expo-router";
-import { ThemeContext } from "../context/ThemeContext";
-import { Ionicons } from "@expo/vector-icons";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { fetchWithRetry, apiCache } from "../utils/apiManager";
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
+import {
+  Alert,
+  RefreshControl,
+  ScrollView,
+  SectionList,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import LoadingIndicator from "../components/LoadingIndicator";
+import { FLOATING_NAV_SPACE } from "../components/oma/OmaFloatingNav";
+import { ThemeContext } from "../context/ThemeContext";
+import { BACKEND_URL, apiCache, fetchWithRetry } from "../utils/apiManager";
+import { omaTypography } from "../utils/typography";
 
-const BACKEND_URL = "https://oma-demo-server.onrender.com";
+type FilterStatus = "all" | "pending" | "approved" | "rejected" | "dispatched";
 
-// HELPER FUNCTIONS
-// Update parseDate function at the top to handle both date formats and "Unknown Date"
-const parseDate = (dateStr) => {
+type ApiOrderRow = {
+  actualRowIndex: number;
+  sysTime: string;
+  orderTime: string;
+  user: string;
+  orderComments: string;
+  customerName: string;
+  orderId: string;
+  productName: string;
+  quantity: string;
+  unit: string;
+  rate: string;
+  amount: string;
+  source: string;
+  approved: string;
+  managerComments: string;
+  dispatched: string;
+  dispatchComments: string;
+  dispatchTime: string;
+};
+
+type OrderLineItem = {
+  productName: string;
+  quantity: string;
+  unit: string;
+  rate: string;
+  amount: string;
+  actualRowIndex: number;
+  approved: string;
+  rejected: boolean;
+  dispatched: boolean;
+  comments: string;
+  dispatchTime: string;
+};
+
+type GroupedOrder = {
+  orderId: string;
+  date: string;
+  customerName: string;
+  user: string;
+  source: string;
+  items: OrderLineItem[];
+  totalAmount: number;
+  status: Exclude<FilterStatus, "all">;
+  orderComments: string;
+  managerComments: string;
+  dispatchComments: string;
+};
+
+type OrderSection = {
+  rawDate: string;
+  title: string;
+  count: number;
+  data: GroupedOrder[];
+};
+
+type StatusPresentation = {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+};
+
+const STATUS_PRESENTATION: Record<
+  Exclude<FilterStatus, "all">,
+  StatusPresentation
+> = {
+  pending: {
+    label: "Processing",
+    icon: "hourglass-outline",
+    color: "#f59e0b",
+  },
+  approved: {
+    label: "Approved",
+    icon: "checkmark-circle-outline",
+    color: "#0066FF",
+  },
+  rejected: {
+    label: "Rejected",
+    icon: "close-circle-outline",
+    color: "#ef4444",
+  },
+  dispatched: {
+    label: "Dispatched",
+    icon: "paper-plane-outline",
+    color: "#22c55e",
+  },
+};
+
+const FILTER_OPTIONS: {
+  id: FilterStatus;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { id: "all", label: "All", icon: "apps-outline" },
+  { id: "pending", label: "Processing", icon: "hourglass-outline" },
+  { id: "approved", label: "Approved", icon: "checkmark-circle-outline" },
+  { id: "dispatched", label: "Dispatched", icon: "paper-plane-outline" },
+  { id: "rejected", label: "Rejected", icon: "close-circle-outline" },
+];
+
+const monthLabels = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+const parseDateValue = (value: string) => {
+  if (!value) {
+    return 0;
+  }
+
+  const [datePart, timePart = "", meridiem = ""] = value.trim().split(/\s+/);
+  const [day, month, year] = datePart.split("/").map(Number);
+
+  if (!day || !month || !year) {
+    const fallback = new Date(value);
+    return Number.isNaN(fallback.getTime()) ? 0 : fallback.getTime();
+  }
+
+  let hours = 0;
+  let minutes = 0;
+
+  if (timePart.includes(":")) {
+    const [parsedHours, parsedMinutes] = timePart.split(":").map(Number);
+    hours = parsedHours || 0;
+    minutes = parsedMinutes || 0;
+  }
+
+  const normalizedMeridiem = meridiem.toUpperCase();
+  if (normalizedMeridiem === "PM" && hours < 12) {
+    hours += 12;
+  }
+  if (normalizedMeridiem === "AM" && hours === 12) {
+    hours = 0;
+  }
+
+  return new Date(year, month - 1, day, hours, minutes).getTime();
+};
+
+const formatDateLabel = (value: string) => {
+  if (!value) {
+    return "Unknown date";
+  }
+
+  const [datePart] = value.split(" ");
+  const [day, month, year] = datePart.split("/").map(Number);
+
+  if (!day || !month || !year) {
+    return value;
+  }
+
+  return `${day} ${monthLabels[month - 1]} ${year}`;
+};
+
+const formatIndianCurrency = (value: number) => {
   try {
-    if (!dateStr || dateStr === "Unknown Date") {
-      return 0; // Return lowest date value for unknown dates
-    }
-
-    // Extract just date part in case there's time info
-    const datePart = dateStr.split(" ")[0];
-
-    // Now parse the date
-    const [day, month, year] = datePart.split("/").map(Number);
-    return new Date(year, month - 1, day).getTime();
-  } catch (e) {
-    console.log("Date parsing error:", e, dateStr);
-    return 0; // Return lowest date value on error
+    return new Intl.NumberFormat("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return value.toFixed(2);
   }
 };
 
-// Format Indian number with commas
-const formatIndianNumber = (num) => {
-  try {
-    const parts = num.toFixed(2).split(".");
-    const lastThree = parts[0].substring(parts[0].length - 3);
-    const otherNumbers = parts[0].substring(0, parts[0].length - 3);
-    const formatted =
-      otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ",") +
-      (otherNumbers ? "," : "") +
-      lastThree;
-    return `${formatted}.${parts[1]}`;
-  } catch (error) {
-    return "0.00";
+const getSourceLabel = (source: string) => {
+  switch ((source || "").trim().toLowerCase()) {
+    case "whatsapp":
+      return "WhatsApp";
+    case "phone":
+      return "Phone";
+    case "email":
+      return "Email";
+    default:
+      return source || "App";
   }
 };
 
-const debounce = (func, wait) => {
-  let timeout;
-  return (...args) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
+const toNumber = (amount: string) => {
+  const parsed = Number.parseFloat((amount || "0").replace(/,/g, ""));
+  return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-// Add this component definition before the MyOrdersScreen component
-
-const OrderItem = React.memo(
-  ({
-    item,
-    isDark,
-    colors,
-    themeColor,
-    formatIndianNumber,
-    viewOrderDetails,
-    styles, // Pass the styles object
-  }) => {
-    // Count dispatched items
-    const dispatchedCount = item.items.filter((i) => i.dispatched).length;
-    const isFullyDispatched =
-      dispatchedCount === item.items.length && item.items.length > 0;
-
-    // Get status color - add dispatched case (blue)
-    const statusColor = isFullyDispatched
-      ? "#00bcd4" // Blue for fully dispatched orders
-      : item.status === "approved"
-      ? "#27ae60" // Green for approved
-      : item.status === "rejected"
-      ? "#e74c3c" // Red for rejected
-      : "#f39c12"; // Orange for pending
-
-    return (
-      <View
-        style={[
-          styles.orderCard,
-          { borderLeftWidth: 4, borderLeftColor: statusColor },
-        ]}
-      >
-        <View style={styles.orderHeader}>
-          <Text style={styles.orderIdText}>Order ID: {item.orderId}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-            <Text style={styles.statusText}>
-              {isFullyDispatched
-                ? "Dispatched"
-                : item.status === "approved"
-                ? "Approved"
-                : item.status === "rejected"
-                ? "Rejected"
-                : "Pending"}
-            </Text>
-          </View>
-        </View>
-        <Text style={styles.customerText}>{item.customerName}</Text>
-        <Text style={styles.detailText}>Date: {item.date}</Text>
-        <Text style={styles.detailText}>
-          Items: {item.items.length} |
-          {dispatchedCount > 0 &&
-            ` Dispatched: ${dispatchedCount}/${item.items.length}`}
-        </Text>
-        {/* Rejection reason if any */}
-        {item.status === "rejected" && item.rejectionReason && (
-          <View style={styles.rejectionContainer}>
-            <Text style={styles.rejectionLabel}>Reason for rejection:</Text>
-            <Text style={styles.rejectionText}>{item.rejectionReason}</Text>
-          </View>
-        )}
-        <View style={styles.divider} />
-        {/* Products preview */}
-        <View style={styles.productsPreview}>
-          {item.items.slice(0, 2).map((product, idx) => (
-            <View key={idx} style={styles.productItem}>
-              <Text style={styles.productName}>• {product.productName}</Text>
-              <Text style={styles.productDetail}>
-                {product.quantity} {product.unit} × ₹{product.rate} = ₹
-                {product.amount}
-              </Text>
-
-              {product.dispatched && (
-                <View
-                  style={[styles.dispatchedTag, { backgroundColor: "#00bcd4" }]}
-                >
-                  <Ionicons name="checkmark" size={12} color="#fff" />
-                  <Text style={styles.dispatchedText}>Dispatched</Text>
-                </View>
-              )}
-            </View>
-          ))}
-
-          {item.items.length > 2 && (
-            <Text style={styles.moreItemsText}>
-              +{item.items.length - 2} more items
-            </Text>
-          )}
-        </View>
-        <View style={styles.orderFooter}>
-          <Text style={styles.totalText}>
-            Total: ₹{formatIndianNumber(item.totalAmount)}
-          </Text>
-
-          <TouchableOpacity
-            style={styles.viewDetailsButton}
-            onPress={() => viewOrderDetails(item)}
-          >
-            <Text style={styles.viewDetailsText}>View Details</Text>
-            <Ionicons name="chevron-forward" size={16} color={themeColor} />
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
+const hexToRgba = (hex: string, alpha: number) => {
+  const normalized = hex.replace("#", "");
+  if (normalized.length !== 6) {
+    return hex;
   }
-);
 
-const MyOrdersScreen = () => {
-  const { theme, toggleTheme, colors } = useContext(ThemeContext);
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+};
+
+const deriveOrderStatus = (
+  items: OrderLineItem[]
+): Exclude<FilterStatus, "all"> => {
+  const anyRejected = items.some((item) => item.approved === "N");
+  const allApproved = items.length > 0 && items.every((item) => item.approved === "Y");
+  const allDispatched =
+    items.length > 0 && items.every((item) => item.dispatched === true);
+
+  if (anyRejected) {
+    return "rejected";
+  }
+  if (allDispatched) {
+    return "dispatched";
+  }
+  if (allApproved) {
+    return "approved";
+  }
+  return "pending";
+};
+
+const buildPreviewText = (order: GroupedOrder) => {
+  if (order.orderComments) {
+    return order.orderComments;
+  }
+
+  if (order.managerComments) {
+    return order.managerComments;
+  }
+
+  return order.items
+    .slice(0, 2)
+    .map((item) => item.productName)
+    .filter(Boolean)
+    .join(", ");
+};
+
+export default function MyOrdersScreen() {
+  const { colors, theme } = useContext(ThemeContext);
   const isDark = theme === "dark";
-  const [orders, setOrders] = useState([]);
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+
+  const [orders, setOrders] = useState<GroupedOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [username, setUsername] = useState("");
+  const [userRole, setUserRole] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all"); // all, pending, approved, rejected, dispatched
-  const [displayLimit, setDisplayLimit] = useState(20);
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
 
-  // Color definitions
-  const themeColor = "#8e44ad"; // Purple theme for My Orders
+  const shellWidth = Math.min(width - 32, 460);
 
   useEffect(() => {
-    const loadUserRole = async () => {
-      const role = await AsyncStorage.getItem("userRole");
-      setUsername(role || "");
+    const initialize = async () => {
+      const storedRole = await AsyncStorage.getItem("userRole");
+      setUserRole(storedRole || "");
+      await loadOrders(storedRole);
     };
 
-    loadUserRole();
-    loadOrders();
+    initialize();
   }, []);
 
-  const loadOrders = async () => {
+  const loadOrders = async (roleOverride?: string | null) => {
     try {
       setLoading(true);
 
-      // Try to get from cache first
-      const cachedOrders = apiCache.get("myOrders");
+      const cachedOrders = apiCache.get("myOrders") as GroupedOrder[] | null;
       if (cachedOrders) {
         setOrders(cachedOrders);
         setLoading(false);
       }
 
-      // Get current user role instead of username
-      const userRole = await AsyncStorage.getItem("userRole");
-      if (!userRole) {
+      const activeRole = roleOverride ?? (await AsyncStorage.getItem("userRole"));
+      setUserRole(activeRole || "");
+
+      if (!activeRole) {
         throw new Error("User not found. Please log in again.");
       }
 
-      // Fetch all orders from the API
-      const response = await fetchWithRetry(
+      const response = await fetchWithRetry<{ values?: string[][] }>(
         `${BACKEND_URL}/api/sheets/New_Order_Table!A2:Q`,
         {},
         2,
         1500
       );
 
-      if (response.data && response.data.values) {
-        // Process each row
-        const allRows = response.data.values.map((row, index) => ({
-          actualRowIndex: index + 2,
-          sysTime: row[0] || "",
-          orderTime: row[1] || "",
-          user: row[2] || "",
-          orderComments: row[3] || "",
-          customerName: row[4] || "",
-          orderId: row[5] || "",
-          productName: row[6] || "",
-          quantity: row[7] || "",
-          unit: row[8] || "",
-          rate: row[9] || "",
-          amount: row[10] || "",
-          source: row[11] || "",
-          approved: row[12] || "",
-          managerComments: row[13] || "",
-          dispatched: row[14] || "",
-          dispatchComments: row[15] || "",
-          dispatchTime: row[16] || "", // Column Q (dispatch time)
-        }));
+      const rows: ApiOrderRow[] = (response.data?.values || []).map((row, index) => ({
+        actualRowIndex: index + 2,
+        sysTime: row[0] || "",
+        orderTime: row[1] || "",
+        user: row[2] || "",
+        orderComments: row[3] || "",
+        customerName: row[4] || "",
+        orderId: row[5] || "",
+        productName: row[6] || "",
+        quantity: row[7] || "",
+        unit: row[8] || "",
+        rate: row[9] || "",
+        amount: row[10] || "",
+        source: row[11] || "",
+        approved: row[12] || "",
+        managerComments: row[13] || "",
+        dispatched: row[14] || "",
+        dispatchComments: row[15] || "",
+        dispatchTime: row[16] || "",
+      }));
 
-        // Filter orders by current user role (Manager or User)
-        // Instead of matching exact username, just show all orders for that role
-        const userOrders =
-          userRole === "Manager"
-            ? allRows // Managers see all orders
-            : allRows.filter((row) => row.user === userRole); // Users see their own orders
+      const visibleRows =
+        activeRole === "Manager"
+          ? rows
+          : rows.filter((row) => row.user === activeRole);
 
-        // Rest of the function remains the same
-        // Group the orders by orderId
-        const groupedOrders = {};
-        userOrders.forEach((order) => {
-          // Your existing grouping logic
-          if (!groupedOrders[order.orderId]) {
-            groupedOrders[order.orderId] = {
-              orderId: order.orderId,
-              date: order.orderTime || order.sysTime, // Use orderTime if set, else sysTime
-              customerName: order.customerName,
-              user: order.user,
-              source: order.source,
-              items: [],
-              totalAmount: 0,
-              status:
-                order.approved === "Y"
-                  ? "approved"
-                  : order.approved === "N"
-                  ? "rejected"
-                  : "pending",
-              rejectionReason: order.rejectionReason,
-              orderComments: order.orderComments, // O.NOTE - Column D - ORDER COMMENTS
-              managerComments: order.managerComments, // M.NOTE - Column N - MANAGER COMMENTS
-              dispatchComments: order.comments, // D.NOTE - Column P - DISPATCH COMMENTS
-            };
-          }
+      const groupedMap: Record<string, GroupedOrder> = {};
 
-          // ...existing code...
-          groupedOrders[order.orderId].items.push({
-            productName: order.productName,
-            quantity: order.quantity,
-            unit: order.unit,
-            rate: order.rate,
-            amount: order.amount,
-            actualRowIndex: order.actualRowIndex,
-            approved: order.approved,
-            rejected: order.approved === "N",
-            dispatched: order.dispatched === "Y",
-            rejectionReason: order.rejectionReason,
-            comments: order.dispatchComments, // Use dispatchComments for consistency
-            dispatchTime: order.dispatchTime, // Only include once
-          });
+      visibleRows.forEach((row) => {
+        if (!row.orderId) {
+          return;
+        }
 
-          // Update status for the whole order
-          const items = groupedOrders[order.orderId].items;
-          const allDispatched =
-            items.length > 0 && items.every((i) => i.dispatched);
-          const anyRejected = items.some((i) => i.approved === "N");
+        if (!groupedMap[row.orderId]) {
+          groupedMap[row.orderId] = {
+            orderId: row.orderId,
+            date: row.orderTime || row.sysTime,
+            customerName: row.customerName,
+            user: row.user,
+            source: row.source,
+            items: [],
+            totalAmount: 0,
+            status: "pending",
+            orderComments: row.orderComments,
+            managerComments: row.managerComments,
+            dispatchComments: row.dispatchComments,
+          };
+        }
 
-          if (anyRejected) {
-            groupedOrders[order.orderId].status = "rejected";
-            groupedOrders[order.orderId].rejectionReason =
-              order.rejectionReason;
-          } else if (allDispatched) {
-            groupedOrders[order.orderId].status = "dispatched";
-          } else if (items.every((i) => i.approved === "Y")) {
-            groupedOrders[order.orderId].status = "approved";
-          } else {
-            groupedOrders[order.orderId].status = "pending";
-          }
-
-          // Add to total amount
-          const cleanAmount = order.amount.replace(/,/g, "");
-          groupedOrders[order.orderId].totalAmount += parseFloat(
-            cleanAmount || 0
-          );
+        const group = groupedMap[row.orderId];
+        group.items.push({
+          productName: row.productName,
+          quantity: row.quantity,
+          unit: row.unit,
+          rate: row.rate,
+          amount: row.amount,
+          actualRowIndex: row.actualRowIndex,
+          approved: row.approved,
+          rejected: row.approved === "N",
+          dispatched: row.dispatched === "Y",
+          comments: row.dispatchComments,
+          dispatchTime: row.dispatchTime,
         });
+        group.totalAmount += toNumber(row.amount);
+        group.status = deriveOrderStatus(group.items);
+      });
 
-        // Convert to array and sort (keep existing code)
-        const ordersList = Object.values(groupedOrders).sort((a, b) => {
-          const dateA = parseDate(a.date);
-          const dateB = parseDate(b.date);
-          return dateB - dateA;
-        });
-
-        setOrders(ordersList);
-        apiCache.set("myOrders", ordersList);
-      }
-    } catch (error) {
-      Alert.alert(
-        "Error",
-        `Failed to load orders: ${error.message || "Please try again."}`
+      const nextOrders = Object.values(groupedMap).sort(
+        (left, right) => parseDateValue(right.date) - parseDateValue(left.date)
       );
+
+      setOrders(nextOrders);
+      apiCache.set("myOrders", nextOrders);
+    } catch (error: any) {
+      const message =
+        error?.message || "Could not load your order history. Please try again.";
+      console.error("Failed to load orders", error);
+      Alert.alert("Error", message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -345,724 +400,719 @@ const MyOrdersScreen = () => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    apiCache.set("myOrders", null); // Clear cache to force refresh
-    await loadOrders();
+    apiCache.set("myOrders", null);
+    await loadOrders(userRole);
   };
 
-  const debouncedSearch = useCallback(
-    debounce((text) => {
-      setSearchQuery(text);
-    }, 300),
-    []
+  const filterCounts = useMemo(() => {
+    return orders.reduce<Record<FilterStatus, number>>(
+      (counts, order) => {
+        counts.all += 1;
+        counts[order.status] += 1;
+        return counts;
+      },
+      {
+        all: 0,
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        dispatched: 0,
+      }
+    );
+  }, [orders]);
+
+  const filteredOrders = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    return orders.filter((order) => {
+      const matchesFilter =
+        filterStatus === "all" ? true : order.status === filterStatus;
+
+      if (!matchesFilter) {
+        return false;
+      }
+
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      const searchableText = [
+        order.orderId,
+        order.customerName,
+        order.orderComments,
+        order.managerComments,
+        order.dispatchComments,
+        order.user,
+        getSourceLabel(order.source),
+        ...order.items.map((item) => item.productName),
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(normalizedQuery);
+    });
+  }, [filterStatus, orders, searchQuery]);
+
+  const sections = useMemo<OrderSection[]>(() => {
+    const grouped = filteredOrders.reduce<Record<string, GroupedOrder[]>>(
+      (result, order) => {
+        const rawDate = (order.date || "Unknown date").split(" ")[0] || "Unknown date";
+        result[rawDate] ??= [];
+        result[rawDate].push(order);
+        return result;
+      },
+      {}
+    );
+
+    return Object.keys(grouped)
+      .sort((left, right) => parseDateValue(right) - parseDateValue(left))
+      .map((rawDate) => ({
+        rawDate,
+        title: formatDateLabel(rawDate),
+        count: grouped[rawDate].length,
+        data: grouped[rawDate],
+      }));
+  }, [filteredOrders]);
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: {
+          flex: 1,
+          backgroundColor: colors.background,
+        },
+        topGlow: {
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 300,
+          backgroundColor: isDark ? "rgba(0,102,255,0.08)" : "#eef2f6",
+        },
+        listContent: {
+          paddingBottom: FLOATING_NAV_SPACE + Math.max(insets.bottom, 18),
+        },
+        headerShell: {
+          alignSelf: "center",
+          paddingTop: insets.top + 18,
+          paddingBottom: 18,
+        },
+        eyebrow: {
+          color: colors.textSecondary,
+          fontSize: 10,
+          letterSpacing: 1.3,
+          textTransform: "uppercase",
+          fontFamily: omaTypography.bold,
+          marginBottom: 8,
+        },
+        headingRow: {
+          flexDirection: "row",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        },
+        titleWrap: {
+          flex: 1,
+        },
+        title: {
+          color: colors.text,
+          fontSize: 28,
+          lineHeight: 32,
+          letterSpacing: -1.1,
+          fontFamily: omaTypography.extrabold,
+        },
+        subtitle: {
+          color: colors.textSecondary,
+          fontSize: 13,
+          lineHeight: 19,
+          fontFamily: omaTypography.medium,
+          marginTop: 10,
+        },
+        resultsPill: {
+          borderRadius: 18,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          alignItems: "center",
+          justifyContent: "center",
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 12 },
+          shadowOpacity: 1,
+          shadowRadius: 24,
+          elevation: 8,
+        },
+        resultsValue: {
+          color: colors.text,
+          fontSize: 16,
+          fontFamily: omaTypography.extrabold,
+          textAlign: "center",
+        },
+        resultsLabel: {
+          color: colors.textSecondary,
+          fontSize: 10,
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          fontFamily: omaTypography.bold,
+          marginTop: 2,
+        },
+        searchShell: {
+          marginTop: 22,
+          height: 58,
+          borderRadius: 29,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          flexDirection: "row",
+          alignItems: "center",
+          paddingHorizontal: 18,
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 14 },
+          shadowOpacity: 1,
+          shadowRadius: 28,
+          elevation: 10,
+        },
+        searchInput: {
+          flex: 1,
+          color: colors.text,
+          fontSize: 14,
+          paddingHorizontal: 12,
+          fontFamily: omaTypography.bold,
+        },
+        searchPlaceholderPill: {
+          borderRadius: 14,
+          backgroundColor: colors.cardMuted,
+          paddingHorizontal: 10,
+          paddingVertical: 7,
+        },
+        searchPlaceholderText: {
+          color: colors.textSecondary,
+          fontSize: 10,
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          fontFamily: omaTypography.bold,
+        },
+        filtersScrollContent: {
+          paddingTop: 18,
+          paddingBottom: 6,
+          paddingRight: 8,
+        },
+        filterChip: {
+          minHeight: 40,
+          borderRadius: 20,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          paddingHorizontal: 14,
+          marginRight: 10,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+        },
+        activeFilterChip: {
+          backgroundColor: "#111111",
+          borderColor: "#111111",
+        },
+        filterChipLabel: {
+          color: colors.textSecondary,
+          fontSize: 12,
+          fontFamily: omaTypography.bold,
+        },
+        activeFilterChipLabel: {
+          color: "#ffffff",
+        },
+        filterChipCount: {
+          minWidth: 22,
+          height: 22,
+          borderRadius: 11,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.cardMuted,
+        },
+        activeFilterChipCount: {
+          backgroundColor: "rgba(255,255,255,0.16)",
+        },
+        filterChipCountText: {
+          color: colors.text,
+          fontSize: 10,
+          fontFamily: omaTypography.extrabold,
+        },
+        activeFilterChipCountText: {
+          color: "#ffffff",
+        },
+        sectionHeader: {
+          alignSelf: "center",
+          marginTop: 6,
+          marginBottom: 10,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        },
+        sectionHeaderCard: {
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        },
+        sectionDate: {
+          color: colors.text,
+          fontSize: 12,
+          fontFamily: omaTypography.extrabold,
+          textTransform: "uppercase",
+          letterSpacing: 0.7,
+        },
+        sectionCount: {
+          color: colors.textSecondary,
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+        },
+        orderCard: {
+          borderRadius: 26,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: 20,
+          marginBottom: 14,
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 16 },
+          shadowOpacity: 1,
+          shadowRadius: 30,
+          elevation: 12,
+        },
+        orderCardTop: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+        },
+        orderId: {
+          color: colors.text,
+          fontSize: 15,
+          fontFamily: omaTypography.extrabold,
+          marginBottom: 4,
+        },
+        customerName: {
+          color: colors.text,
+          fontSize: 18,
+          lineHeight: 22,
+          fontFamily: omaTypography.extrabold,
+        },
+        statusPill: {
+          minHeight: 34,
+          borderRadius: 17,
+          borderWidth: 1,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+        },
+        statusPillText: {
+          fontSize: 10,
+          letterSpacing: 0.6,
+          textTransform: "uppercase",
+          fontFamily: omaTypography.bold,
+        },
+        orderMetaRow: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginTop: 10,
+        },
+        metaPill: {
+          borderRadius: 14,
+          paddingHorizontal: 10,
+          paddingVertical: 7,
+          backgroundColor: colors.cardMuted,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+        },
+        metaPillText: {
+          color: colors.textSecondary,
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+        },
+        previewText: {
+          color: colors.textSecondary,
+          fontSize: 13,
+          lineHeight: 19,
+          fontFamily: omaTypography.medium,
+          marginTop: 14,
+        },
+        metricPanel: {
+          marginTop: 16,
+          borderRadius: 20,
+          backgroundColor: colors.cardMuted,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: 16,
+          paddingVertical: 14,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          gap: 12,
+        },
+        metricCell: {
+          flex: 1,
+        },
+        metricLabel: {
+          color: colors.textSecondary,
+          fontSize: 10,
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          fontFamily: omaTypography.bold,
+          marginBottom: 4,
+        },
+        metricValue: {
+          color: colors.text,
+          fontSize: 14,
+          fontFamily: omaTypography.extrabold,
+        },
+        footerRow: {
+          marginTop: 16,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        },
+        footerHint: {
+          flex: 1,
+          color: colors.textSecondary,
+          fontSize: 12,
+          lineHeight: 17,
+          fontFamily: omaTypography.medium,
+          paddingRight: 16,
+        },
+        footerAction: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
+        },
+        footerActionText: {
+          color: colors.text,
+          fontSize: 12,
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          fontFamily: omaTypography.bold,
+        },
+        emptyShell: {
+          alignSelf: "center",
+          borderRadius: 28,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: 24,
+          paddingVertical: 28,
+          alignItems: "center",
+          marginTop: 12,
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 16 },
+          shadowOpacity: 1,
+          shadowRadius: 30,
+          elevation: 10,
+        },
+        emptyTitle: {
+          color: colors.text,
+          fontSize: 17,
+          fontFamily: omaTypography.extrabold,
+          marginTop: 14,
+          marginBottom: 6,
+          textAlign: "center",
+        },
+        emptyBody: {
+          color: colors.textSecondary,
+          fontSize: 13,
+          lineHeight: 19,
+          fontFamily: omaTypography.medium,
+          textAlign: "center",
+        },
+      }),
+    [colors, insets.bottom, insets.top, isDark]
   );
 
-  const getGroupedOrdersByDate = useMemo(() => {
-    // Apply search filter if there is a search query
-    let filteredOrders = orders;
-    if (searchQuery) {
-      filteredOrders = orders.filter(
-        (order) =>
-          order.orderId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          order.customerName.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
+  const renderListHeader = () => {
+    const activeFilterLabel =
+      FILTER_OPTIONS.find((option) => option.id === filterStatus)?.label || "All";
 
-    // Apply status filter
-    if (filterStatus !== "all") {
-      if (filterStatus === "dispatched") {
-        // For dispatched filter, check if all items in the order are dispatched
-        filteredOrders = filteredOrders.filter(
-          (order) =>
-            order.items.length > 0 &&
-            order.items.every((item) => item.dispatched)
-        );
-      } else {
-        // For other filters (pending, approved, rejected)
-        filteredOrders = filteredOrders.filter(
-          (order) => order.status === filterStatus
-        );
-      }
-    }
-
-    // Group by date
-    const grouped = {};
-    filteredOrders.forEach((order) => {
-      // Use the mapped .date property
-      const dateString = order.date || "Unknown Date";
-      const datePart = dateString.split(" ")[0];
-
-      if (!grouped[datePart]) {
-        grouped[datePart] = [];
-      }
-      grouped[datePart].push(order);
-    });
-
-    // Convert to array format expected by SectionList
-    return Object.keys(grouped)
-      .sort((a, b) => parseDate(b) - parseDate(a))
-      .map((date) => ({
-        date,
-        data: grouped[date],
-      }));
-  }, [orders, searchQuery, filterStatus]); // Dependencies
-
-  const renderOrderItem = ({ item }) => {
-    // Count dispatched items
-    const dispatchedCount = item.items.filter((i) => i.dispatched).length;
-    const isFullyDispatched =
-      dispatchedCount === item.items.length && item.items.length > 0;
-
-    // Get status color - add dispatched case (blue)
-    const statusColor = isFullyDispatched
-      ? "#00bcd4" // Blue for fully dispatched orders
-      : item.status === "approved"
-      ? "#27ae60" // Green for approved
-      : item.status === "rejected"
-      ? "#e74c3c" // Red for rejected
-      : "#f39c12"; // Orange for pending
     return (
-      <View
-        style={[
-          styles.orderCard,
-          { borderLeftWidth: 4, borderLeftColor: statusColor },
-        ]}
-      >
-        <View style={styles.orderHeader}>
-          <Text style={styles.orderIdText}>Order ID:{item.orderId}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-            <Text style={styles.statusText}>
-              {isFullyDispatched
-                ? "Dispatched"
-                : item.status === "approved"
-                ? "Approved"
-                : item.status === "rejected"
-                ? "Rejected"
-                : "Pending"}
+      <View style={[styles.headerShell, { width: shellWidth }]}>
+        <Text style={styles.eyebrow}>Order history</Text>
+
+        <View style={styles.headingRow}>
+          <View style={styles.titleWrap}>
+            <Text style={styles.title}>Review every submitted order.</Text>
+            <Text style={styles.subtitle}>
+              Search by customer or order ID, scan approval progress, and open a
+              full detail view without leaving the live OMA flow.
             </Text>
+          </View>
+
+          <View style={styles.resultsPill}>
+            <Text style={styles.resultsValue}>{filteredOrders.length}</Text>
+            <Text style={styles.resultsLabel}>Visible</Text>
           </View>
         </View>
 
-        <Text style={styles.customerText}>{item.customerName}</Text>
-        <Text style={styles.detailText}>Date: {item.date}</Text>
-        {item.orderComments ? (
-          <Text style={styles.detailText}>Comments: {item.orderComments}</Text>
-        ) : null}
-        <Text style={styles.detailText}>
-          Items: {item.items.length} |
-          {dispatchedCount > 0 &&
-            ` Dispatched: ${dispatchedCount}/${item.items.length}`}
-        </Text>
+        <View style={styles.searchShell}>
+          <Ionicons color={colors.textSecondary} name="search-outline" size={18} />
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            onChangeText={setSearchQuery}
+            placeholder="Search by order ID or customer..."
+            placeholderTextColor={colors.textSecondary}
+            style={styles.searchInput}
+            value={searchQuery}
+          />
 
-        {/* Rejection reason if any */}
-        {item.status === "rejected" && item.rejectionReason && (
-          <View style={styles.rejectionContainer}>
-            <Text style={styles.rejectionLabel}>Reason for rejection:</Text>
-            <Text style={styles.rejectionText}>{item.rejectionReason}</Text>
-          </View>
-        )}
-
-        <View style={styles.divider} />
-
-        {/* Products preview */}
-        <View style={styles.productsPreview}>
-          {item.items.slice(0, 2).map((product, idx) => (
-            <View key={idx} style={styles.productItem}>
-              <Text style={styles.productName}>• {product.productName}</Text>
-              <Text style={styles.productDetail}>
-                {product.quantity} {product.unit} × ₹{product.rate} = ₹
-                {product.amount}
-              </Text>
-
-              {product.dispatched && (
-                <View
-                  style={[styles.dispatchedTag, { backgroundColor: "#00bcd4" }]}
-                >
-                  <Ionicons name="checkmark" size={12} color="#fff" />
-                  <Text style={styles.dispatchedText}>Dispatched</Text>
-                </View>
-              )}
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => setSearchQuery("")}>
+              <Ionicons
+                color={colors.textSecondary}
+                name="close-circle-outline"
+                size={20}
+              />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.searchPlaceholderPill}>
+              <Text style={styles.searchPlaceholderText}>{activeFilterLabel}</Text>
             </View>
-          ))}
-
-          {item.items.length > 2 && (
-            <Text style={styles.moreItemsText}>
-              +{item.items.length - 2} more items
-            </Text>
           )}
         </View>
 
-        <View style={styles.orderFooter}>
-          <Text style={styles.totalText}>
-            Total: ₹{formatIndianNumber(item.totalAmount)}
-          </Text>
+        <ScrollView
+          contentContainerStyle={styles.filtersScrollContent}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {FILTER_OPTIONS.map((option) => {
+            const isActive = option.id === filterStatus;
 
-          <TouchableOpacity
-            style={styles.viewDetailsButton}
-            onPress={() => viewOrderDetails(item)}
-          >
-            <Text style={styles.viewDetailsText}>View Details</Text>
-            <Ionicons name="chevron-forward" size={16} color={themeColor} />
-          </TouchableOpacity>
-        </View>
+            return (
+              <TouchableOpacity
+                key={option.id}
+                onPress={() => setFilterStatus(option.id)}
+                style={[styles.filterChip, isActive && styles.activeFilterChip]}
+              >
+                <Ionicons
+                  color={isActive ? "#ffffff" : colors.textSecondary}
+                  name={option.icon}
+                  size={16}
+                />
+                <Text
+                  style={[
+                    styles.filterChipLabel,
+                    isActive && styles.activeFilterChipLabel,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+                <View
+                  style={[
+                    styles.filterChipCount,
+                    isActive && styles.activeFilterChipCount,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipCountText,
+                      isActive && styles.activeFilterChipCountText,
+                    ]}
+                  >
+                    {filterCounts[option.id]}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
     );
   };
 
-  const viewOrderDetails = (order) => {
-    // Store order details to view in the details screen
-    AsyncStorage.setItem("selectedOrder", JSON.stringify(order))
-      .then(() => {
-        router.push("/(app)/order-details");
-      })
-      .catch((err) => {
-        Alert.alert("Error", "Failed to view order details");
-      });
+  const openOrderDetails = async (order: GroupedOrder) => {
+    try {
+      await AsyncStorage.setItem("selectedOrder", JSON.stringify(order));
+      router.push("/(app)/order-details");
+    } catch (error) {
+      console.error("Failed to open order details", error);
+      Alert.alert("Error", "Could not open order details. Please try again.");
+    }
   };
 
-  const renderSectionHeader = ({ section: { date } }) => (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionHeaderText}>{date}</Text>
+  const renderOrderCard = ({ item }: { item: GroupedOrder }) => {
+    const status = STATUS_PRESENTATION[item.status];
+    const approvedCount = item.items.filter((line) => line.approved === "Y").length;
+    const dispatchedCount = item.items.filter((line) => line.dispatched).length;
+
+    let progressLabel = "Awaiting manager approval";
+    if (item.status === "approved") {
+      progressLabel =
+        dispatchedCount > 0
+          ? `${dispatchedCount}/${item.items.length} line items dispatched`
+          : "Approved and queued for dispatch";
+    } else if (item.status === "dispatched") {
+      progressLabel = `${item.items.length}/${item.items.length} line items dispatched`;
+    } else if (item.status === "rejected") {
+      progressLabel = item.managerComments || "Rejected during manager review";
+    } else if (approvedCount > 0) {
+      progressLabel = `${approvedCount}/${item.items.length} line items approved`;
+    }
+
+    return (
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => openOrderDetails(item)}
+        style={[styles.orderCard, { width: shellWidth, alignSelf: "center" }]}
+      >
+        <View style={styles.orderCardTop}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.orderId}>{item.orderId}</Text>
+            <Text style={styles.customerName}>{item.customerName}</Text>
+          </View>
+
+          <View
+            style={[
+              styles.statusPill,
+              {
+                backgroundColor: hexToRgba(status.color, isDark ? 0.16 : 0.1),
+                borderColor: hexToRgba(status.color, isDark ? 0.24 : 0.15),
+              },
+            ]}
+          >
+            <Ionicons color={status.color} name={status.icon} size={14} />
+            <Text style={[styles.statusPillText, { color: status.color }]}>
+              {status.label}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.orderMetaRow}>
+          <View style={styles.metaPill}>
+            <Ionicons color={colors.textSecondary} name="calendar-outline" size={14} />
+            <Text style={styles.metaPillText}>{formatDateLabel(item.date)}</Text>
+          </View>
+          <View style={styles.metaPill}>
+            <Ionicons color={colors.textSecondary} name="globe-outline" size={14} />
+            <Text style={styles.metaPillText}>{getSourceLabel(item.source)}</Text>
+          </View>
+          <View style={styles.metaPill}>
+            <Ionicons color={colors.textSecondary} name="person-outline" size={14} />
+            <Text style={styles.metaPillText}>{item.user || "User"}</Text>
+          </View>
+        </View>
+
+        {!!buildPreviewText(item) && (
+          <Text numberOfLines={2} style={styles.previewText}>
+            {buildPreviewText(item)}
+          </Text>
+        )}
+
+        <View style={styles.metricPanel}>
+          <View style={styles.metricCell}>
+            <Text style={styles.metricLabel}>Line items</Text>
+            <Text style={styles.metricValue}>{item.items.length}</Text>
+          </View>
+          <View style={styles.metricCell}>
+            <Text style={styles.metricLabel}>Dispatch</Text>
+            <Text style={styles.metricValue}>
+              {dispatchedCount}/{item.items.length}
+            </Text>
+          </View>
+          <View style={styles.metricCell}>
+            <Text style={styles.metricLabel}>Order value</Text>
+            <Text numberOfLines={1} style={styles.metricValue}>
+              Rs {formatIndianCurrency(item.totalAmount)}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.footerRow}>
+          <Text numberOfLines={2} style={styles.footerHint}>
+            {progressLabel}
+          </Text>
+
+          <View style={styles.footerAction}>
+            <Text style={styles.footerActionText}>View details</Text>
+            <Ionicons color={colors.text} name="chevron-forward" size={16} />
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderSectionHeader = ({ section }: { section: OrderSection }) => (
+    <View style={[styles.sectionHeader, { width: shellWidth }]}>
+      <View style={[styles.sectionHeaderCard, { width: shellWidth }]}>
+        <Text style={styles.sectionDate}>{section.title}</Text>
+        <Text style={styles.sectionCount}>{section.count} orders</Text>
+      </View>
     </View>
   );
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: isDark ? colors.background : "#f5f5f5",
-    },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingTop: 50,
-      paddingBottom: 15,
-      paddingHorizontal: 20,
-      backgroundColor: isDark ? colors.surfaceVariant : themeColor,
-    },
-    headerTitle: {
-      color: isDark ? colors.text : "#FFF",
-      fontSize: 20,
-      fontWeight: "bold",
-    },
-    iconStyle: {
-      color: isDark ? colors.text : "#FFF",
-    },
-    searchContainer: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: isDark ? colors.surfaceVariant : "white",
-      marginHorizontal: 15,
-      marginVertical: 10,
-      paddingHorizontal: 15,
-      borderRadius: 25,
-      elevation: 2,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isDark ? 0.3 : 0.1,
-      shadowRadius: 2,
-    },
-    searchInput: {
-      flex: 1,
-      paddingVertical: 10,
-      paddingRight: 10,
-      fontSize: 15,
-      color: isDark ? colors.text : "#000",
-    },
-    // filterContainer: {
-    //   flexDirection: "row",
-    //   paddingHorizontal: 15,
-    //   marginBottom: 10,
-    // },
-    // filterButton: {
-    //   paddingVertical: scale(10),
-    //   paddingHorizontal: scale(16),
-    //   borderRadius: 20,
-    //   borderWidth: 1.5,
-    //   marginRight: scale(10),
-    //   minWidth: 80,
-    //   backgroundColor: isDark ? "rgba(50, 50, 50, 0.8)" : "#FFFFFF", // Add background color
-    //   alignItems: "center", // Center the text horizontally
-    //   justifyContent: "center", // Center the text vertically
-    // },
-    // filterButtonText: {
-    //   fontSize: moderateScale(13),
-    //   fontWeight: "600",
-    //   textAlign: "center", // Ensure text is centered
-    // },
-    // activeFilter: {
-    //   backgroundColor: themeColor,
-    //   borderColor: themeColor,
-    // },
-    // activeFilterText: {
-    //   color: "#fff",
-    // },
-    infoText: {
-      color: isDark ? colors.textSecondary : "#666",
-      fontSize: 13,
-      textAlign: "center",
-      paddingHorizontal: 15,
-      marginTop: 5,
-    },
-    orderCard: {
-      backgroundColor: isDark ? colors.surfaceVariant : "#fff",
-      borderRadius: 12,
-      padding: 15,
-      marginHorizontal: 15,
-      marginBottom: 10,
-      elevation: 2,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isDark ? 0.3 : 0.1,
-      shadowRadius: 2,
-    },
-    orderHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 6,
-    },
-    orderIdText: {
-      fontSize: 16,
-      fontWeight: "bold",
-      color: isDark ? colors.text : "#333",
-    },
-    statusBadge: {
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 12,
-    },
-    statusText: {
-      color: "#fff",
-      fontSize: 12,
-      fontWeight: "500",
-    },
-    customerText: {
-      fontSize: 15,
-      fontWeight: "500",
-      color: isDark ? colors.text : "#333",
-      marginBottom: 4,
-    },
-    detailText: {
-      fontSize: 14,
-      color: isDark ? colors.textSecondary : "#666",
-      marginBottom: 2,
-    },
-    divider: {
-      height: 1,
-      backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-      marginVertical: 10,
-    },
-    productsPreview: {
-      marginBottom: 10,
-    },
-    productItem: {
-      marginBottom: 6,
-    },
-    productName: {
-      fontSize: 14,
-      fontWeight: "500",
-      color: isDark ? colors.text : "#333",
-    },
-    productDetail: {
-      fontSize: 13,
-      color: isDark ? colors.textSecondary : "#666",
-      marginLeft: 15,
-    },
-    moreItemsText: {
-      fontSize: 13,
-      color: themeColor,
-      fontStyle: "italic",
-      marginTop: 3,
-    },
-    orderFooter: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginTop: 5,
-    },
-    totalText: {
-      fontSize: 15,
-      fontWeight: "bold",
-      color: isDark ? colors.text : "#333",
-    },
-    viewDetailsButton: {
-      flexDirection: "row",
-      alignItems: "center",
-    },
-    viewDetailsText: {
-      fontSize: 14,
-      color: themeColor,
-      fontWeight: "500",
-      marginRight: 2,
-    },
-    sectionHeader: {
-      backgroundColor: isDark ? "rgba(0,0,0,0.3)" : "rgba(0,0,0,0.05)",
-      padding: 10,
-      paddingHorizontal: 15,
-    },
-    sectionHeaderText: {
-      fontSize: 14,
-      fontWeight: "600",
-      color: isDark ? colors.textSecondary : "#666",
-    },
-    emptyContainer: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-      padding: 20,
-      marginTop: 50,
-    },
-    emptyText: {
-      fontSize: 16,
-      color: isDark ? colors.textSecondary : "#666",
-      marginTop: 10,
-      textAlign: "center",
-    },
-    rejectionContainer: {
-      backgroundColor: isDark
-        ? "rgba(231, 76, 60, 0.2)"
-        : "rgba(231, 76, 60, 0.1)",
-      padding: 10,
-      borderRadius: 8,
-      marginTop: 8,
-    },
-    rejectionLabel: {
-      fontSize: 13,
-      fontWeight: "500",
-      color: isDark ? "#e74c3c" : "#c0392b",
-      marginBottom: 3,
-    },
-    rejectionText: {
-      fontSize: 13,
-      color: isDark ? colors.text : "#333",
-      fontStyle: "italic",
-    },
-    dispatchedTag: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: "#00bcd4",
-      paddingHorizontal: 6,
-      paddingVertical: 2,
-      borderRadius: 10,
-      alignSelf: "flex-start",
-      marginTop: 3,
-    },
-    dispatchedText: {
-      fontSize: 11,
-      color: "#fff",
-      marginLeft: 3,
-    },
-    ordersCountText: {
-      fontSize: 14,
-      color: isDark ? colors.textSecondary : "#666",
-      textAlign: "center",
-      marginVertical: 10,
-    },
-    // In your styles:
-    quantityInputRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      width: isTablet ? "60%" : "100%",
-      alignSelf: isTablet ? "center" : undefined,
-    },
+  const renderEmptyState = () => {
+    const emptyTitle =
+      searchQuery || filterStatus !== "all"
+        ? "No orders match this view."
+        : "No submitted orders yet.";
 
-    // Make inputs larger on tablet
-    quantityInput: {
-      flex: 1,
-      height: scale(50),
-      backgroundColor: isDark ? "rgba(50, 50, 50, 0.8)" : "#f5f6fa",
-      borderRadius: scale(8),
-      marginHorizontal: scale(10),
-      paddingHorizontal: scale(15),
-      fontSize: moderateScale(16),
-      textAlign: "center",
-      color: isDark ? "#ffffff" : "#000",
-      borderWidth: 1,
-      borderColor: isDark ? "rgba(255,255,255,0.2)" : "#e0e0e0",
-    },
-    // Add these new styles to your StyleSheet
-    filterTabsContainer: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingBottom: 10,
-      marginBottom: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-    },
-    filterScrollContainer: {
-      paddingHorizontal: 15,
-      paddingVertical: 5,
-      flexGrow: 1,
-    },
-    filterPill: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      borderRadius: 20,
-      marginRight: 12,
-      backgroundColor: isDark ? "rgba(40,40,40,0.5)" : "#FFFFFF",
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isDark ? 0.4 : 0.1,
-      shadowRadius: 2,
-      elevation: 3,
-    },
-    filterIcon: {
-      marginRight: 6,
-    },
-    filterLabel: {
-      fontSize: moderateScale(13),
-      fontWeight: "600",
-      color: isDark ? "rgba(255,255,255,0.85)" : "#555",
-    },
-    activeFilterLabel: {
-      color: "#FFFFFF",
-      fontWeight: "700",
-    },
-    activeFilterIndicator: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: "#FFF",
-      marginLeft: 6,
-    },
-    orderCountBadge: {
-      width: 30,
-      height: 30,
-      borderRadius: 15,
-      backgroundColor: isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.05)",
-      justifyContent: "center",
-      alignItems: "center",
-      marginHorizontal: 15,
-    },
-    orderCountText: {
-      fontSize: 13,
-      fontWeight: "bold",
-      color: isDark ? colors.textSecondary : "#666",
-    },
-    loadMoreButton: {
-      backgroundColor: isDark
-        ? "rgba(138, 80, 177, 0.1)"
-        : "rgba(138, 80, 177, 0.05)",
-      paddingVertical: 15,
-      borderRadius: 10,
-      alignItems: "center",
-      margin: 15,
-    },
-    loadMoreText: {
-      color: themeColor,
-      fontWeight: "500",
-    },
-  });
+    const emptyBody =
+      searchQuery || filterStatus !== "all"
+        ? "Try a broader search or switch the filter to review the full order history."
+        : "Orders you submit from OMA will appear here with approval and dispatch progress.";
+
+    return (
+      <View style={[styles.emptyShell, { width: shellWidth }]}>
+        <Ionicons
+          color={colors.textSecondary}
+          name="receipt-outline"
+          size={36}
+        />
+        <Text style={styles.emptyTitle}>{emptyTitle}</Text>
+        <Text style={styles.emptyBody}>{emptyBody}</Text>
+      </View>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.topGlow} />
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+        <LoadingIndicator message="Loading order history..." showTips={true} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle={isDark ? "light-content" : "light-content"} />
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} style={styles.iconStyle} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Orders</Text>
-        <TouchableOpacity onPress={toggleTheme}>
-          <Ionicons
-            name={isDark ? "sunny" : "moon"}
-            size={24}
-            style={styles.iconStyle}
+      <View style={styles.topGlow} />
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+
+      <SectionList
+        ListEmptyComponent={renderEmptyState}
+        ListHeaderComponent={renderListHeader}
+        contentContainerStyle={styles.listContent}
+        keyExtractor={(item) => item.orderId}
+        refreshControl={
+          <RefreshControl
+            colors={[colors.primary]}
+            onRefresh={handleRefresh}
+            refreshing={refreshing}
+            tintColor={colors.primary}
           />
-        </TouchableOpacity>
-      </View>
-      {/* Search bar */}
-      <View style={styles.searchContainer}>
-        <Ionicons
-          name="search"
-          size={20}
-          color={isDark ? colors.textSecondary : "#666"}
-        />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search orders..."
-          placeholderTextColor={
-            isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"
-          }
-          value={searchQuery}
-          onChangeText={(text) => {
-            // Direct UI update
-            setSearchQuery(text);
-            // Debounced filtering
-            debouncedSearch(text);
-          }}
-        />
-        {searchQuery ? (
-          <TouchableOpacity onPress={() => setSearchQuery("")}>
-            <Ionicons
-              name="close-circle"
-              size={20}
-              color={isDark ? colors.textSecondary : "#666"}
-            />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-      {/* Filter buttons */}
-      {/* Enhanced Filter Buttons */}
-      <View style={styles.filterTabsContainer}>
-        <View style={{ flex: 1, flexDirection: "row", alignItems: "center" }}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterScrollContainer}
-          >
-            {[
-              { id: "all", label: "All", icon: "apps", color: themeColor },
-              {
-                id: "pending",
-                label: "Pending",
-                icon: "hourglass-outline",
-                color: "#f39c12",
-              },
-              {
-                id: "approved",
-                label: "Approved",
-                icon: "checkmark-circle-outline",
-                color: "#27ae60",
-              },
-              {
-                id: "rejected",
-                label: "Rejected",
-                icon: "close-circle-outline",
-                color: "#e74c3c",
-              },
-              {
-                id: "dispatched",
-                label: "Dispatched",
-                icon: "paper-plane-outline",
-                color: "#00bcd4",
-              },
-            ].map((filter) => (
-              <TouchableOpacity
-                key={filter.id}
-                style={[
-                  styles.filterPill,
-                  filterStatus === filter.id && {
-                    backgroundColor: filter.color,
-                  },
-                  filterStatus !== filter.id &&
-                    isDark && { backgroundColor: "rgba(40, 40, 40, 0.8)" },
-                ]}
-                onPress={() => setFilterStatus(filter.id)}
-              >
-                <Ionicons
-                  name={filter.icon}
-                  size={16}
-                  color={
-                    filterStatus === filter.id
-                      ? "#fff"
-                      : isDark
-                      ? "#fff"
-                      : filter.color
-                  }
-                  style={styles.filterIcon}
-                />
-                <Text
-                  style={[
-                    styles.filterLabel,
-                    filterStatus === filter.id && styles.activeFilterLabel,
-                    filterStatus !== filter.id && isDark && { color: "#fff" },
-                  ]}
-                >
-                  {filter.label}
-                </Text>
-                {filterStatus === filter.id && (
-                  <View style={styles.activeFilterIndicator} />
-                )}
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          {/* Order count badge always visible at end of filter bar */}
-          {!loading && !refreshing && (
-            <View style={styles.orderCountBadge}>
-              <Text style={styles.orderCountText}>
-                {getGroupedOrdersByDate.reduce(
-                  (sum, section) => sum + section.data.length,
-                  0
-                )}
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
-      {/* Order list */}
-      {loading ? (
-        <LoadingIndicator message="Loading your orders..." showTips={true} />
-      ) : (
-        <SectionList
-          sections={getGroupedOrdersByDate.slice(0, displayLimit)}
-          keyExtractor={(item) => item.orderId}
-          renderItem={({ item }) => (
-            <OrderItem
-              item={item}
-              isDark={isDark}
-              colors={colors}
-              themeColor={themeColor}
-              formatIndianNumber={formatIndianNumber}
-              viewOrderDetails={viewOrderDetails}
-              styles={styles} // Pass the styles object
-            />
-          )}
-          renderSectionHeader={({ section: { date } }) => (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeaderText}>{date}</Text>
-            </View>
-          )}
-          contentContainerStyle={{ paddingBottom: 20 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              colors={[themeColor]}
-            />
-          }
-          ListFooterComponent={() =>
-            getGroupedOrdersByDate.length > displayLimit ? (
-              <TouchableOpacity
-                style={styles.loadMoreButton}
-                onPress={() => setDisplayLimit((prev) => prev + 20)}
-              >
-                <Text style={styles.loadMoreText}>
-                  Load More ({getGroupedOrdersByDate.length - displayLimit}{" "}
-                  remaining)
-                </Text>
-              </TouchableOpacity>
-            ) : null
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons
-                name="document-text-outline"
-                size={60}
-                color={isDark ? "rgba(255,255,255,0.2)" : "#ccc"}
-              />
-              <Text style={styles.emptyText}>
-                No orders found
-                {filterStatus !== "all" ? ` with status "${filterStatus}"` : ""}
-                {searchQuery ? ` matching "${searchQuery}"` : ""}
-              </Text>
-            </View>
-          }
-          // Add this for optimal performance
-          getItemLayout={(data, index) => ({
-            length: 200, // approximate height of each order card
-            offset: 200 * index,
-            index,
-          })}
-          initialNumToRender={10}
-          maxToRenderPerBatch={10}
-          windowSize={10}
-        />
-      )}
+        }
+        renderItem={renderOrderCard}
+        renderSectionHeader={renderSectionHeader}
+        sections={sections}
+        showsVerticalScrollIndicator={false}
+        stickySectionHeadersEnabled={false}
+      />
     </View>
   );
-};
-
-export default MyOrdersScreen;
+}
