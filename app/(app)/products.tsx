@@ -156,8 +156,8 @@ const ProductsScreen = () => {
           borderRadius: 28,
           borderWidth: 1,
           borderColor: colors.border,
-          padding: 20,
-          marginBottom: 18,
+          padding: 16,
+          marginBottom: 14,
           overflow: "hidden",
           shadowColor: colors.shadow,
           shadowOffset: { width: 0, height: 16 },
@@ -180,7 +180,7 @@ const ProductsScreen = () => {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 10,
+          marginBottom: 8,
         },
         introLabel: {
           color: colors.textSecondary,
@@ -203,18 +203,18 @@ const ProductsScreen = () => {
         introHeading: {
           color: colors.text,
           fontFamily: omaTypography.extrabold,
-          fontSize: 22,
-          lineHeight: 28,
+          fontSize: 18,
+          lineHeight: 23,
           letterSpacing: -0.7,
-          marginBottom: 8,
-          paddingRight: 32,
+          marginBottom: 6,
+          paddingRight: 20,
         },
         introBody: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 13,
-          lineHeight: 19,
-          marginBottom: 18,
+          fontSize: 12,
+          lineHeight: 17,
+          marginBottom: 12,
         },
         summaryGrid: {
           flexDirection: "row",
@@ -223,23 +223,23 @@ const ProductsScreen = () => {
           gap: 10,
         },
         summaryCard: {
-          width: isWideLayout ? "31%" : "48.4%",
+          width: "31.5%",
           backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
           borderRadius: 20,
-          padding: 14,
+          padding: 12,
         },
         summaryValue: {
           color: colors.text,
           fontFamily: omaTypography.extrabold,
-          fontSize: 22,
+          fontSize: 19,
           marginBottom: 4,
           letterSpacing: -0.6,
         },
         summaryLabel: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 11,
-          lineHeight: 15,
+          fontSize: 10,
+          lineHeight: 13,
         },
         sectionLabel: {
           color: colors.textSecondary,
@@ -1007,12 +1007,11 @@ const ProductsScreen = () => {
         </View>
 
         <Text style={styles.introHeading}>
-          Browse product master data with a stronger catalog rhythm.
+          Browse the product master faster.
         </Text>
         <Text style={styles.introBody}>
-          The prototype language is carried into mobile cards and detail views,
-          while search, category filtering, and sort behavior still come straight
-          from the live Expo app.
+          Search, filter, and inspect live SKUs without scrolling past a giant
+          hero block first.
         </Text>
 
         <View style={styles.summaryGrid}>

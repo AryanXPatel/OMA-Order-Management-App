@@ -1030,14 +1030,14 @@ export default function AnalyticsScreen() {
           paddingHorizontal: 16,
         },
         headerShell: {
-          marginBottom: 18,
+          marginBottom: 12,
         },
         headerRow: {
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "flex-start",
           gap: 16,
-          marginBottom: 14,
+          marginBottom: 10,
         },
         headerMeta: {
           flex: 1,
@@ -1069,14 +1069,14 @@ export default function AnalyticsScreen() {
         headerTitle: {
           color: colors.text,
           fontFamily: omaTypography.extrabold,
-          fontSize: 26,
+          fontSize: 22,
           letterSpacing: -1,
         },
         headerSubtitle: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 13,
-          lineHeight: 19,
+          fontSize: 12,
+          lineHeight: 17,
           paddingRight: 12,
         },
         iconButton: {
@@ -1094,34 +1094,17 @@ export default function AnalyticsScreen() {
           shadowRadius: 24,
           elevation: 8,
         },
-        badgeRow: {
+        headerMetaRow: {
           flexDirection: "row",
           flexWrap: "wrap",
-          gap: 10,
+          columnGap: 10,
+          rowGap: 4,
+          marginTop: 8,
         },
-        badge: {
-          paddingHorizontal: 13,
-          paddingVertical: 10,
-          borderRadius: 999,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.border,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 1,
-          shadowRadius: 18,
-          elevation: 6,
-        },
-        badgeLabel: {
+        headerMetaText: {
           color: colors.textSecondary,
-          fontFamily: omaTypography.medium,
-          fontSize: 11,
-          marginBottom: 2,
-        },
-        badgeValue: {
-          color: colors.text,
           fontFamily: omaTypography.semibold,
-          fontSize: 12,
+          fontSize: 11,
         },
         controlCard: {
           backgroundColor: colors.card,
@@ -1129,7 +1112,7 @@ export default function AnalyticsScreen() {
           borderWidth: 1,
           borderColor: colors.border,
           padding: 16,
-          marginBottom: 18,
+          marginBottom: 14,
           shadowColor: colors.shadow,
           shadowOffset: { width: 0, height: 14 },
           shadowOpacity: 1,
@@ -1142,7 +1125,7 @@ export default function AnalyticsScreen() {
           fontSize: 11,
           letterSpacing: 0.7,
           textTransform: "uppercase",
-          marginBottom: 10,
+          marginBottom: 8,
         },
         segmentedRow: {
           flexDirection: "row",
@@ -2112,8 +2095,7 @@ export default function AnalyticsScreen() {
                   <Text style={styles.headerTitle}>Exec Board</Text>
                 </View>
                 <Text style={styles.headerSubtitle}>
-                  Prototype hierarchy, live Expo data. Segment by financials, team,
-                  and operations without changing the order-table contract.
+                  Live Expo data, split by financials, team, and operations.
                 </Text>
               </View>
 
@@ -2130,23 +2112,16 @@ export default function AnalyticsScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.badgeRow}>
-              <View style={styles.badge}>
-                <Text style={styles.badgeLabel}>Period</Text>
-                <Text style={styles.badgeValue}>{timeframeLabelMap[timeframe]}</Text>
-              </View>
-
-              <View style={styles.badge}>
-                <Text style={styles.badgeLabel}>Last updated</Text>
-                <Text style={styles.badgeValue}>
-                  {formatLastUpdated(payload?.lastUpdatedAt || null)}
-                </Text>
-              </View>
-
-              <View style={styles.badge}>
-                <Text style={styles.badgeLabel}>Tracked orders</Text>
-                <Text style={styles.badgeValue}>{summary.orderCount}</Text>
-              </View>
+            <View style={styles.headerMetaRow}>
+              <Text style={styles.headerMetaText}>
+                {timeframeLabelMap[timeframe]}
+              </Text>
+              <Text style={styles.headerMetaText}>
+                Updated {formatLastUpdated(payload?.lastUpdatedAt || null)}
+              </Text>
+              <Text style={styles.headerMetaText}>
+                {summary.orderCount} tracked orders
+              </Text>
             </View>
           </View>
 
