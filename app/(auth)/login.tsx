@@ -49,6 +49,7 @@ const LoginScreen = () => {
   const fadeAnim = React.useRef(new Animated.Value(0)).current;
   const slideAnim = React.useRef(new Animated.Value(50)).current;
   const formOpacity = React.useRef(new Animated.Value(0)).current;
+  const shouldUseNativeDriver = Platform.OS !== "web";
 
   // Check network status
   useEffect(() => {
@@ -95,12 +96,12 @@ const LoginScreen = () => {
       Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 900,
-        useNativeDriver: true,
+        useNativeDriver: shouldUseNativeDriver,
       }),
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 900,
-        useNativeDriver: true,
+        useNativeDriver: shouldUseNativeDriver,
       }),
     ]).start();
 
@@ -109,7 +110,7 @@ const LoginScreen = () => {
       Animated.timing(formOpacity, {
         toValue: 1,
         duration: 700,
-        useNativeDriver: true,
+        useNativeDriver: shouldUseNativeDriver,
       }).start();
       setShowForm(true);
     }, 2000);

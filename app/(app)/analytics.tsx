@@ -1599,6 +1599,7 @@ export default function AnalyticsScreen() {
     secondaryStatValue,
     path,
     area,
+    marker,
     accentValue,
   }: {
     mode: ViewMode;

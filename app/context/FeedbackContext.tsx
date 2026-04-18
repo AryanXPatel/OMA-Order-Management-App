@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext } from "react";
 import FeedbackModal, { FeedbackType } from "../components/FeedbackModal";
 import * as Haptics from "expo-haptics";
+import { Platform } from "react-native";
 
 interface FeedbackContextType {
   showFeedback: (options: {
@@ -46,11 +47,14 @@ export const FeedbackProvider: React.FC<{ children: React.ReactNode }> = ({
     autoDismiss = true,
     dismissTime = 3000,
   }) => {
-    if (type === "success") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else if (type === "error") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    if (Platform.OS !== "web") {
+      if (type === "success") {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else if (type === "error") {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
     }
+
     setFeedbackProps({
       type,
       title,
