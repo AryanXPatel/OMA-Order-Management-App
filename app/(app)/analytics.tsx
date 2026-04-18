@@ -19,9 +19,7 @@ import Svg, {
   Path,
   Stop,
 } from "react-native-svg";
-import OmaFloatingNav, {
-  FLOATING_NAV_SPACE,
-} from "../components/oma/OmaFloatingNav";
+import { FLOATING_NAV_SPACE } from "../components/oma/OmaFloatingNav";
 import { LoadingIndicator } from "../components/LoadingIndicator";
 import { useFeedback } from "../context/FeedbackContext";
 import { ThemeContext } from "../context/ThemeContext";
@@ -2070,7 +2068,6 @@ export default function AnalyticsScreen() {
         <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
         <View style={styles.topGlow} />
         <LoadingIndicator message="Loading analytics..." showTips={true} />
-        <OmaFloatingNav />
       </View>
     );
   }
@@ -2255,8 +2252,6 @@ export default function AnalyticsScreen() {
           )}
         </View>
       </ScrollView>
-
-      <OmaFloatingNav />
     </View>
   );
 }

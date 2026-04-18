@@ -315,35 +315,6 @@ const NewSalesOrderScreen = () => {
     }
   };
 
-  useEffect(() => {
-    let mounted = true;
-
-    const initialize = async () => {
-      try {
-        if (mounted) {
-          setIsLoading(true);
-          await Promise.all([fetchProducts(), generateOrderId()]);
-        }
-      } catch (error) {
-        console.error("Initialization error:", error);
-        Alert.alert(
-          "Error",
-          "Failed to initialize the order screen. Please try again."
-        );
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    initialize();
-
-    return () => {
-      mounted = false;
-    };
-  }, [generateOrderId]);
-
   // Network detection for reconnection
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
@@ -399,6 +370,35 @@ const NewSalesOrderScreen = () => {
       setIsOrderIdLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const initialize = async () => {
+      try {
+        if (mounted) {
+          setIsLoading(true);
+          await Promise.all([fetchProducts(), generateOrderId()]);
+        }
+      } catch (error) {
+        console.error("Initialization error:", error);
+        Alert.alert(
+          "Error",
+          "Failed to initialize the order screen. Please try again."
+        );
+      } finally {
+        if (mounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    initialize();
+
+    return () => {
+      mounted = false;
+    };
+  }, [generateOrderId]);
 
   // Add this function above your component
   const getProductCategoryColor = (groupCode) => {
