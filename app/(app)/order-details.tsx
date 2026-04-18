@@ -191,6 +191,9 @@ export default function OrderDetailsScreen() {
   const isDark = theme === "dark";
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const activeSurfaceColor = colors.navActive;
+  const activeContentColor = isDark ? colors.background : colors.card;
+  const activeAccentMuted = hexToRgba(activeContentColor, isDark ? 0.12 : 0.16);
 
   const [order, setOrder] = useState<SelectedOrder | null>(null);
   const [loading, setLoading] = useState(true);
@@ -657,7 +660,7 @@ export default function OrderDetailsScreen() {
           gap: 6,
         },
         activeTabButton: {
-          backgroundColor: "#111111",
+          backgroundColor: activeSurfaceColor,
         },
         tabText: {
           color: colors.textSecondary,
@@ -665,7 +668,7 @@ export default function OrderDetailsScreen() {
           fontFamily: omaTypography.bold,
         },
         activeTabText: {
-          color: "#ffffff",
+          color: activeContentColor,
         },
         tabCountBubble: {
           minWidth: 20,
@@ -676,7 +679,7 @@ export default function OrderDetailsScreen() {
           backgroundColor: colors.cardMuted,
         },
         activeTabCountBubble: {
-          backgroundColor: "rgba(255,255,255,0.16)",
+          backgroundColor: activeAccentMuted,
         },
         tabCountText: {
           color: colors.text,
@@ -684,7 +687,7 @@ export default function OrderDetailsScreen() {
           fontFamily: omaTypography.extrabold,
         },
         activeTabCountText: {
-          color: "#ffffff",
+          color: activeContentColor,
         },
         contentShell: {
           alignSelf: "center",
@@ -999,7 +1002,15 @@ export default function OrderDetailsScreen() {
           textAlign: "center",
         },
       }),
-    [colors, insets.top, isDark, status]
+    [
+      activeAccentMuted,
+      activeContentColor,
+      activeSurfaceColor,
+      colors,
+      insets.top,
+      isDark,
+      status,
+    ]
   );
 
   const renderDetailsTab = () => {

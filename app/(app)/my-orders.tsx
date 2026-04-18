@@ -270,6 +270,9 @@ export default function MyOrdersScreen() {
   const isDark = theme === "dark";
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const activeSurfaceColor = colors.navActive;
+  const activeContentColor = isDark ? colors.background : colors.card;
+  const activeAccentMuted = hexToRgba(activeContentColor, isDark ? 0.12 : 0.16);
 
   const [orders, setOrders] = useState<GroupedOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -599,20 +602,21 @@ export default function MyOrdersScreen() {
           paddingRight: 8,
         },
         filterChip: {
-          minHeight: 40,
+          minHeight: 44,
           borderRadius: 20,
           borderWidth: 1,
           borderColor: colors.border,
           backgroundColor: colors.card,
           paddingHorizontal: 14,
+          paddingVertical: 10,
           marginRight: 10,
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
         },
         activeFilterChip: {
-          backgroundColor: "#111111",
-          borderColor: "#111111",
+          backgroundColor: activeSurfaceColor,
+          borderColor: activeSurfaceColor,
         },
         filterChipLabel: {
           color: colors.textSecondary,
@@ -620,18 +624,18 @@ export default function MyOrdersScreen() {
           fontFamily: omaTypography.bold,
         },
         activeFilterChipLabel: {
-          color: "#ffffff",
+          color: activeContentColor,
         },
         filterChipCount: {
-          minWidth: 22,
-          height: 22,
-          borderRadius: 11,
+          minWidth: 24,
+          height: 24,
+          borderRadius: 12,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: colors.cardMuted,
         },
         activeFilterChipCount: {
-          backgroundColor: "rgba(255,255,255,0.16)",
+          backgroundColor: activeAccentMuted,
         },
         filterChipCountText: {
           color: colors.text,
@@ -639,7 +643,16 @@ export default function MyOrdersScreen() {
           fontFamily: omaTypography.extrabold,
         },
         activeFilterChipCountText: {
-          color: "#ffffff",
+          color: activeContentColor,
+        },
+        clearSearchButton: {
+          width: 44,
+          height: 44,
+          borderRadius: 16,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.cardMuted,
+          marginRight: -6,
         },
         sectionHeader: {
           alignSelf: "center",
@@ -832,7 +845,15 @@ export default function MyOrdersScreen() {
           textAlign: "center",
         },
       }),
-    [colors, insets.bottom, insets.top, isDark]
+    [
+      activeAccentMuted,
+      activeContentColor,
+      activeSurfaceColor,
+      colors,
+      insets.bottom,
+      insets.top,
+      isDark,
+    ]
   );
 
   const renderListHeader = () => {
@@ -871,7 +892,10 @@ export default function MyOrdersScreen() {
           />
 
           {searchQuery ? (
-            <TouchableOpacity onPress={() => setSearchQuery("")}>
+            <TouchableOpacity
+              onPress={() => setSearchQuery("")}
+              style={styles.clearSearchButton}
+            >
               <Ionicons
                 color={colors.textSecondary}
                 name="close-circle-outline"

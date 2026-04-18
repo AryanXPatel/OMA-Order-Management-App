@@ -1,171 +1,1024 @@
-import React, { useState, useEffect, useContext } from "react";
-import { useFeedback } from "../context/FeedbackContext";
-import { scale, moderateScale, isTablet } from "../utils/responsive";
-import { useMemo, useCallback } from "react";
-
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  Alert,
-  StatusBar,
-  TextInput,
-  Modal,
-  Linking,
-  RefreshControl,
   ActivityIndicator,
+  FlatList,
+  Linking,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
 } from "react-native";
 import { router } from "expo-router";
-import { ThemeContext } from "../context/ThemeContext";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { fetchWithRetry, apiCache } from "../utils/apiManager";
+import { ThemeContext } from "../context/ThemeContext";
+import { useFeedback } from "../context/FeedbackContext";
+import { apiCache, BACKEND_URL, fetchWithRetry } from "../utils/apiManager";
 import LoadingIndicator from "../components/LoadingIndicator";
+import { omaTypography } from "../utils/typography";
 
-const BACKEND_URL = "https://oma-demo-server.onrender.com";
+type ContactInfo = {
+  number: string;
+  label: string;
+};
 
-//helper function
-// Add this helper function near your other utility functions
-const parseContactInfo = (contactString) => {
+type CustomerRecord = {
+  name: string;
+  code: string;
+  contacts: ContactInfo[];
+  rawContact?: string;
+  totalSpend: number;
+  orderCount: number;
+  lastOrderDate: string;
+  latestOrderId: string;
+  sources: string[];
+  salesReps: string[];
+  products: string[];
+  productCount: number;
+  isNew: boolean;
+  balance: number;
+  hasCredit: boolean;
+  formattedBalance: string;
+};
+
+type LedgerSummary = Record<
+  string,
+  {
+    balance: number;
+    hasCredit: boolean;
+  }
+>;
+
+type SortField = "name" | "orders" | "date" | "spend" | "balance";
+type SortDirection = "asc" | "desc";
+type PaymentFilter = "all" | "due" | "credit";
+type DetailTab = "overview" | "activity" | "contacts";
+
+const parseContactInfo = (contactString: string) => {
   try {
-    if (!contactString) return [];
+    if (!contactString) {
+      return [] as ContactInfo[];
+    }
 
-    // Handle the quotes in the input if present
     const cleanedString = contactString.replace(/["\\]/g, "");
 
-    // Split by commas or newlines
-    const parts = cleanedString
+    return cleanedString
       .split(/[,\n]/)
       .map((part) => part.trim())
-      .filter((part) => part.length > 0);
-
-    // Process each part to extract phone number and label
-    return parts
+      .filter(Boolean)
       .map((part) => {
-        try {
-          // Extract the number - look for any sequence of digits (at least 10)
-          const numberMatch = part.match(/\d{10,}/);
-          if (!numberMatch) return null;
-
-          const number = numberMatch[0];
-          let label = "";
-
-          // Look for common label patterns with more flexible matching
-          if (part.toLowerCase().includes("mobile")) {
-            label = "Mobile";
-          } else if (part.toLowerCase().includes("home")) {
-            label = "Home";
-          } else if (part.toLowerCase().includes("office")) {
-            label = "Office";
-          } else if (part.toLowerCase().includes("land")) {
-            label = "Landline";
-          } else if (part.toLowerCase().includes("work")) {
-            label = "Work";
-          } else {
-            // Try to extract any word before the number as a potential label
-            const labelMatch = part.match(/([A-Za-z]+)[\s:]*\d+/);
-            if (labelMatch) {
-              label = labelMatch[1].trim();
-            }
-          }
-
-          return { number, label };
-        } catch (partError) {
-          console.log("Error parsing contact part:", part);
+        const numberMatch = part.match(/\d{10,}/);
+        if (!numberMatch) {
           return null;
         }
+
+        let label = "";
+        const lower = part.toLowerCase();
+        if (lower.includes("mobile")) {
+          label = "Mobile";
+        } else if (lower.includes("home")) {
+          label = "Home";
+        } else if (lower.includes("office")) {
+          label = "Office";
+        } else if (lower.includes("land")) {
+          label = "Landline";
+        } else if (lower.includes("work")) {
+          label = "Work";
+        } else {
+          const labelMatch = part.match(/([A-Za-z]+)[\s:]*\d+/);
+          label = labelMatch?.[1]?.trim() || "";
+        }
+
+        return {
+          number: numberMatch[0],
+          label,
+        };
       })
-      .filter((item) => item !== null); // Remove any entries where we couldn't extract a phone number
+      .filter((item): item is ContactInfo => item !== null);
   } catch (error) {
     console.error("Error parsing contact info:", error);
-    return []; // Return empty array as fallback
+    return [];
   }
 };
-const parseDate = (dateStr) => {
+
+const parseDate = (dateStr: string) => {
   try {
-    if (!dateStr || dateStr === "No orders yet") return 0; // Return epoch (lowest date value)
-
-    // Handle dates in formats like "11/3" (missing year)
-    if (dateStr.split("/").length === 2) {
-      const currentYear = new Date().getFullYear();
-      dateStr = `${dateStr}/${currentYear}`;
+    if (!dateStr || dateStr === "No orders yet") {
+      return 0;
     }
 
-    const [day, month, year] = dateStr.split("/").map(Number);
+    let normalized = dateStr;
+    if (normalized.split("/").length === 2) {
+      normalized = `${normalized}/${new Date().getFullYear()}`;
+    }
 
-    // Validate parts exist and are reasonable
-    if (!day || !month) return 0;
+    const [day, month, year] = normalized.split("/").map(Number);
+    if (!day || !month) {
+      return 0;
+    }
 
-    // For abbreviated years (2-digit), expand to 4-digit
     let fullYear = year;
-    if (year && year < 100) {
+    if (!year) {
+      fullYear = new Date().getFullYear();
+    } else if (year < 100) {
       fullYear = year < 50 ? 2000 + year : 1900 + year;
-    } else if (!year) {
-      fullYear = new Date().getFullYear(); // Default to current year if missing
     }
 
-    const date = new Date(fullYear, month - 1, day);
-
-    // Check if date is valid
-    if (isNaN(date.getTime())) return 0;
-
-    return date.getTime();
-  } catch (e) {
+    const parsed = new Date(fullYear, month - 1, day);
+    return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+  } catch {
     return 0;
   }
 };
-const splitOrderId = (orderId) => {
-  if (!orderId) return ["", "0"];
+
+const splitOrderId = (orderId: string) => {
+  if (!orderId) {
+    return ["", "0"];
+  }
+
   const parts = orderId.split("_");
-  const fiscalYear = parts[0] || "";
-  const orderNum = parts.length > 1 ? parts[1] : "0";
-  return [fiscalYear, orderNum];
+  return [parts[0] || "", parts[1] || "0"];
 };
-// Format Indian number with commas
-const formatIndianNumber = (num) => {
+
+const formatIndianNumber = (value: number) => {
   try {
-    const parts = num.toFixed(2).split(".");
-    const lastThree = parts[0].substring(parts[0].length - 3);
-    const otherNumbers = parts[0].substring(0, parts[0].length - 3);
-    const formatted =
+    const [whole, decimal] = value.toFixed(2).split(".");
+    const lastThree = whole.slice(-3);
+    const otherNumbers = whole.slice(0, -3);
+    const grouped =
       otherNumbers.replace(/\B(?=(\d{2})+(?!\d))/g, ",") +
       (otherNumbers ? "," : "") +
       lastThree;
-    return `${formatted}.${parts[1]}`;
-  } catch (error) {
+    return `${grouped}.${decimal}`;
+  } catch {
     return "0.00";
   }
 };
 
-// Memoized CustomerCard component to prevent unnecessary re-renders
+const getInitials = (name: string) =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("");
 
 const CustomersScreen = () => {
-  const { theme, toggleTheme, colors } = useContext(ThemeContext);
-  const isDark = theme === "dark";
-  const [customers, setCustomers] = useState([]);
+  const { colors, isDark, toggleTheme } = useContext(ThemeContext);
+  const { showFeedback } = useFeedback();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+
+  const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchingMaster, setSearchingMaster] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [sortBy, setSortBy] = useState("name"); // name, orders, date
-  const [sortDirection, setSortDirection] = useState("asc"); // asc, desc
-  const { showFeedback } = useFeedback();
-  const [paymentFilter, setPaymentFilter] = useState("all"); // "all", "credit", "due"
+  const [sortBy, setSortBy] = useState<SortField>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
   const [displayLimit, setDisplayLimit] = useState(20);
-
-  const themeColor = "#9b59b6"; // Purple theme for Customers
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerRecord | null>(
+    null
+  );
+  const [detailTab, setDetailTab] = useState<DetailTab>("overview");
   const [callModalVisible, setCallModalVisible] = useState(false);
-  const [callOptions, setCallOptions] = useState([]);
-  const [customerToCall, setCustomerToCall] = useState(null);
+  const [callOptions, setCallOptions] = useState<ContactInfo[]>([]);
+  const [customerToCall, setCustomerToCall] = useState<CustomerRecord | null>(
+    null
+  );
 
-  useEffect(() => {
-    loadCustomers();
-  }, []);
-  const fetchLedgerSummary = async () => {
+  const isWideLayout = width >= 420;
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: {
+          flex: 1,
+          backgroundColor: colors.background,
+        },
+        topGlow: {
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 260,
+          backgroundColor: isDark
+            ? "rgba(0,102,255,0.12)"
+            : "rgba(15, 23, 42, 0.06)",
+        },
+        listContent: {
+          paddingHorizontal: 16,
+          paddingBottom: Math.max(insets.bottom, 20) + 18,
+        },
+        headerShell: {
+          paddingTop: insets.top + 8,
+          paddingBottom: 8,
+        },
+        headerRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 18,
+        },
+        iconButton: {
+          width: 42,
+          height: 42,
+          borderRadius: 21,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          alignItems: "center",
+          justifyContent: "center",
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 1,
+          shadowRadius: 22,
+          elevation: 7,
+        },
+        headerMeta: {
+          alignItems: "center",
+          gap: 4,
+        },
+        eyebrow: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+          letterSpacing: 0.6,
+          textTransform: "uppercase",
+        },
+        headerTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 24,
+          letterSpacing: -0.8,
+        },
+        headerSubtitle: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+        },
+        introCard: {
+          backgroundColor: colors.card,
+          borderRadius: 28,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: 20,
+          marginBottom: 18,
+          overflow: "hidden",
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 16 },
+          shadowOpacity: 1,
+          shadowRadius: 28,
+          elevation: 9,
+        },
+        introGlow: {
+          position: "absolute",
+          top: -36,
+          right: -28,
+          width: 150,
+          height: 150,
+          borderRadius: 75,
+          backgroundColor: isDark
+            ? "rgba(192,132,252,0.12)"
+            : "rgba(17,17,17,0.06)",
+        },
+        introRow: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 10,
+        },
+        introLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+          letterSpacing: 0.7,
+          textTransform: "uppercase",
+        },
+        introCountChip: {
+          paddingHorizontal: 12,
+          paddingVertical: 7,
+          borderRadius: 999,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+        },
+        introCountText: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+        },
+        introHeading: {
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 22,
+          lineHeight: 28,
+          letterSpacing: -0.7,
+          marginBottom: 8,
+          paddingRight: 36,
+        },
+        introBody: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 19,
+          marginBottom: 18,
+        },
+        summaryGrid: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+          gap: 10,
+        },
+        summaryCard: {
+          width: isWideLayout ? "31%" : "48.4%",
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          borderRadius: 20,
+          padding: 14,
+        },
+        summaryValue: {
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 22,
+          marginBottom: 4,
+          letterSpacing: -0.6,
+        },
+        summaryLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 11,
+          lineHeight: 15,
+        },
+        sectionLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+          letterSpacing: 0.7,
+          textTransform: "uppercase",
+          marginBottom: 10,
+          paddingHorizontal: 2,
+        },
+        searchShell: {
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: colors.card,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: 14,
+          paddingVertical: 4,
+          marginBottom: 14,
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 1,
+          shadowRadius: 20,
+          elevation: 7,
+        },
+        searchInput: {
+          flex: 1,
+          color: colors.text,
+          fontFamily: omaTypography.medium,
+          fontSize: 14,
+          paddingVertical: 13,
+          paddingHorizontal: 10,
+        },
+        chipRow: {
+          flexDirection: "row",
+          gap: 10,
+          paddingBottom: 6,
+          marginBottom: 12,
+        },
+        chip: {
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          borderRadius: 999,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        chipActive: {
+          backgroundColor: isDark ? colors.text : "#111111",
+          borderColor: isDark ? colors.text : "#111111",
+        },
+        chipText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+        },
+        chipTextActive: {
+          color: isDark ? colors.background : "#ffffff",
+        },
+        sortCard: {
+          backgroundColor: colors.card,
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: 16,
+          marginBottom: 16,
+        },
+        sortRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 12,
+        },
+        sortTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+        },
+        sortHint: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+        },
+        sortChipRow: {
+          flexDirection: "row",
+          gap: 8,
+        },
+        sortChip: {
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderRadius: 16,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+        },
+        sortChipActive: {
+          backgroundColor: isDark
+            ? "rgba(0,102,255,0.18)"
+            : "rgba(17,17,17,0.08)",
+        },
+        sortChipText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+        },
+        sortChipTextActive: {
+          color: colors.text,
+        },
+        customerCard: {
+          backgroundColor: colors.card,
+          borderRadius: 28,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: 18,
+          marginBottom: 14,
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 12 },
+          shadowOpacity: 1,
+          shadowRadius: 24,
+          elevation: 8,
+        },
+        customerTopRow: {
+          flexDirection: "row",
+          alignItems: "flex-start",
+          gap: 14,
+          marginBottom: 16,
+        },
+        avatar: {
+          width: 48,
+          height: 48,
+          borderRadius: 24,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        avatarText: {
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 16,
+          letterSpacing: -0.4,
+        },
+        identityColumn: {
+          flex: 1,
+        },
+        identityRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 4,
+        },
+        customerName: {
+          flex: 1,
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 16,
+          lineHeight: 20,
+        },
+        customerSubtext: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+          lineHeight: 17,
+        },
+        statusPill: {
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+          borderRadius: 999,
+          borderWidth: 1,
+        },
+        statusText: {
+          fontFamily: omaTypography.semibold,
+          fontSize: 10,
+          letterSpacing: 0.7,
+          textTransform: "uppercase",
+        },
+        balancePanel: {
+          borderRadius: 22,
+          padding: 16,
+          marginBottom: 14,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+        },
+        balanceRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16,
+        },
+        balanceLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 10,
+          letterSpacing: 0.7,
+          textTransform: "uppercase",
+          marginBottom: 6,
+        },
+        balanceValue: {
+          fontFamily: omaTypography.extrabold,
+          fontSize: 23,
+          letterSpacing: -0.8,
+        },
+        balanceMetaColumn: {
+          alignItems: "flex-end",
+        },
+        balanceMetaLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 11,
+          marginBottom: 4,
+        },
+        balanceMetaValue: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+        },
+        metaGrid: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 14,
+        },
+        metaPill: {
+          minWidth: isWideLayout ? "31.4%" : "48%",
+          flexGrow: 1,
+          borderRadius: 18,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+        },
+        metaLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 10,
+          marginBottom: 2,
+        },
+        metaValue: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+          lineHeight: 16,
+        },
+        actionsRow: {
+          flexDirection: "row",
+          gap: 10,
+        },
+        actionButton: {
+          flex: 1,
+          borderRadius: 18,
+          paddingVertical: 12,
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "row",
+          gap: 6,
+        },
+        actionButtonMuted: {
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+        },
+        actionButtonPrimary: {
+          backgroundColor: isDark ? colors.text : "#111111",
+        },
+        actionButtonSecondary: {
+          backgroundColor: colors.primary,
+        },
+        actionButtonTextMuted: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+        },
+        actionButtonTextOnDark: {
+          color: isDark ? colors.background : "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+        },
+        actionButtonTextSecondary: {
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+        },
+        emptyState: {
+          alignItems: "center",
+          paddingVertical: 56,
+          paddingHorizontal: 20,
+        },
+        emptyTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 18,
+          marginTop: 14,
+          marginBottom: 6,
+        },
+        emptyBody: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          textAlign: "center",
+          lineHeight: 19,
+        },
+        loadMoreButton: {
+          marginTop: 4,
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          paddingVertical: 16,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        loadMoreText: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+        },
+        detailScreen: {
+          flex: 1,
+          backgroundColor: colors.background,
+        },
+        detailHeader: {
+          paddingTop: insets.top + 8,
+          paddingHorizontal: 16,
+          paddingBottom: 16,
+        },
+        detailHeaderRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 18,
+        },
+        detailHeaderInfo: {
+          flex: 1,
+          paddingHorizontal: 14,
+        },
+        detailHeaderTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 22,
+          letterSpacing: -0.8,
+        },
+        detailHeaderCode: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+          letterSpacing: 0.7,
+          textTransform: "uppercase",
+          marginTop: 4,
+        },
+        detailHero: {
+          borderRadius: 30,
+          padding: 20,
+          backgroundColor: isDark ? colors.surfaceVariant : "#111111",
+          overflow: "hidden",
+        },
+        detailHeroGlow: {
+          position: "absolute",
+          top: -30,
+          right: -20,
+          width: 140,
+          height: 140,
+          borderRadius: 70,
+          backgroundColor: "rgba(255,255,255,0.08)",
+        },
+        detailHeroLabel: {
+          color: "rgba(255,255,255,0.72)",
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+          letterSpacing: 0.7,
+          textTransform: "uppercase",
+          marginBottom: 8,
+        },
+        detailHeroValue: {
+          color: "#ffffff",
+          fontFamily: omaTypography.extrabold,
+          fontSize: 34,
+          lineHeight: 38,
+          letterSpacing: -1.1,
+          marginBottom: 8,
+        },
+        detailHeroSubtext: {
+          color: "rgba(255,255,255,0.72)",
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 18,
+          marginBottom: 18,
+          paddingRight: 24,
+        },
+        detailHeroStatsRow: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: 18,
+        },
+        detailHeroStat: {
+          flex: 1,
+          borderRadius: 18,
+          padding: 12,
+          backgroundColor: "rgba(255,255,255,0.08)",
+        },
+        detailHeroStatLabel: {
+          color: "rgba(255,255,255,0.6)",
+          fontFamily: omaTypography.medium,
+          fontSize: 10,
+          marginBottom: 4,
+          textTransform: "uppercase",
+        },
+        detailHeroStatValue: {
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+        },
+        detailHeroActions: {
+          flexDirection: "row",
+          gap: 10,
+        },
+        detailHeroAction: {
+          flex: 1,
+          borderRadius: 18,
+          paddingVertical: 13,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+        },
+        detailHeroActionPrimary: {
+          backgroundColor: "#ffffff",
+        },
+        detailHeroActionSecondary: {
+          backgroundColor: "rgba(255,255,255,0.08)",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.18)",
+        },
+        detailHeroActionTextPrimary: {
+          color: "#111111",
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+        },
+        detailHeroActionTextSecondary: {
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+        },
+        tabRow: {
+          flexDirection: "row",
+          gap: 10,
+          paddingHorizontal: 16,
+          marginBottom: 12,
+        },
+        tabButton: {
+          flex: 1,
+          borderRadius: 18,
+          paddingVertical: 12,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          alignItems: "center",
+        },
+        tabButtonActive: {
+          backgroundColor: isDark ? colors.text : "#111111",
+          borderColor: isDark ? colors.text : "#111111",
+        },
+        tabButtonText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+        },
+        tabButtonTextActive: {
+          color: isDark ? colors.background : "#ffffff",
+        },
+        detailScrollContent: {
+          paddingHorizontal: 16,
+          paddingBottom: Math.max(insets.bottom, 24) + 28,
+        },
+        detailSectionCard: {
+          backgroundColor: colors.card,
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: 18,
+          marginBottom: 14,
+        },
+        detailSectionTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 15,
+          marginBottom: 14,
+        },
+        detailStatsGrid: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+          gap: 10,
+        },
+        detailStatCard: {
+          width: isWideLayout ? "48%" : "100%",
+          borderRadius: 18,
+          padding: 14,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+        },
+        detailStatLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 11,
+          marginBottom: 6,
+        },
+        detailStatValue: {
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 18,
+          letterSpacing: -0.5,
+        },
+        detailStatValueSmall: {
+          fontSize: 14,
+          lineHeight: 20,
+        },
+        infoCard: {
+          borderRadius: 18,
+          padding: 14,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+        },
+        infoCardText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 20,
+        },
+        infoCardAction: {
+          marginTop: 12,
+          alignSelf: "flex-start",
+          borderRadius: 14,
+          backgroundColor: colors.primary,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+        },
+        infoCardActionText: {
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+        },
+        chipWrap: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+        },
+        detailTag: {
+          borderRadius: 999,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+        },
+        detailTagText: {
+          color: colors.text,
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+        },
+        contactRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderRadius: 18,
+          padding: 14,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          marginBottom: 10,
+        },
+        contactLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 11,
+          marginBottom: 4,
+          textTransform: "uppercase",
+        },
+        contactValue: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+        },
+        callSheetBackdrop: {
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.48)",
+          justifyContent: "flex-end",
+        },
+        callSheet: {
+          backgroundColor: colors.card,
+          borderTopLeftRadius: 28,
+          borderTopRightRadius: 28,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingTop: 14,
+          paddingHorizontal: 16,
+          paddingBottom: Math.max(insets.bottom, 20) + 12,
+        },
+        callSheetHandle: {
+          alignSelf: "center",
+          width: 48,
+          height: 4,
+          borderRadius: 2,
+          backgroundColor: colors.border,
+          marginBottom: 14,
+        },
+        callSheetTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 20,
+          marginBottom: 4,
+        },
+        callSheetSubtitle: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          marginBottom: 18,
+        },
+        callOption: {
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          borderRadius: 20,
+          padding: 14,
+          marginBottom: 10,
+        },
+        callIcon: {
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.primary,
+          marginRight: 14,
+        },
+        callOptionLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 11,
+          marginBottom: 4,
+          textTransform: "uppercase",
+        },
+        callOptionNumber: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+        },
+        cancelButton: {
+          marginTop: 8,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingVertical: 14,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        cancelButtonText: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+        },
+      }),
+    [colors, insets.bottom, insets.top, isDark, isWideLayout]
+  );
+
+  const fetchLedgerSummary = useCallback(async (): Promise<LedgerSummary> => {
     try {
       const response = await fetchWithRetry(
         `${BACKEND_URL}/api/sheets/Customer_Ledger!A1:G`,
@@ -174,66 +1027,46 @@ const CustomersScreen = () => {
         1500
       );
 
-      if (!response.data || !response.data.values) {
-        throw new Error("Invalid response from ledger API");
-      }
+      const dataRows = response.data?.values?.slice(1) || [];
+      const balances: Record<string, { totalCredit: number; totalDebit: number }> =
+        {};
 
-      // Get headers and data rows
-      const headerRow = response.data.values[0];
-      const dataRows = response.data.values.slice(1);
-
-      // Create customer balance mapping
-      const customerBalances = {};
-
-      dataRows.forEach((row) => {
-        if (row.length < 6) return;
-
-        const customerCode = row[5]; // Customer CODE column
-        const amount = parseFloat(row[1] || "0");
-        const dcType = row[2]; // 'C' for credit, 'D' for debit
-
-        if (!customerCode || isNaN(amount)) return;
-
-        if (!customerBalances[customerCode]) {
-          customerBalances[customerCode] = {
-            totalCredit: 0,
-            totalDebit: 0,
-          };
+      dataRows.forEach((row: string[]) => {
+        if (row.length < 6) {
+          return;
         }
+
+        const customerCode = row[5];
+        const amount = Number.parseFloat(row[1] || "0");
+        const dcType = row[2];
+
+        if (!customerCode || Number.isNaN(amount)) {
+          return;
+        }
+
+        balances[customerCode] ??= { totalCredit: 0, totalDebit: 0 };
 
         if (dcType === "C") {
-          customerBalances[customerCode].totalCredit += amount;
+          balances[customerCode].totalCredit += amount;
         } else if (dcType === "D") {
-          customerBalances[customerCode].totalDebit += amount;
+          balances[customerCode].totalDebit += amount;
         }
       });
 
-      // Process final balance and status
-      const ledgerSummary = {};
-      Object.entries(customerBalances).forEach(([code, data]) => {
-        const balance = data.totalDebit - data.totalCredit;
-        ledgerSummary[code] = {
-          balance: balance,
+      return Object.entries(balances).reduce<LedgerSummary>((summary, [code, row]) => {
+        const balance = row.totalDebit - row.totalCredit;
+        summary[code] = {
+          balance,
           hasCredit: balance <= 0,
         };
-      });
-
-      return ledgerSummary;
-    } catch (error) {
+        return summary;
+      }, {});
+    } catch {
       return {};
     }
-  };
+  }, []);
 
-  const debounce = (func, wait) => {
-    let timeout;
-    return (...args) => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => func(...args), wait);
-    };
-  };
-
-  // Add this function before your loadCustomers function
-  const fetchCustomerCodes = async () => {
+  const fetchCustomerCodes = useCallback(async () => {
     try {
       const response = await fetchWithRetry(
         `${BACKEND_URL}/api/sheets/Customer_Master!A1:B`,
@@ -242,85 +1075,258 @@ const CustomersScreen = () => {
         1500
       );
 
-      if (!response.data || !response.data.values) {
-        throw new Error("Invalid response from customer API");
-      }
+      const rows = response.data?.values?.slice(1) || [];
 
-      // Create a mapping from customer name to code
-      const customerCodesMap = {};
-      const rows = response.data.values.slice(1); // Skip header
-
-      rows.forEach((row) => {
-        const code = row[0]; // Customer_Master column A = code
-        const name = row[1]; // Customer_Master column B = name
+      return rows.reduce<Record<string, string>>((map, row: string[]) => {
+        const code = row[0];
+        const name = row[1];
         if (name) {
-          customerCodesMap[name] = code;
+          map[name] = code || "";
         }
-      });
-
-      return customerCodesMap;
-    } catch (error) {
+        return map;
+      }, {});
+    } catch {
       return {};
     }
-  };
-  const loadCustomers = async () => {
+  }, []);
+
+  const loadCustomers = useCallback(async () => {
     try {
-      setLoading(true);
-      console.log("Starting to load customers data");
+      const cachedCustomers = apiCache.get("customers") as CustomerRecord[] | null;
+      if (cachedCustomers?.length) {
+        setCustomers(cachedCustomers);
+        setLoading(false);
+      }
 
-      // 1. First get all customer codes
-      const customerCodesMap = await fetchCustomerCodes();
-      console.log(
-        `Loaded ${Object.keys(customerCodesMap).length} customer codes`
-      );
+      setLoading((current) => (cachedCustomers?.length ? current : true));
 
-      // 2. Get ledger balances
-      const ledgerSummary = await fetchLedgerSummary();
-      console.log(
-        `Loaded ${Object.keys(ledgerSummary).length} customer ledger entries`
-      );
+      const [customerCodesMap, ledgerSummary] = await Promise.all([
+        fetchCustomerCodes(),
+        fetchLedgerSummary(),
+      ]);
 
-      // 3. Load complete customer master data with contacts
-      console.log("Loading customer master data with contacts");
       const masterResponse = await fetchWithRetry(
         `${BACKEND_URL}/api/sheets/Customer_Master!A1:C`,
         {},
-        3, // Increase retries
-        3000 // Increase timeout
+        3,
+        3000
       );
 
-      if (!masterResponse?.data?.values) {
+      if (!masterResponse.data?.values) {
         throw new Error("Invalid response from Customer Master API");
       }
 
-      console.log(
-        `Got ${masterResponse.data.values.length} rows from Customer Master`
+      const masterCustomers: Record<
+        string,
+        CustomerRecord & {
+          orders?: Set<string>;
+          sources: string[] | Set<string>;
+          salesReps: string[] | Set<string>;
+          products: string[] | Set<string>;
+        }
+      > = {};
+
+      masterResponse.data.values.slice(1).forEach((row: string[]) => {
+        if (row.length < 2) {
+          return;
+        }
+
+        const code = row[0] || "";
+        const name = row[1] || "";
+        const contactString = row[2] || "";
+
+        if (!name) {
+          return;
+        }
+
+        masterCustomers[name] = {
+          name,
+          code,
+          contacts: parseContactInfo(contactString),
+          rawContact: contactString,
+          totalSpend: 0,
+          orderCount: 0,
+          lastOrderDate: "No orders yet",
+          latestOrderId: "",
+          sources: [],
+          salesReps: [],
+          products: [],
+          productCount: 0,
+          isNew: true,
+          balance: ledgerSummary[code]?.balance || 0,
+          hasCredit:
+            ledgerSummary[code]?.hasCredit !== undefined
+              ? ledgerSummary[code].hasCredit
+              : true,
+          formattedBalance: formatIndianNumber(
+            Math.abs(ledgerSummary[code]?.balance || 0)
+          ),
+        };
+      });
+
+      const response = await fetchWithRetry(
+        `${BACKEND_URL}/api/sheets/New_Order_Table!A2:P`,
+        {},
+        3,
+        3000
       );
 
-      // Build a map of all customers from master with their contact info
-      const masterCustomers = {};
-      if (masterResponse.data && masterResponse.data.values) {
-        const masterRows = masterResponse.data.values.slice(1); // Skip header
-        masterRows.forEach((row) => {
-          if (row.length < 2) return; // Skip invalid rows
+      const orderRows = response.data?.values || [];
+      orderRows.forEach((row: string[]) => {
+        const customerName = row[4] || "";
+        if (!customerName) {
+          return;
+        }
 
-          const code = row[0] || "";
-          const name = row[1] || "";
-          const contactString = row.length > 2 ? row[2] || "" : "";
+        if (!masterCustomers[customerName]) {
+          const code = customerCodesMap[customerName] || "";
+          masterCustomers[customerName] = {
+            name: customerName,
+            code,
+            contacts: [],
+            totalSpend: 0,
+            orderCount: 0,
+            lastOrderDate: "No orders yet",
+            latestOrderId: "",
+            sources: new Set<string>(),
+            salesReps: new Set<string>(),
+            products: new Set<string>(),
+            productCount: 0,
+            isNew: false,
+            balance: ledgerSummary[code]?.balance || 0,
+            hasCredit:
+              ledgerSummary[code]?.hasCredit !== undefined
+                ? ledgerSummary[code].hasCredit
+                : true,
+            formattedBalance: formatIndianNumber(
+              Math.abs(ledgerSummary[code]?.balance || 0)
+            ),
+          };
+        } else {
+          masterCustomers[customerName].isNew = false;
+        }
 
-          if (name) {
-            // Parse contacts with improved error handling
-            let contacts = [];
-            try {
-              contacts = parseContactInfo(contactString);
-            } catch (contactError) {
-              console.log(`Error parsing contact for ${name}:`, contactError);
-            }
+        const customer = masterCustomers[customerName];
+        const amount = Number.parseFloat((row[10] || "0").replace(/,/g, ""));
+        customer.totalSpend += Number.isNaN(amount) ? 0 : amount;
 
-            masterCustomers[name] = {
-              name: name,
-              code: code,
-              contacts: contacts,
+        customer.orders ??= new Set<string>();
+        customer.orders.add(row[5] || "");
+        customer.orderCount = customer.orders.size;
+
+        const currentDate = parseDate(row[0] || "");
+        const lastDate = parseDate(customer.lastOrderDate);
+        if (!lastDate || currentDate > lastDate) {
+          customer.lastOrderDate = row[0] || "No orders yet";
+          customer.latestOrderId = row[5] || "";
+        }
+
+        if (!(customer.sources instanceof Set)) {
+          customer.sources = new Set(customer.sources);
+        }
+        if (!(customer.salesReps instanceof Set)) {
+          customer.salesReps = new Set(customer.salesReps);
+        }
+        if (!(customer.products instanceof Set)) {
+          customer.products = new Set(customer.products);
+        }
+
+        if (row[11]) {
+          customer.sources.add(row[11]);
+        }
+        if (row[2]) {
+          customer.salesReps.add(row[2]);
+        }
+        if (row[6]) {
+          customer.products.add(row[6]);
+        }
+      });
+
+      const customerList = Object.values(masterCustomers).map((customer) => {
+        const sources = Array.isArray(customer.sources)
+          ? customer.sources
+          : Array.from(customer.sources);
+        const salesReps = Array.isArray(customer.salesReps)
+          ? customer.salesReps
+          : Array.from(customer.salesReps);
+        const products = Array.isArray(customer.products)
+          ? customer.products
+          : Array.from(customer.products);
+
+        return {
+          ...customer,
+          sources,
+          salesReps,
+          products,
+          productCount: products.length,
+        };
+      });
+
+      setCustomers(customerList);
+      apiCache.set("customers", customerList);
+    } catch (error: any) {
+      showFeedback({
+        type: "error",
+        title: "Load Failed",
+        message: `Could not load customer data: ${
+          error?.message || "Unknown error"
+        }`,
+        autoDismiss: true,
+      });
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [fetchCustomerCodes, fetchLedgerSummary, showFeedback]);
+
+  useEffect(() => {
+    void loadCustomers();
+  }, [loadCustomers]);
+
+  const searchCustomers = useCallback(
+    async (query: string) => {
+      if (!query || query.length < 2) {
+        return;
+      }
+
+      try {
+        setSearchingMaster(true);
+
+        const [ledgerSummary, response] = await Promise.all([
+          fetchLedgerSummary(),
+          fetchWithRetry(
+            `${BACKEND_URL}/api/sheets/Customer_Master!A1:C`,
+            {},
+            2,
+            1500
+          ),
+        ]);
+
+        if (!response.data?.values) {
+          throw new Error("Invalid response from Customer Master API");
+        }
+
+        const matches = response.data.values
+          .slice(1)
+          .filter((row: string[]) => {
+            const code = (row[0] || "").toLowerCase();
+            const name = (row[1] || "").toLowerCase();
+            const normalizedQuery = query.toLowerCase();
+            return code.includes(normalizedQuery) || name.includes(normalizedQuery);
+          })
+          .map((row: string[]) => {
+            const code = row[0] || "";
+            const name = row[1] || "";
+            const contactString = row[2] || "";
+            const ledger = ledgerSummary[code] || {
+              balance: 0,
+              hasCredit: true,
+            };
+
+            return {
+              name,
+              code,
+              contacts: parseContactInfo(contactString),
               rawContact: contactString,
               totalSpend: 0,
               orderCount: 0,
@@ -330,381 +1336,113 @@ const CustomersScreen = () => {
               salesReps: [],
               products: [],
               productCount: 0,
-              isNew: true, // Flag for customers without order history
-              // Default balance info (will be updated if ledger data exists)
-              balance: ledgerSummary[code]?.balance || 0,
-              hasCredit:
-                ledgerSummary[code]?.hasCredit !== undefined
-                  ? ledgerSummary[code]?.hasCredit
-                  : true,
-              formattedBalance: formatIndianNumber(
-                Math.abs(ledgerSummary[code]?.balance || 0)
-              ),
-            };
-          }
-        });
-      }
+              isNew: true,
+              balance: ledger.balance,
+              hasCredit: ledger.hasCredit,
+              formattedBalance: formatIndianNumber(Math.abs(ledger.balance)),
+            } as CustomerRecord;
+          });
 
-      console.log(
-        `Created ${Object.keys(masterCustomers).length} master customer records`
-      );
-
-      // 4. Load order data to enhance customer info
-      console.log("Loading order history data");
-      const response = await fetchWithRetry(
-        `${BACKEND_URL}/api/sheets/New_Order_Table!A2:P`,
-        {},
-        3,
-        3000
-      );
-
-      if (response?.data?.values) {
-        console.log(`Got ${response.data.values.length} order rows`);
-
-        // Process each row to get customer info
-        const allRows = response.data.values.map((row) => ({
-          date: row[0] || "", // SYS-TIME
-          user: row[2] || "", // USER
-          customerName: row[4] || "", // CUSTOMER NAME
-          orderId: row[5] || "", // ORDER ID
-          productName: row[6] || "", // PRODUCT NAME
-          amount: row[10] || "", // ORDER AMOUNT
-          source: row[11] || "", // SOURCE
-        }));
-
-        // Process order data and update the master customer map
-        allRows.forEach((row) => {
-          if (!row.customerName) return;
-
-          // If customer doesn't exist in our master map, initialize them
-          if (!masterCustomers[row.customerName]) {
-            masterCustomers[row.customerName] = {
-              name: row.customerName,
-              code: customerCodesMap[row.customerName] || "",
-              totalSpend: 0,
-              orderCount: 0,
-              lastOrderDate: "",
-              latestOrderId: "",
-              sources: new Set(),
-              salesReps: new Set(),
-              products: new Set(),
-              contacts: [], // Empty contacts if they didn't exist in the master sheet
-              isNew: false,
-              // Add payment info
-              balance:
-                ledgerSummary[customerCodesMap[row.customerName]]?.balance || 0,
-              hasCredit:
-                ledgerSummary[customerCodesMap[row.customerName]]?.hasCredit !==
-                undefined
-                  ? ledgerSummary[customerCodesMap[row.customerName]]?.hasCredit
-                  : true,
-              formattedBalance: formatIndianNumber(
-                Math.abs(
-                  ledgerSummary[customerCodesMap[row.customerName]]?.balance ||
-                    0
-                )
-              ),
-            };
-          } else {
-            // If customer existed in master but had no orders, they're not "new" anymore
-            masterCustomers[row.customerName].isNew = false;
-          }
-
-          // Add this order's info to the customer
-          const customer = masterCustomers[row.customerName];
-
-          // Add to total spend
-          const cleanAmount = row.amount.replace(/,/g, "");
-          customer.totalSpend += parseFloat(cleanAmount || 0);
-
-          // Track unique orders
-          if (!customer.orders) customer.orders = new Set();
-          customer.orders.add(row.orderId);
-
-          // Update order count
-          customer.orderCount = customer.orders.size;
-
-          // Track latest order date
-          if (
-            !customer.lastOrderDate ||
-            customer.lastOrderDate === "No orders yet" ||
-            isNewerDate(row.date, customer.lastOrderDate)
-          ) {
-            customer.lastOrderDate = row.date;
-            customer.latestOrderId = row.orderId;
-          }
-
-          // Track sources, sales reps and products
-          // Use proper Set initialization and check
-          if (!(customer.sources instanceof Set)) {
-            customer.sources = new Set(
-              Array.isArray(customer.sources) ? customer.sources : []
-            );
-          }
-          if (row.source) customer.sources.add(row.source);
-
-          if (!(customer.salesReps instanceof Set)) {
-            customer.salesReps = new Set(
-              Array.isArray(customer.salesReps) ? customer.salesReps : []
-            );
-          }
-          if (row.user) customer.salesReps.add(row.user);
-
-          if (!(customer.products instanceof Set)) {
-            customer.products = new Set(
-              Array.isArray(customer.products) ? customer.products : []
-            );
-          }
-          if (row.productName) customer.products.add(row.productName);
-        });
-
-        // 5. Convert Sets to arrays for easier rendering
-        console.log("Converting data for display");
-        const customerList = Object.values(masterCustomers).map((customer) => {
-          return {
-            ...customer,
-            sources: Array.isArray(customer.sources)
-              ? customer.sources
-              : Array.from(customer.sources || []),
-            salesReps: Array.isArray(customer.salesReps)
-              ? customer.salesReps
-              : Array.from(customer.salesReps || []),
-            products: Array.isArray(customer.products)
-              ? customer.products
-              : Array.from(customer.products || []),
-            productCount: Array.isArray(customer.products)
-              ? customer.products.length
-              : customer.products instanceof Set
-              ? customer.products.size
-              : 0,
-          };
-        });
-
-        console.log(`Processed ${customerList.length} total customers`);
-        setCustomers(customerList);
-        apiCache.set("customers", customerList);
-      } else {
-        console.warn("No order data available");
-
-        // Convert the master customers to a list even without orders
-        const customerList = Object.values(masterCustomers).map((customer) => ({
-          ...customer,
-          sources: Array.isArray(customer.sources) ? customer.sources : [],
-          salesReps: Array.isArray(customer.salesReps)
-            ? customer.salesReps
-            : [],
-          products: Array.isArray(customer.products) ? customer.products : [],
-          productCount: 0,
-        }));
-
-        setCustomers(customerList);
-        apiCache.set("customers", customerList);
-      }
-    } catch (error) {
-      console.error("Load customers error:", error);
-      showFeedback({
-        type: "error",
-        title: "Load Failed",
-        message: `Could not load customer data: ${error.message}`,
-        autoDismiss: true,
-      });
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  // Modify the searchCustomers function to include balance data
-
-  const searchCustomers = async (query) => {
-    if (!query || query.length < 2) return;
-
-    try {
-      setLoading(true);
-
-      // First get ledger summary data
-      const ledgerSummary = await fetchLedgerSummary();
-
-      // Fetch all customers from Customer_Master
-      const response = await fetchWithRetry(
-        `${BACKEND_URL}/api/sheets/Customer_Master!A1:C`,
-        {},
-        2,
-        1500
-      );
-
-      if (!response.data || !response.data.values) {
-        throw new Error("Invalid response from Customer_Master API");
-      }
-
-      // Skip header row
-      const rows = response.data.values.slice(1);
-
-      // Filter customers that match the query
-      const matchingCustomers = rows.filter((row) => {
-        const code = row[0] || "";
-        const name = row[1] || "";
-        return (
-          name.toLowerCase().includes(query.toLowerCase()) ||
-          code.toLowerCase().includes(query.toLowerCase())
-        );
-      });
-
-      // Create customer objects for display
-      const newCustomers = matchingCustomers.map((row) => {
-        const customerCode = row[0] || "";
-        const customerName = row[1] || "";
-
-        // Check if customer already exists in our loaded data
-        const existingCustomer = customers.find(
-          (c) => c.code === customerCode || c.name === customerName
-        );
-
-        if (existingCustomer) {
-          return existingCustomer; // Return existing customer with full data
+        if (!matches.length) {
+          return;
         }
 
-        // Get the payment data for this customer if available
-        const ledgerData = ledgerSummary[customerCode] || {
-          balance: 0,
-          hasCredit: true,
-        };
-
-        const balance = ledgerData.balance || 0;
-
-        // Create a new customer object with minimal data
-        return {
-          name: customerName,
-          code: customerCode,
-          totalSpend: 0,
-          orderCount: 0,
-          lastOrderDate: "No orders yet",
-          sources: [],
-          salesReps: [],
-          products: [],
-          productCount: 0,
-          // Include payment information:
-          balance: balance,
-          hasCredit: ledgerData.hasCredit,
-          formattedBalance: formatIndianNumber(Math.abs(balance)),
-          isNew: true, // Flag to identify customers without order history
-        };
-      });
-      //REST
-
-      // Update customers state with both existing and new customers
-      const updatedCustomers = [...customers];
-
-      // Add any new customers that don't already exist
-      newCustomers.forEach((newCustomer) => {
-        if (
-          !updatedCustomers.some(
-            (c) => c.code === newCustomer.code || c.name === newCustomer.name
-          )
-        ) {
-          updatedCustomers.push(newCustomer);
-        }
-      });
-
-      setCustomers(updatedCustomers);
-    } catch (error) {
-      showFeedback({
-        type: "error",
-        title: "Search Failed",
-        message: "Could not search customer database",
-        autoDismiss: true,
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-  const debouncedSearch = useCallback(
-    debounce((query) => {
-      if (query.length >= 2) {
-        searchCustomers(query);
+        setCustomers((current) => {
+          const merged = [...current];
+          matches.forEach((customer) => {
+            if (
+              !merged.some(
+                (existing) =>
+                  existing.code === customer.code || existing.name === customer.name
+              )
+            ) {
+              merged.push(customer);
+            }
+          });
+          return merged;
+        });
+      } catch {
+        showFeedback({
+          type: "error",
+          title: "Search Failed",
+          message: "Could not search the customer master right now.",
+          autoDismiss: true,
+        });
+      } finally {
+        setSearchingMaster(false);
       }
-    }, 300),
-    []
+    },
+    [fetchLedgerSummary, showFeedback]
   );
-  // Helper function to check if one date is newer than another
-  const isNewerDate = (dateStr1, dateStr2) => {
-    const date1 = parseDate(dateStr1);
-    const date2 = parseDate(dateStr2);
-    return date1 > date2;
-  };
 
-  // Helper function to parse DD/MM/YYYY format
-  // Replace the parseDate function with this improved version
+  useEffect(() => {
+    const trimmedQuery = searchQuery.trim();
+    if (!trimmedQuery || trimmedQuery.length < 2) {
+      setSearchingMaster(false);
+      return;
+    }
 
-  const handleRefresh = async () => {
+    const timeout = setTimeout(() => {
+      void searchCustomers(trimmedQuery);
+    }, 320);
+
+    return () => clearTimeout(timeout);
+  }, [searchCustomers, searchQuery]);
+
+  const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    apiCache.set("customers", null); // Clear cache to force refresh
-    await loadCustomers();
-  };
+    apiCache.set("customers", null);
+    void loadCustomers();
+  }, [loadCustomers]);
 
-  const viewCustomerDetails = (customer) => {
+  const openCustomerDetails = useCallback((customer: CustomerRecord) => {
+    setDetailTab("overview");
     setSelectedCustomer(customer);
-    setModalVisible(true);
-  };
+  }, []);
 
-  const callCustomer = (customer) => {
-    if (!customer || !customer.contacts || customer.contacts.length === 0) {
-      // No contact info available
-      Alert.alert(
-        "No Contact",
-        "No phone number available for this customer.",
-        [{ text: "OK", style: "default" }]
-      );
-      return;
-    }
+  const callCustomer = useCallback(
+    (customer: CustomerRecord) => {
+      if (!customer.contacts?.length) {
+        showFeedback({
+          type: "error",
+          title: "No Contact Found",
+          message: "This customer does not have a saved phone number yet.",
+          autoDismiss: true,
+        });
+        return;
+      }
 
-    // If there's only one number, call directly
-    if (customer.contacts.length === 1) {
-      Linking.openURL(`tel:${customer.contacts[0].number}`);
-      return;
-    }
+      if (customer.contacts.length === 1) {
+        void Linking.openURL(`tel:${customer.contacts[0].number}`);
+        return;
+      }
 
-    // If multiple numbers, show custom modal
-    setCustomerToCall(customer);
-    setCallOptions(customer.contacts);
-    setCallModalVisible(true);
-  };
+      setCustomerToCall(customer);
+      setCallOptions(customer.contacts);
+      setCallModalVisible(true);
+    },
+    [showFeedback]
+  );
 
-  const emailCustomer = (email) => {
-    if (!email) {
-      Alert.alert("Error", "No email address available");
-      return;
-    }
-    Linking.openURL(`mailto:${email}`);
-  };
-
-  // Add this before the return statement
   const filteredAndSortedCustomers = useMemo(() => {
-    // Move the entire content of getFilteredAndSortedCustomers here
-    if (!customers || customers.length === 0) return [];
+    let nextCustomers = [...customers];
+    const normalizedQuery = searchQuery.trim().toLowerCase();
 
-    // First apply search filtering if any
-    let filteredCustomers = customers;
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-
-      // Search by name OR code
-      filteredCustomers = customers.filter(
+    if (normalizedQuery) {
+      nextCustomers = nextCustomers.filter(
         (customer) =>
-          customer.name.toLowerCase().includes(query) ||
-          (customer.code && customer.code.toLowerCase().includes(query))
+          customer.name.toLowerCase().includes(normalizedQuery) ||
+          customer.code.toLowerCase().includes(normalizedQuery)
       );
     }
 
-    // Apply payment filter
     if (paymentFilter === "due") {
-      filteredCustomers = filteredCustomers.filter((c) => c.balance > 0);
+      nextCustomers = nextCustomers.filter((customer) => customer.balance > 0);
     } else if (paymentFilter === "credit") {
-      filteredCustomers = filteredCustomers.filter((c) => c.balance < 0);
+      nextCustomers = nextCustomers.filter((customer) => customer.balance < 0);
     }
 
-    // Then apply sorting
-    return [...filteredCustomers].sort((a, b) => {
+    nextCustomers.sort((a, b) => {
       let comparison = 0;
 
       switch (sortBy) {
@@ -714,40 +1452,31 @@ const CustomersScreen = () => {
         case "orders":
           comparison = a.orderCount - b.orderCount;
           break;
-        case "date":
-          // First try to compare by date
+        case "date": {
           const dateA = parseDate(a.lastOrderDate);
           const dateB = parseDate(b.lastOrderDate);
 
-          // If both have valid dates, use them
           if (dateA > 0 && dateB > 0) {
             comparison = dateA - dateB;
-          }
-          // Fall back to order IDs for comparison if available
-          else if (a.latestOrderId && b.latestOrderId) {
-            // Extract fiscal year and number parts for proper sorting
+          } else if (a.latestOrderId && b.latestOrderId) {
             const [aFY, aNum] = splitOrderId(a.latestOrderId);
             const [bFY, bNum] = splitOrderId(b.latestOrderId);
 
-            // Compare fiscal years first
             if (aFY !== bFY) {
-              comparison = bFY.localeCompare(aFY); // Most recent fiscal year first
+              comparison = bFY.localeCompare(aFY);
             } else {
-              // If same fiscal year, compare the order numbers
-              comparison = parseInt(bNum, 10) - parseInt(aNum, 10); // Higher number = more recent
+              comparison =
+                Number.parseInt(bNum, 10) - Number.parseInt(aNum, 10);
             }
-          }
-          // If one has a date but the other doesn't, the one with date comes first
-          else if (dateA > 0) {
+          } else if (dateA > 0) {
             comparison = -1;
           } else if (dateB > 0) {
             comparison = 1;
-          }
-          // If neither has date or order ID, fall back to name
-          else {
+          } else {
             comparison = a.name.localeCompare(b.name);
           }
           break;
+        }
         case "spend":
           comparison = a.totalSpend - b.totalSpend;
           break;
@@ -760,1262 +1489,886 @@ const CustomersScreen = () => {
 
       return sortDirection === "asc" ? comparison : -comparison;
     });
-  }, [customers, searchQuery, sortBy, sortDirection, paymentFilter]);
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: isDark ? colors.background : "#f5f5f5",
-    },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingTop: 50,
-      paddingBottom: 15,
-      paddingHorizontal: 20,
-      backgroundColor: isDark ? colors.surfaceVariant : themeColor,
-    },
-    headerTitle: {
-      color: isDark ? colors.text : "#FFF",
-      fontSize: 20,
-      fontWeight: "bold",
-    },
-    iconStyle: {
-      color: isDark ? colors.text : "#FFF",
-    },
-    searchContainer: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: isDark ? colors.surfaceVariant : "white",
-      marginHorizontal: 15,
-      marginVertical: 10,
-      paddingHorizontal: 15,
-      borderRadius: 25,
-      elevation: 2,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isDark ? 0.3 : 0.1,
-      shadowRadius: 2,
-    },
-    searchInput: {
-      flex: 1,
-      paddingVertical: 10,
-      paddingRight: 10,
-      fontSize: 15,
-      color: isDark ? colors.text : "#000",
-    },
-    sortControls: {
-      flexDirection: "row",
-      paddingHorizontal: 15,
-      marginBottom: 10,
-      justifyContent: "flex-start",
-      flexWrap: "wrap",
-    },
-    sortButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingVertical: 6,
-      paddingHorizontal: 12,
-      borderRadius: 15,
-      marginRight: 10,
-      marginBottom: 5,
-      backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
-    },
-    sortText: {
-      color: isDark ? colors.textSecondary : "#666",
-      fontSize: 13,
-      marginRight: 4,
-    },
-    activeSortText: {
-      color: themeColor,
-      fontWeight: "500",
-    },
-    customerCard: {
-      backgroundColor: isDark ? colors.surfaceVariant : "#fff",
-      borderRadius: 12,
-      padding: 15,
-      marginHorizontal: 15,
-      marginBottom: 10,
-      elevation: 2,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isDark ? 0.3 : 0.1,
-      shadowRadius: 2,
-    },
-    customerHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 8,
-    },
-    customerName: {
-      fontSize: 17,
-      fontWeight: "600",
-      color: isDark ? colors.text : "#333",
-      flex: 1,
-    },
-    statsTag: {
-      backgroundColor: isDark
-        ? "rgba(155, 89, 182, 0.2)"
-        : "rgba(155, 89, 182, 0.1)",
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 12,
-    },
-    statsTagText: {
-      color: isDark ? "#9b59b6" : "#8e44ad",
-      fontSize: 12,
-      fontWeight: "500",
-    },
-    customerDetailRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      marginBottom: 6,
-    },
-    detailText: {
-      fontSize: 14,
-      color: isDark ? colors.textSecondary : "#666",
-      marginLeft: 8,
-    },
-    actionsRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      marginTop: 12,
-    },
-    actionButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      flex: 1,
-      paddingVertical: 8,
-      borderRadius: 8,
-      marginHorizontal: 4,
-    },
-    actionText: {
-      color: "#fff",
-      fontSize: 13,
-      fontWeight: "500",
-      marginLeft: 4,
-    },
-    modalContainer: {
-      flex: 1,
-      backgroundColor: isDark ? "rgba(0,0,0,0.9)" : "rgba(0,0,0,0.5)",
-      justifyContent: "center",
-    },
-    modalContent: {
-      backgroundColor: isDark ? colors.background : "#fff",
-      margin: 20,
-      borderRadius: 15,
-      maxHeight: "80%",
-    },
-    modalHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: 15,
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-    },
-    modalTitle: {
-      fontSize: 18,
-      fontWeight: "600",
-      color: isDark ? colors.text : "#333",
-    },
-    closeButton: {
-      padding: 5,
-    },
-    modalBody: {
-      padding: 20,
-    },
-    sectionTitle: {
-      fontSize: 16,
-      fontWeight: "600",
-      color: isDark ? colors.text : "#333",
-      marginTop: 15,
-      marginBottom: 10,
-    },
-    infoRow: {
-      flexDirection: "row",
-      marginBottom: 12,
-      alignItems: "flex-start",
-    },
-    infoLabel: {
-      width: 100,
-      fontSize: 15,
-      color: isDark ? colors.textSecondary : "#666",
-    },
-    infoValue: {
-      flex: 1,
-      fontSize: 15,
-      color: isDark ? colors.text : "#333",
-      fontWeight: "500",
-    },
-    divider: {
-      height: 1,
-      backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-      marginVertical: 15,
-    },
-    pill: {
-      backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-      paddingHorizontal: 10,
-      paddingVertical: 5,
-      borderRadius: 20,
-      marginRight: 8,
-      marginBottom: 8,
-    },
-    pillText: {
-      fontSize: 13,
-      color: isDark ? colors.textSecondary : "#666",
-    },
-    pillsContainer: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      marginTop: 5,
-    },
-    modalActions: {
-      flexDirection: "row",
-      padding: 15,
-      borderTopWidth: 1,
-      borderTopColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-    },
-    modalAction: {
-      flex: 1,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      paddingVertical: 12,
-      borderRadius: 8,
-      marginHorizontal: 5,
-    },
-    modalActionText: {
-      color: "#fff",
-      fontSize: 15,
-      fontWeight: "500",
-      marginLeft: 8,
-    },
-    emptyContainer: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-      padding: 20,
-      marginTop: 50,
-    },
-    emptyText: {
-      fontSize: 16,
-      color: isDark ? colors.textSecondary : "#666",
-      marginTop: 10,
-      textAlign: "center",
-    },
-    customersCountText: {
-      fontSize: 14,
-      color: isDark ? colors.textSecondary : "#666",
-      textAlign: "center",
-      marginVertical: 10,
-    },
-    filterContainer: {
-      flexDirection: "row",
-      paddingHorizontal: 15,
-      marginBottom: 4,
-    },
-    filterButton: {
-      paddingVertical: 6,
-      paddingHorizontal: 12,
-      borderRadius: 15,
-      marginRight: 10,
-      backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
-    },
-    activeFilterButton: {
-      backgroundColor: isDark
-        ? "rgba(155, 89, 182, 0.2)"
-        : "rgba(155, 89, 182, 0.1)",
-    },
-    filterText: {
-      color: isDark ? colors.textSecondary : "#666",
-      fontSize: 13,
-    },
-    activeFilterText: {
-      color: isDark ? "#9b59b6" : "#8e44ad",
-      fontWeight: "500",
-    },
-    newCustomerInfo: {
-      alignItems: "center",
-      padding: 15,
-      backgroundColor: isDark
-        ? "rgba(52, 152, 219, 0.1)"
-        : "rgba(52, 152, 219, 0.05)",
-      borderRadius: 10,
-      marginVertical: 15,
-    },
-    cardDivider: {
-      height: 1,
-      backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)",
-      marginVertical: 8,
-    },
-    loadMoreButton: {
-      alignItems: "center",
-      padding: 15,
-      marginBottom: 15,
-      marginHorizontal: 15,
-      backgroundColor: isDark
-        ? "rgba(155, 89, 182, 0.1)"
-        : "rgba(155, 89, 182, 0.05)",
-      borderRadius: 10,
-    },
-    loadMoreText: {
-      fontSize: 14,
-      color: themeColor,
-      fontWeight: "500",
-    },
-    headerTitleContainer: {
-      alignItems: "center",
-    },
-    headerSubtitle: {
-      color: isDark ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.85)",
-      fontSize: 13,
-      marginTop: 2,
-    },
-    sectionDivider: {
-      height: 1,
-      backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-      marginHorizontal: 15,
-      marginVertical: 8,
-    },
+    return nextCustomers;
+  }, [customers, paymentFilter, searchQuery, sortBy, sortDirection]);
 
-    callModalOverlay: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.5)",
-      justifyContent: "flex-end", // Modal appears from bottom
-    },
-    callModalContainer: {
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      paddingVertical: 20,
-      paddingHorizontal: 5,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: -3 },
-      shadowOpacity: 0.2,
-      shadowRadius: 5,
-      elevation: 10,
-      // Make it fully opaque for better visibility in dark mode
-      // backgroundColor: "#FFFFFF", // Remove this line as we set it conditionally
-    },
-    callModalHeader: {
-      paddingHorizontal: 20,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 15,
-    },
-    callModalTitle: {
-      fontSize: 20,
-      fontWeight: "600",
-    },
-    callModalCloseButton: {
-      padding: 5,
-    },
-    callModalSubtitle: {
-      fontSize: 14,
-      marginBottom: 20,
-      paddingHorizontal: 20,
-    },
-    callOptionsContainer: {
-      marginBottom: 20,
-    },
-    callOption: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingVertical: 12,
-      paddingHorizontal: 20,
-      borderBottomWidth: 1,
-    },
-    callOptionIconContainer: {
-      marginRight: 16,
-    },
-    callOptionIcon: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    callOptionContent: {
-      flex: 1,
-    },
-    callOptionLabel: {
-      fontSize: 16,
-      fontWeight: "600",
-      marginBottom: 3,
-    },
-    callOptionNumber: {
-      fontSize: 14,
-    },
-    cancelButton: {
-      alignSelf: "center",
-      paddingVertical: 15,
-      paddingHorizontal: 40,
-      borderRadius: 12,
-      backgroundColor: "rgba(155, 89, 182, 0.1)",
-      marginTop: 5,
-    },
-    cancelButtonText: {
-      color: themeColor,
-      fontSize: 16,
-      fontWeight: "500",
-    },
-  });
+  const summaryCards = useMemo(
+    () => [
+      {
+        label: "Visible Accounts",
+        value: `${filteredAndSortedCustomers.length}`,
+      },
+      {
+        label: "Outstanding",
+        value: `${filteredAndSortedCustomers.filter((item) => item.balance > 0).length}`,
+      },
+      {
+        label: "New Accounts",
+        value: `${filteredAndSortedCustomers.filter((item) => item.isNew).length}`,
+      },
+    ],
+    [filteredAndSortedCustomers]
+  );
 
-  const CustomerCard = React.memo(
-    ({
-      item,
-      viewCustomerDetails,
-      formatIndianNumber,
-      callCustomer,
-      router,
-      isDark,
-      colors,
-      themeColor,
-    }) => {
+  const sortOptions = useMemo<
+    { field: SortField; label: string; hint?: string }[]
+  >(
+    () => [
+      { field: "name", label: "Name" },
+      { field: "orders", label: "Orders" },
+      { field: "date", label: "Recent" },
+      { field: "spend", label: "Spending" },
+      { field: "balance", label: "Payment" },
+    ],
+    []
+  );
+
+  const renderCustomerCard = useCallback(
+    ({ item }: { item: CustomerRecord }) => {
+      const accentColor = item.isNew
+        ? colors.accentBlue
+        : item.balance > 0
+        ? colors.accentRed
+        : item.balance < 0
+        ? colors.accentGreen
+        : colors.accentBlue;
+
+      const badgeLabel = item.isNew
+        ? "New"
+        : item.balance > 0
+        ? "Outstanding"
+        : item.balance < 0
+        ? "Advance"
+        : "Active";
+
+      const badgeBackground = item.isNew
+        ? isDark
+          ? "rgba(0,102,255,0.18)"
+          : "rgba(0,102,255,0.08)"
+        : item.balance > 0
+        ? isDark
+          ? "rgba(248,113,113,0.18)"
+          : "rgba(248,113,113,0.09)"
+        : item.balance < 0
+        ? isDark
+          ? "rgba(74,222,128,0.18)"
+          : "rgba(74,222,128,0.09)"
+        : isDark
+        ? "rgba(255,255,255,0.08)"
+        : "rgba(15,23,42,0.05)";
+
+      const balanceLabel =
+        item.balance > 0
+          ? "Outstanding balance"
+          : item.balance < 0
+          ? "Advance on account"
+          : "Ledger position";
+      const balanceValue =
+        item.balance === 0 ? "Settled" : `₹${item.formattedBalance}`;
+
       return (
         <TouchableOpacity
-          style={[
-            styles.customerCard,
-            item.isNew && { borderLeftWidth: 3, borderLeftColor: "#3498db" },
-          ]}
-          onPress={() => viewCustomerDetails(item)}
+          activeOpacity={0.92}
+          onPress={() => openCustomerDetails(item)}
+          style={styles.customerCard}
         >
-          <View style={styles.customerHeader}>
-            <Text style={styles.customerName}>
-              {item.name}
-              {item.isNew && (
-                <Text
-                  style={{
-                    color: "#3498db",
-                    fontSize: 13,
-                    fontWeight: "normal",
-                  }}
-                >
-                  {" "}
-                  (No Order History)
+          <View style={styles.customerTopRow}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{getInitials(item.name)}</Text>
+            </View>
+
+            <View style={styles.identityColumn}>
+              <View style={styles.identityRow}>
+                <Text numberOfLines={2} style={styles.customerName}>
+                  {item.name}
                 </Text>
-              )}
-            </Text>
-            <View style={styles.statsTag}>
-              <Text style={styles.statsTagText}>{item.orderCount} orders</Text>
-            </View>
-          </View>
 
-          {item.code && (
-            <View style={styles.customerDetailRow}>
-              <Ionicons
-                name="barcode-outline"
-                size={16}
-                color={isDark ? colors.textSecondary : "#666"}
-              />
-              <Text style={styles.detailText}>Code: {item.code}</Text>
-            </View>
-          )}
+                <View
+                  style={[
+                    styles.statusPill,
+                    {
+                      backgroundColor: badgeBackground,
+                      borderColor: accentColor,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.statusText, { color: accentColor }]}>
+                    {badgeLabel}
+                  </Text>
+                </View>
+              </View>
 
-          {item.balance !== 0 && (
-            <View style={styles.customerDetailRow}>
-              <Ionicons
-                name={item.hasCredit ? "wallet-outline" : "cash-outline"}
-                size={16}
-                color={item.hasCredit ? "#27ae60" : "#e74c3c"}
-              />
-              <Text
-                style={[
-                  styles.detailText,
-                  {
-                    color: item.hasCredit ? "#27ae60" : "#e74c3c",
-                    fontWeight: "500",
-                  },
-                ]}
-              >
-                {item.hasCredit
-                  ? `Advance Payment: ₹${item.formattedBalance}`
-                  : `Outstanding: ₹${item.formattedBalance}`}
+              <Text numberOfLines={2} style={styles.customerSubtext}>
+                {item.code
+                  ? `ID ${item.code}`
+                  : "Customer master record"}{" "}
+                · Last order {item.lastOrderDate || "No orders yet"}
               </Text>
             </View>
-          )}
 
-          {/* Divider */}
-          {item.balance !== 0 && (
-            <View
-              style={{
-                height: 2,
-                backgroundColor: isDark ? "#444" : "#ddd",
-                marginTop: 10,
-                marginBottom: 10,
-                width: "100%",
-                alignSelf: "center",
-              }}
-            />
-          )}
-
-          <View style={styles.customerDetailRow}>
             <Ionicons
-              name="calendar-outline"
-              size={16}
-              color={isDark ? colors.textSecondary : "#666"}
+              color={colors.textSecondary}
+              name="chevron-forward"
+              size={18}
             />
-            <Text style={styles.detailText}>
-              Last order: {item.lastOrderDate || "N/A"}
-            </Text>
           </View>
 
-          {!item.isNew && (
-            <View style={styles.customerDetailRow}>
+          <View style={styles.balancePanel}>
+            <View style={styles.balanceRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.balanceLabel}>{balanceLabel}</Text>
+                <Text style={[styles.balanceValue, { color: accentColor }]}>
+                  {balanceValue}
+                </Text>
+              </View>
+
+              <View style={styles.balanceMetaColumn}>
+                <Text style={styles.balanceMetaLabel}>Orders tracked</Text>
+                <Text style={styles.balanceMetaValue}>{item.orderCount}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.metaGrid}>
+            <View style={styles.metaPill}>
               <Ionicons
+                color={colors.textSecondary}
+                name="calendar-outline"
+                size={16}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.metaLabel}>Last order</Text>
+                <Text numberOfLines={2} style={styles.metaValue}>
+                  {item.lastOrderDate || "No orders yet"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.metaPill}>
+              <Ionicons
+                color={colors.textSecondary}
                 name="pricetag-outline"
                 size={16}
-                color={isDark ? colors.textSecondary : "#666"}
               />
-              <Text style={styles.detailText}>
-                Total spend: ₹{formatIndianNumber(item.totalSpend)}
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.metaLabel}>Lifetime spend</Text>
+                <Text numberOfLines={1} style={styles.metaValue}>
+                  ₹{formatIndianNumber(item.totalSpend)}
+                </Text>
+              </View>
             </View>
-          )}
 
-          {!item.isNew && (
-            <View style={styles.customerDetailRow}>
+            <View style={styles.metaPill}>
               <Ionicons
+                color={colors.textSecondary}
                 name="cube-outline"
                 size={16}
-                color={isDark ? colors.textSecondary : "#666"}
               />
-              <Text style={styles.detailText}>
-                Products: {item.productCount} different items
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.metaLabel}>Product mix</Text>
+                <Text style={styles.metaValue}>
+                  {item.productCount || 0} SKUs
+                </Text>
+              </View>
             </View>
-          )}
+          </View>
 
           <View style={styles.actionsRow}>
             <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: "#3498db" }]}
+              activeOpacity={0.85}
               onPress={() => callCustomer(item)}
+              style={[styles.actionButton, styles.actionButtonMuted]}
             >
-              <Ionicons name="call-outline" size={18} color="#fff" />
-              <Text style={styles.actionText}>Call</Text>
+              <Ionicons color={colors.text} name="call-outline" size={16} />
+              <Text style={styles.actionButtonTextMuted}>Call</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: "#27ae60" }]}
+              activeOpacity={0.85}
               onPress={() =>
                 router.push(
                   "/(app)/new-order?customer=" + encodeURIComponent(item.name)
                 )
               }
+              style={[styles.actionButton, styles.actionButtonPrimary]}
             >
-              <Ionicons name="add-outline" size={18} color="#fff" />
-              <Text style={styles.actionText}>New Order</Text>
+              <Ionicons
+                color={isDark ? colors.background : "#ffffff"}
+                name="add-outline"
+                size={16}
+              />
+              <Text style={styles.actionButtonTextOnDark}>New Order</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: themeColor }]}
-              onPress={() => viewCustomerDetails(item)}
+              activeOpacity={0.85}
+              onPress={() => openCustomerDetails(item)}
+              style={[styles.actionButton, styles.actionButtonSecondary]}
             >
-              <Ionicons name="information-outline" size={18} color="#fff" />
-              <Text style={styles.actionText}>Details</Text>
+              <Ionicons color="#ffffff" name="layers-outline" size={16} />
+              <Text style={styles.actionButtonTextSecondary}>Profile</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
       );
-    }
+    },
+    [callCustomer, colors, isDark, openCustomerDetails, styles]
   );
 
-  return (
-    <View style={styles.container}>
-      <StatusBar barStyle={isDark ? "light-content" : "light-content"} />
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} style={styles.iconStyle} />
+  const headerComponent = (
+    <View style={styles.headerShell}>
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => router.back()}
+          style={styles.iconButton}
+        >
+          <Ionicons color={colors.text} name="arrow-back" size={18} />
         </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Customers</Text>
-          {!loading && !refreshing && (
-            <Text style={styles.headerSubtitle}>
-              {filteredAndSortedCustomers.length} customers
-            </Text>
-          )}
+
+        <View style={styles.headerMeta}>
+          <Text style={styles.eyebrow}>OMA Customer Flow</Text>
+          <Text style={styles.headerTitle}>Client Roster</Text>
+          <Text style={styles.headerSubtitle}>
+            Live master, payment, and order history
+          </Text>
         </View>
-        <TouchableOpacity onPress={toggleTheme}>
+
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={toggleTheme}
+          style={styles.iconButton}
+        >
           <Ionicons
-            name={isDark ? "sunny" : "moon"}
-            size={24}
-            style={styles.iconStyle}
+            color={colors.text}
+            name={isDark ? "sunny-outline" : "moon-outline"}
+            size={18}
           />
         </TouchableOpacity>
       </View>
-      {/* Search bar */}
-      <View style={styles.searchContainer}>
-        <Ionicons
-          name="search"
-          size={20}
-          color={isDark ? colors.textSecondary : "#666"}
-        />
+
+      <View style={styles.introCard}>
+        <View style={styles.introGlow} />
+
+        <View style={styles.introRow}>
+          <Text style={styles.introLabel}>Accounts snapshot</Text>
+          <View style={styles.introCountChip}>
+            <Text style={styles.introCountText}>
+              {filteredAndSortedCustomers.length} visible
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.introHeading}>
+          Cleaner scanning for dense customer books.
+        </Text>
+        <Text style={styles.introBody}>
+          Search by name or code, isolate payment position fast, and drop into a
+          richer detail view without losing the live OMA data shape.
+        </Text>
+
+        <View style={styles.summaryGrid}>
+          {summaryCards.map((card) => (
+            <View key={card.label} style={styles.summaryCard}>
+              <Text style={styles.summaryValue}>{card.value}</Text>
+              <Text style={styles.summaryLabel}>{card.label}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <Text style={styles.sectionLabel}>Search</Text>
+      <View style={styles.searchShell}>
+        <Ionicons color={colors.textSecondary} name="search-outline" size={18} />
+
         <TextInput
-          style={styles.searchInput}
-          placeholder="Search customers by name or code..."
-          placeholderTextColor={
-            isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)"
-          }
-          value={searchQuery}
           onChangeText={(text) => {
             setSearchQuery(text);
-            debouncedSearch(text);
+            setDisplayLimit(20);
           }}
+          placeholder="Search by client name or ID..."
+          placeholderTextColor={colors.textPlaceholder}
+          style={styles.searchInput}
+          value={searchQuery}
         />
-        {searchQuery ? (
-          <TouchableOpacity onPress={() => setSearchQuery("")}>
+
+        {searchingMaster ? (
+          <ActivityIndicator color={colors.primary} size="small" />
+        ) : searchQuery ? (
+          <TouchableOpacity activeOpacity={0.8} onPress={() => setSearchQuery("")}>
             <Ionicons
+              color={colors.textSecondary}
               name="close-circle"
-              size={20}
-              color={isDark ? colors.textSecondary : "#666"}
+              size={18}
             />
           </TouchableOpacity>
         ) : null}
       </View>
-      {/* ADD THE PAYMENT FILTER BUTTONS HERE */}
-      <View style={styles.filterContainer}>
-        <TouchableOpacity
-          style={[
-            styles.filterButton,
-            paymentFilter === "all" && styles.activeFilterButton,
-          ]}
-          onPress={() => setPaymentFilter("all")}
-        >
-          <Text
-            style={[
-              styles.filterText,
-              paymentFilter === "all" && styles.activeFilterText,
-            ]}
-          >
-            All
-          </Text>
-        </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.filterButton,
-            paymentFilter === "due" && styles.activeFilterButton,
-          ]}
-          onPress={() => setPaymentFilter("due")}
-        >
-          <Text
-            style={[
-              styles.filterText,
-              paymentFilter === "due" && styles.activeFilterText,
-            ]}
-          >
-            Outstanding
-          </Text>
-        </TouchableOpacity>
+      <Text style={styles.sectionLabel}>Payment Filter</Text>
+      <ScrollView
+        contentContainerStyle={styles.chipRow}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+      >
+        {[
+          { id: "all", label: "All Accounts" },
+          { id: "due", label: "Outstanding" },
+          { id: "credit", label: "Advance Payment" },
+        ].map((filter) => {
+          const active = paymentFilter === filter.id;
 
-        <TouchableOpacity
-          style={[
-            styles.filterButton,
-            paymentFilter === "credit" && styles.activeFilterButton,
-          ]}
-          onPress={() => setPaymentFilter("credit")}
-        >
-          <Text
-            style={[
-              styles.filterText,
-              paymentFilter === "credit" && styles.activeFilterText,
-            ]}
-          >
-            Advance Payment
+          return (
+            <TouchableOpacity
+              key={filter.id}
+              activeOpacity={0.88}
+              onPress={() => setPaymentFilter(filter.id as PaymentFilter)}
+              style={[styles.chip, active && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                {filter.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+
+      <View style={styles.sortCard}>
+        <View style={styles.sortRow}>
+          <Text style={styles.sortTitle}>Sort customers</Text>
+          <Text style={styles.sortHint}>
+            {sortDirection === "asc" ? "Ascending" : "Descending"}
           </Text>
-        </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          contentContainerStyle={styles.sortChipRow}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {sortOptions.map((option) => {
+            const active = sortBy === option.field;
+            return (
+              <TouchableOpacity
+                key={option.field}
+                activeOpacity={0.9}
+                onPress={() => {
+                  if (sortBy === option.field) {
+                    setSortDirection((current) =>
+                      current === "asc" ? "desc" : "asc"
+                    );
+                  } else {
+                    setSortBy(option.field);
+                    setSortDirection(
+                      option.field === "name" ? "asc" : "desc"
+                    );
+                  }
+                }}
+                style={[styles.sortChip, active && styles.sortChipActive]}
+              >
+                <Text
+                  style={[
+                    styles.sortChipText,
+                    active && styles.sortChipTextActive,
+                  ]}
+                >
+                  {option.label}
+                  {active
+                    ? sortDirection === "asc"
+                      ? " ↑"
+                      : " ↓"
+                    : ""}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
+    </View>
+  );
 
-      {/* Divider Line */}
-      <View style={[styles.divider, { marginVertical: 6 }]} />
-      {/* Sort controls */}
-      <View style={styles.sortControls}>
-        <TouchableOpacity
-          style={styles.sortButton}
-          onPress={() => {
-            if (sortBy === "name") {
-              setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-            } else {
-              setSortBy("name");
-              setSortDirection("asc");
-            }
-          }}
-        >
-          <Text
-            style={[
-              styles.sortText,
-              sortBy === "name" && styles.activeSortText,
-            ]}
-          >
-            Name{" "}
-            {sortBy === "name" && (sortDirection === "asc" ? "(A-Z)" : "(Z-A)")}
-          </Text>
-          {sortBy === "name" && (
-            <Ionicons
-              name={sortDirection === "asc" ? "arrow-down" : "arrow-up"}
-              size={14}
-              color={themeColor}
-            />
-          )}
-        </TouchableOpacity>
+  const selectedAccent = selectedCustomer
+    ? selectedCustomer.isNew
+      ? colors.accentBlue
+      : selectedCustomer.balance > 0
+      ? colors.accentRed
+      : selectedCustomer.balance < 0
+      ? colors.accentGreen
+      : colors.accentBlue
+    : colors.accentBlue;
 
-        <TouchableOpacity
-          style={styles.sortButton}
-          onPress={() => {
-            if (sortBy === "orders") {
-              setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-            } else {
-              setSortBy("orders");
-              setSortDirection("desc");
-            }
-          }}
-        >
-          <Text
-            style={[
-              styles.sortText,
-              sortBy === "orders" && styles.activeSortText,
-            ]}
-          >
-            Orders
-          </Text>
-          {sortBy === "orders" && (
-            <Ionicons
-              name={sortDirection === "asc" ? "arrow-down" : "arrow-up"}
-              size={14}
-              color={themeColor}
-            />
-          )}
-        </TouchableOpacity>
+  const selectedBalanceLabel = selectedCustomer
+    ? selectedCustomer.balance > 0
+      ? "Outstanding balance"
+      : selectedCustomer.balance < 0
+      ? "Advance payment"
+      : "Ledger settled"
+    : "";
 
-        <TouchableOpacity
-          style={styles.sortButton}
-          onPress={() => {
-            if (sortBy === "date") {
-              setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-            } else {
-              setSortBy("date");
-              setSortDirection("desc");
-            }
-          }}
-        >
-          <Text
-            style={[
-              styles.sortText,
-              sortBy === "date" && styles.activeSortText,
-            ]}
-          >
-            Recent
-          </Text>
-          {sortBy === "date" && (
-            <Ionicons
-              name={sortDirection === "asc" ? "arrow-up" : "arrow-down"}
-              size={14}
-              color={themeColor}
-            />
-          )}
-        </TouchableOpacity>
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+      <View style={styles.topGlow} />
 
-        <TouchableOpacity
-          style={styles.sortButton}
-          onPress={() => {
-            if (sortBy === "spend") {
-              setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-            } else {
-              setSortBy("spend");
-              setSortDirection("desc");
-            }
-          }}
-        >
-          <Text
-            style={[
-              styles.sortText,
-              sortBy === "spend" && styles.activeSortText,
-            ]}
-          >
-            Spending
-          </Text>
-          {sortBy === "spend" && (
-            <Ionicons
-              name={sortDirection === "asc" ? "arrow-down" : "arrow-up"}
-              size={14}
-              color={themeColor}
-            />
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.sortButton}
-          onPress={() => {
-            if (sortBy === "balance") {
-              setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-            } else {
-              setSortBy("balance");
-              setSortDirection("desc"); // Default to highest outstanding first
-            }
-          }}
-        >
-          <Text
-            style={[
-              styles.sortText,
-              sortBy === "balance" && styles.activeSortText,
-            ]}
-          >
-            Payment
-          </Text>
-          {sortBy === "balance" && (
-            <Ionicons
-              name={sortDirection === "asc" ? "arrow-down" : "arrow-up"}
-              size={14}
-              color={themeColor}
-            />
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* Customer list */}
       {loading ? (
         <LoadingIndicator message="Loading customers..." showTips={true} />
       ) : (
-        // Replace your current FlatList with this version
-
         <FlatList
+          contentContainerStyle={styles.listContent}
           data={filteredAndSortedCustomers.slice(0, displayLimit)}
-          renderItem={({ item }) => (
-            <CustomerCard
-              item={item}
-              viewCustomerDetails={viewCustomerDetails}
-              formatIndianNumber={formatIndianNumber}
-              callCustomer={callCustomer}
-              router={router}
-              isDark={isDark}
-              colors={colors}
-              themeColor={themeColor}
-            />
-          )}
-          keyExtractor={(item) => item.name}
-          contentContainerStyle={{ paddingBottom: 20 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              colors={[themeColor]}
-            />
+          keyExtractor={(item) => item.code || item.name}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Ionicons
+                color={colors.textPlaceholder}
+                name="people-outline"
+                size={54}
+              />
+              <Text style={styles.emptyTitle}>No matching accounts</Text>
+              <Text style={styles.emptyBody}>
+                Try a different customer name, code, or payment filter.
+              </Text>
+            </View>
           }
-          ListFooterComponent={() =>
+          ListFooterComponent={
             displayLimit < filteredAndSortedCustomers.length ? (
               <TouchableOpacity
+                activeOpacity={0.88}
+                onPress={() => setDisplayLimit((current) => current + 20)}
                 style={styles.loadMoreButton}
-                onPress={() => setDisplayLimit((prev) => prev + 20)}
               >
                 <Text style={styles.loadMoreText}>
-                  Show More ({filteredAndSortedCustomers.length - displayLimit}{" "}
-                  remaining)
+                  Show {filteredAndSortedCustomers.length - displayLimit} more
+                  accounts
                 </Text>
               </TouchableOpacity>
             ) : null
           }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons
-                name="people-outline"
-                size={60}
-                color={isDark ? "rgba(255,255,255,0.2)" : "#ccc"}
-              />
-              <Text style={styles.emptyText}>
-                No customers found
-                {searchQuery ? ` matching "${searchQuery}"` : ""}
-              </Text>
-            </View>
+          ListHeaderComponent={headerComponent}
+          refreshControl={
+            <RefreshControl
+              colors={[colors.primary]}
+              onRefresh={handleRefresh}
+              refreshing={refreshing}
+              tintColor={colors.primary}
+            />
           }
+          renderItem={renderCustomerCard}
+          showsVerticalScrollIndicator={false}
         />
       )}
-      {/* Customer Details Modal */}
+
       <Modal
-        animationType="fade"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+        animationType="slide"
+        onRequestClose={() => setSelectedCustomer(null)}
+        visible={Boolean(selectedCustomer)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            {selectedCustomer && (
-              <>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>{selectedCustomer.name}</Text>
-                  <TouchableOpacity
-                    style={styles.closeButton}
-                    onPress={() => setModalVisible(false)}
-                  >
-                    <Ionicons
-                      name="close"
-                      size={24}
-                      color={isDark ? colors.text : "#333"}
-                    />
-                  </TouchableOpacity>
+        {selectedCustomer ? (
+          <View style={styles.detailScreen}>
+            <View style={styles.topGlow} />
+
+            <View style={styles.detailHeader}>
+              <View style={styles.detailHeaderRow}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => setSelectedCustomer(null)}
+                  style={styles.iconButton}
+                >
+                  <Ionicons color={colors.text} name="arrow-back" size={18} />
+                </TouchableOpacity>
+
+                <View style={styles.detailHeaderInfo}>
+                  <Text numberOfLines={1} style={styles.detailHeaderTitle}>
+                    {selectedCustomer.name}
+                  </Text>
+                  <Text style={styles.detailHeaderCode}>
+                    {selectedCustomer.code || "No customer code"}
+                  </Text>
                 </View>
 
-                {/* Only one FlatList component */}
-                <FlatList
-                  data={[1]} // Just a dummy item to use FlatList for scrolling
-                  renderItem={() => (
-                    <View style={styles.modalBody}>
-                      {/* Customer Stats */}
-                      <Text style={styles.sectionTitle}>Overview</Text>
-                      <View style={styles.infoRow}>
-                        <Text style={styles.infoLabel}>Customer Code:</Text>
-                        <Text style={styles.infoValue}>
+                <View
+                  style={[
+                    styles.statusPill,
+                    {
+                      backgroundColor: isDark
+                        ? "rgba(255,255,255,0.08)"
+                        : "rgba(17,17,17,0.05)",
+                      borderColor: selectedAccent,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.statusText, { color: selectedAccent }]}>
+                    {selectedCustomer.isNew
+                      ? "New"
+                      : selectedCustomer.balance > 0
+                      ? "Outstanding"
+                      : selectedCustomer.balance < 0
+                      ? "Advance"
+                      : "Active"}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.detailHero}>
+                <View style={styles.detailHeroGlow} />
+                <Text style={styles.detailHeroLabel}>{selectedBalanceLabel}</Text>
+                <Text style={styles.detailHeroValue}>
+                  {selectedCustomer.balance === 0
+                    ? "Settled"
+                    : `₹${selectedCustomer.formattedBalance}`}
+                </Text>
+                <Text style={styles.detailHeroSubtext}>
+                  Real OMA customer master, payment position, product footprint,
+                  and latest order activity in a denser mobile layout.
+                </Text>
+
+                <View style={styles.detailHeroStatsRow}>
+                  <View style={styles.detailHeroStat}>
+                    <Text style={styles.detailHeroStatLabel}>Orders</Text>
+                    <Text style={styles.detailHeroStatValue}>
+                      {selectedCustomer.orderCount}
+                    </Text>
+                  </View>
+                  <View style={styles.detailHeroStat}>
+                    <Text style={styles.detailHeroStatLabel}>Spend</Text>
+                    <Text style={styles.detailHeroStatValue}>
+                      ₹{formatIndianNumber(selectedCustomer.totalSpend)}
+                    </Text>
+                  </View>
+                  <View style={styles.detailHeroStat}>
+                    <Text style={styles.detailHeroStatLabel}>Products</Text>
+                    <Text style={styles.detailHeroStatValue}>
+                      {selectedCustomer.productCount}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.detailHeroActions}>
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    onPress={() => callCustomer(selectedCustomer)}
+                    style={[
+                      styles.detailHeroAction,
+                      styles.detailHeroActionSecondary,
+                    ]}
+                  >
+                    <Ionicons color="#ffffff" name="call-outline" size={16} />
+                    <Text style={styles.detailHeroActionTextSecondary}>Call</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    onPress={() =>
+                      router.push(
+                        "/(app)/new-order?customer=" +
+                          encodeURIComponent(selectedCustomer.name)
+                      )
+                    }
+                    style={[
+                      styles.detailHeroAction,
+                      styles.detailHeroActionPrimary,
+                    ]}
+                  >
+                    <Ionicons color="#111111" name="add-outline" size={16} />
+                    <Text style={styles.detailHeroActionTextPrimary}>
+                      New Order
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.tabRow}>
+              {[
+                { id: "overview", label: "Overview" },
+                { id: "activity", label: "Activity" },
+                { id: "contacts", label: "Contacts" },
+              ].map((tab) => {
+                const active = detailTab === tab.id;
+                return (
+                  <TouchableOpacity
+                    key={tab.id}
+                    activeOpacity={0.88}
+                    onPress={() => setDetailTab(tab.id as DetailTab)}
+                    style={[styles.tabButton, active && styles.tabButtonActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.tabButtonText,
+                        active && styles.tabButtonTextActive,
+                      ]}
+                    >
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <ScrollView
+              contentContainerStyle={styles.detailScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {detailTab === "overview" ? (
+                <>
+                  <View style={styles.detailSectionCard}>
+                    <Text style={styles.detailSectionTitle}>Performance</Text>
+
+                    <View style={styles.detailStatsGrid}>
+                      <View style={styles.detailStatCard}>
+                        <Text style={styles.detailStatLabel}>Customer code</Text>
+                        <Text style={styles.detailStatValue}>
+                          {selectedCustomer.code || "Not assigned"}
+                        </Text>
+                      </View>
+
+                      <View style={styles.detailStatCard}>
+                        <Text style={styles.detailStatLabel}>Last order</Text>
+                        <Text
+                          style={[
+                            styles.detailStatValue,
+                            styles.detailStatValueSmall,
+                          ]}
+                        >
+                          {selectedCustomer.lastOrderDate || "No orders yet"}
+                        </Text>
+                      </View>
+
+                      <View style={styles.detailStatCard}>
+                        <Text style={styles.detailStatLabel}>Sales reps</Text>
+                        <Text style={styles.detailStatValue}>
+                          {selectedCustomer.salesReps.length || 0}
+                        </Text>
+                      </View>
+
+                      <View style={styles.detailStatCard}>
+                        <Text style={styles.detailStatLabel}>Order sources</Text>
+                        <Text style={styles.detailStatValue}>
+                          {selectedCustomer.sources.length || 0}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {selectedCustomer.isNew ? (
+                    <View style={styles.detailSectionCard}>
+                      <Text style={styles.detailSectionTitle}>
+                        Ready for first conversion
+                      </Text>
+                      <View style={styles.infoCard}>
+                        <Text style={styles.infoCardText}>
+                          This account exists in the live customer master, but no
+                          order history has been recorded yet.
+                        </Text>
+                        <TouchableOpacity
+                          activeOpacity={0.88}
+                          onPress={() =>
+                            router.push(
+                              "/(app)/new-order?customer=" +
+                                encodeURIComponent(selectedCustomer.name)
+                            )
+                          }
+                          style={styles.infoCardAction}
+                        >
+                          <Text style={styles.infoCardActionText}>
+                            Create first order
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : null}
+                </>
+              ) : null}
+
+              {detailTab === "activity" ? (
+                <>
+                  <View style={styles.detailSectionCard}>
+                    <Text style={styles.detailSectionTitle}>Products ordered</Text>
+                    {selectedCustomer.products.length ? (
+                      <View style={styles.chipWrap}>
+                        {selectedCustomer.products.map((product) => (
+                          <View key={product} style={styles.detailTag}>
+                            <Text style={styles.detailTagText}>{product}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={styles.infoCard}>
+                        <Text style={styles.infoCardText}>
+                          No product history available yet for this account.
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.detailSectionCard}>
+                    <Text style={styles.detailSectionTitle}>Order sources</Text>
+                    {selectedCustomer.sources.length ? (
+                      <View style={styles.chipWrap}>
+                        {selectedCustomer.sources.map((source) => (
+                          <View key={source} style={styles.detailTag}>
+                            <Text style={styles.detailTagText}>
+                              {source || "App"}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={styles.infoCard}>
+                        <Text style={styles.infoCardText}>
+                          No source signals have been captured for this customer
+                          yet.
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.detailSectionCard}>
+                    <Text style={styles.detailSectionTitle}>Sales coverage</Text>
+                    {selectedCustomer.salesReps.length ? (
+                      <View style={styles.chipWrap}>
+                        {selectedCustomer.salesReps.map((rep) => (
+                          <View key={rep} style={styles.detailTag}>
+                            <Text style={styles.detailTagText}>{rep}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={styles.infoCard}>
+                        <Text style={styles.infoCardText}>
+                          No sales-rep activity is attached to this account yet.
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </>
+              ) : null}
+
+              {detailTab === "contacts" ? (
+                <>
+                  <View style={styles.detailSectionCard}>
+                    <Text style={styles.detailSectionTitle}>Reach the buyer</Text>
+                    {selectedCustomer.contacts.length ? (
+                      selectedCustomer.contacts.map((contact, index) => (
+                        <TouchableOpacity
+                          key={`${contact.number}-${index}`}
+                          activeOpacity={0.88}
+                          onPress={() => void Linking.openURL(`tel:${contact.number}`)}
+                          style={styles.contactRow}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.contactLabel}>
+                              {contact.label || `Phone ${index + 1}`}
+                            </Text>
+                            <Text style={styles.contactValue}>{contact.number}</Text>
+                          </View>
+
+                          <Ionicons
+                            color={colors.primary}
+                            name="call-outline"
+                            size={18}
+                          />
+                        </TouchableOpacity>
+                      ))
+                    ) : (
+                      <View style={styles.infoCard}>
+                        <Text style={styles.infoCardText}>
+                          No contact numbers are stored in the live customer
+                          master for this account.
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.detailSectionCard}>
+                    <Text style={styles.detailSectionTitle}>Record snapshot</Text>
+                    <View style={styles.detailStatsGrid}>
+                      <View style={styles.detailStatCard}>
+                        <Text style={styles.detailStatLabel}>Customer code</Text>
+                        <Text style={styles.detailStatValue}>
                           {selectedCustomer.code || "Not available"}
                         </Text>
                       </View>
 
-                      {/* Add the contact information section here */}
-
-                      {selectedCustomer.contacts &&
-                        selectedCustomer.contacts.length > 0 && (
-                          <>
-                            <Text style={styles.sectionTitle}>
-                              Contact Information
-                            </Text>
-                            {selectedCustomer.contacts.map((contact, index) => (
-                              <View key={index} style={styles.infoRow}>
-                                <Text style={styles.infoLabel}>
-                                  {contact.label || `Phone ${index + 1}`}:
-                                </Text>
-                                <TouchableOpacity
-                                  onPress={() =>
-                                    Linking.openURL(`tel:${contact.number}`)
-                                  }
-                                >
-                                  <Text
-                                    style={[
-                                      styles.infoValue,
-                                      { color: "#3498db" },
-                                    ]}
-                                  >
-                                    {contact.number}
-                                  </Text>
-                                </TouchableOpacity>
-                              </View>
-                            ))}
-                            <View style={styles.divider} />
-                          </>
-                        )}
-                      {/* Payment details */}
-                      {selectedCustomer.balance !== 0 && (
-                        <View style={styles.infoRow}>
-                          <Text style={styles.infoLabel}>Payment Status:</Text>
-                          {selectedCustomer.balance !== 0 ? (
-                            <Text
-                              style={[
-                                styles.infoValue,
-                                {
-                                  color: selectedCustomer.hasCredit
-                                    ? "#27ae60"
-                                    : "#e74c3c",
-                                  fontWeight: "600",
-                                },
-                              ]}
-                            >
-                              {selectedCustomer.hasCredit
-                                ? `Advance Payment: ₹${selectedCustomer.formattedBalance}`
-                                : `Outstanding: ₹${selectedCustomer.formattedBalance}`}
-                            </Text>
-                          ) : (
-                            <Text style={styles.infoValue}>
-                              No outstanding balance
-                            </Text>
-                          )}
-                        </View>
-                      )}
-                      {selectedCustomer.isNew ? (
-                        <View style={styles.newCustomerInfo}>
-                          <Ionicons
-                            name="information-circle"
-                            size={24}
-                            color="#3498db"
-                            style={{ marginBottom: 10 }}
-                          />
-                          <Text
-                            style={{
-                              fontSize: 15,
-                              color: isDark ? "#bbb" : "#555",
-                              textAlign: "center",
-                              marginBottom: 10,
-                            }}
-                          >
-                            This customer exists in your master database but
-                            hasn't placed any orders yet.
-                          </Text>
-                          <TouchableOpacity
-                            style={{
-                              backgroundColor: "#27ae60",
-                              paddingVertical: 8,
-                              paddingHorizontal: 15,
-                              borderRadius: 8,
-                              marginTop: 10,
-                            }}
-                            onPress={() => {
-                              setModalVisible(false);
-                              router.push(
-                                "/(app)/new-order?customer=" +
-                                  encodeURIComponent(selectedCustomer.name)
-                              );
-                            }}
-                          >
-                            <Text style={{ color: "#fff", fontWeight: "500" }}>
-                              Create First Order
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : (
-                        <>
-                          <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Total Orders:</Text>
-                            <Text style={styles.infoValue}>
-                              {selectedCustomer.orderCount}
-                            </Text>
-                          </View>
-
-                          <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Total Spend:</Text>
-                            <Text style={styles.infoValue}>
-                              ₹{formatIndianNumber(selectedCustomer.totalSpend)}
-                            </Text>
-                          </View>
-
-                          <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Last Order:</Text>
-                            <Text style={styles.infoValue}>
-                              {selectedCustomer.lastOrderDate || "N/A"}
-                            </Text>
-                          </View>
-
-                          <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Products:</Text>
-                            <Text style={styles.infoValue}>
-                              {selectedCustomer.productCount} different items
-                            </Text>
-                          </View>
-
-                          <View style={styles.divider} />
-
-                          {/* Product History */}
-                          <Text style={styles.sectionTitle}>
-                            Products Ordered
-                          </Text>
-                          <View style={styles.pillsContainer}>
-                            {selectedCustomer.products.map((product, index) => (
-                              <View key={index} style={styles.pill}>
-                                <Text style={styles.pillText}>{product}</Text>
-                              </View>
-                            ))}
-                          </View>
-
-                          <View style={styles.divider} />
-
-                          {/* Sources and Sales Reps */}
-                          <Text style={styles.sectionTitle}>Order Sources</Text>
-                          <View style={styles.pillsContainer}>
-                            {selectedCustomer.sources.length > 0 ? (
-                              selectedCustomer.sources.map((source, index) => (
-                                <View key={index} style={styles.pill}>
-                                  <Text style={styles.pillText}>
-                                    {source || "App"}
-                                  </Text>
-                                </View>
-                              ))
-                            ) : (
-                              <Text style={styles.detailText}>
-                                No source information available
-                              </Text>
-                            )}
-                          </View>
-
-                          <View style={styles.divider} />
-
-                          <Text style={styles.sectionTitle}>
-                            Sales Representatives
-                          </Text>
-                          <View style={styles.pillsContainer}>
-                            {selectedCustomer.salesReps.map((rep, index) => (
-                              <View key={index} style={styles.pill}>
-                                <Text style={styles.pillText}>{rep}</Text>
-                              </View>
-                            ))}
-                          </View>
-                        </>
-                      )}
+                      <View style={styles.detailStatCard}>
+                        <Text style={styles.detailStatLabel}>Raw contact</Text>
+                        <Text
+                          style={[
+                            styles.detailStatValue,
+                            styles.detailStatValueSmall,
+                          ]}
+                        >
+                          {selectedCustomer.rawContact || "Not available"}
+                        </Text>
+                      </View>
                     </View>
-                  )}
-                  keyExtractor={() => "customer-details"}
-                />
-
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    style={[styles.modalAction, { backgroundColor: "#3498db" }]}
-                    onPress={() => {
-                      setModalVisible(false);
-                      callCustomer(selectedCustomer);
-                    }}
-                  >
-                    <Ionicons name="call-outline" size={20} color="#fff" />
-                    <Text style={styles.modalActionText}>Call</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.modalAction, { backgroundColor: "#27ae60" }]}
-                    onPress={() => {
-                      setModalVisible(false);
-                      router.push(
-                        "/(app)/new-order?customer=" +
-                          encodeURIComponent(selectedCustomer.name)
-                      );
-                    }}
-                  >
-                    <Ionicons name="add-outline" size={20} color="#fff" />
-                    <Text style={styles.modalActionText}>New Order</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
+                  </View>
+                </>
+              ) : null}
+            </ScrollView>
           </View>
-        </View>
+        ) : null}
       </Modal>
 
-      {/* Phone Call Selection Modal */}
       <Modal
-        transparent={true}
-        visible={callModalVisible}
         animationType="fade"
         onRequestClose={() => setCallModalVisible(false)}
+        transparent
+        visible={callModalVisible}
       >
-        <TouchableWithoutFeedback onPress={() => setCallModalVisible(false)}>
-          <View style={styles.callModalOverlay}>
-            <TouchableWithoutFeedback>
-              <View
-                style={[
-                  styles.callModalContainer,
-                  {
-                    backgroundColor: isDark ? colors.background : "#ffffff", // Use background instead of surfaceVariant
-                    borderTopColor: isDark
-                      ? "rgba(255,255,255,0.1)"
-                      : "transparent", // Add border for better visibility
-                    borderTopWidth: 1,
-                  },
-                ]}
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setCallModalVisible(false)}
+          style={styles.callSheetBackdrop}
+        >
+          <TouchableOpacity activeOpacity={1} style={styles.callSheet}>
+            <View style={styles.callSheetHandle} />
+            <Text style={styles.callSheetTitle}>
+              Call {customerToCall?.name || "Customer"}
+            </Text>
+            <Text style={styles.callSheetSubtitle}>
+              Choose the number you want to dial.
+            </Text>
+
+            {callOptions.map((contact, index) => (
+              <TouchableOpacity
+                key={`${contact.number}-${index}`}
+                activeOpacity={0.88}
+                onPress={() => {
+                  setCallModalVisible(false);
+                  void Linking.openURL(`tel:${contact.number}`);
+                }}
+                style={styles.callOption}
               >
-                <View style={styles.callModalHeader}>
-                  <Text
-                    style={[
-                      styles.callModalTitle,
-                      { color: isDark ? colors.text : "#333333" },
-                    ]}
-                  >
-                    Call {customerToCall?.name}
+                <View style={styles.callIcon}>
+                  <Ionicons color="#ffffff" name="call-outline" size={18} />
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.callOptionLabel}>
+                    {contact.label || `Phone ${index + 1}`}
                   </Text>
-                  <TouchableOpacity
-                    onPress={() => setCallModalVisible(false)}
-                    style={styles.callModalCloseButton}
-                  >
-                    <Ionicons
-                      name="close"
-                      size={24}
-                      color={isDark ? colors.textSecondary : "#999999"}
-                    />
-                  </TouchableOpacity>
+                  <Text style={styles.callOptionNumber}>{contact.number}</Text>
                 </View>
 
-                <Text
-                  style={[
-                    styles.callModalSubtitle,
-                    { color: isDark ? colors.textSecondary : "#666666" },
-                  ]}
-                >
-                  Select a phone number
-                </Text>
+                <Ionicons
+                  color={colors.textSecondary}
+                  name="chevron-forward"
+                  size={16}
+                />
+              </TouchableOpacity>
+            ))}
 
-                <View style={styles.callOptionsContainer}>
-                  {callOptions.map((contact, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={[
-                        styles.callOption,
-                        {
-                          borderBottomColor: isDark
-                            ? "rgba(255,255,255,0.15)"
-                            : "#f0f0f0", // Increase opacity
-                          backgroundColor: isDark
-                            ? "rgba(255,255,255,0.03)"
-                            : "transparent", // Add subtle highlight
-                        },
-                      ]}
-                      onPress={() => {
-                        setCallModalVisible(false);
-                        Linking.openURL(`tel:${contact.number}`);
-                      }}
-                    >
-                      <View style={styles.callOptionIconContainer}>
-                        <View
-                          style={[
-                            styles.callOptionIcon,
-                            { backgroundColor: "#3498db" },
-                          ]}
-                        >
-                          <Ionicons
-                            name={
-                              contact.label?.toLowerCase().includes("mobile")
-                                ? "phone-portrait"
-                                : contact.label?.toLowerCase().includes("home")
-                                ? "home"
-                                : contact.label
-                                    ?.toLowerCase()
-                                    .includes("office")
-                                ? "business"
-                                : "call"
-                            }
-                            size={22}
-                            color="#ffffff"
-                          />
-                        </View>
-                      </View>
-                      <View style={styles.callOptionContent}>
-                        <Text
-                          style={[
-                            styles.callOptionLabel,
-                            { color: isDark ? colors.text : "#333333" },
-                          ]}
-                        >
-                          {contact.label || `Phone ${index + 1}`}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.callOptionNumber,
-                            {
-                              color: isDark ? colors.textSecondary : "#666666",
-                            },
-                          ]}
-                        >
-                          {contact.number}
-                        </Text>
-                      </View>
-                      <Ionicons name="call" size={22} color="#3498db" />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={() => setCallModalVisible(false)}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
+            <TouchableOpacity
+              activeOpacity={0.88}
+              onPress={() => setCallModalVisible(false)}
+              style={styles.cancelButton}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </View>
   );
