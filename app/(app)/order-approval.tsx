@@ -1,380 +1,208 @@
-import React, { useState, useEffect, useContext } from "react";
-import { useMemo } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  SectionList,
-  TouchableOpacity,
   ActivityIndicator,
-  Alert,
-  StatusBar,
   Modal,
+  Pressable,
+  RefreshControl,
   ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
   TextInput,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
 } from "react-native";
-import {
-  scale,
-  isTablet,
-  screenWidth,
-  screenHeight,
-} from "../utils/responsive";
-
-import { useFeedback } from "../context/FeedbackContext";
-
 import { router } from "expo-router";
-import { ThemeContext } from "../context/ThemeContext";
-import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { fetchWithRetry, apiCache } from "../utils/apiManager";
-import LoadingIndicator from "../components/LoadingIndicator";
-
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ThemeContext } from "../context/ThemeContext";
+import { useFeedback } from "../context/FeedbackContext";
+import { omaTypography } from "../utils/typography";
 import {
-  fetchCustomerLedger,
+  BACKEND_URL,
+  apiCache,
+  fetchWithRetry,
+} from "../utils/apiManager";
+import LoadingIndicator from "../components/LoadingIndicator";
+import {
   calculateLedgerStats,
+  fetchCustomerLedger,
 } from "../utils/ledgerUtils";
 
-const BACKEND_URL = "https://oma-demo-server.onrender.com";
-// Helper function
-const formatIndianNumber = (num) => {
-  try {
-    // Handle all edge cases
-    if (num === undefined || num === null || num === "" || isNaN(num)) {
-      return "0.00";
-    }
+type ApprovalItem = {
+  productName: string;
+  quantity: string;
+  unit: string;
+  rate: string;
+  amount: string;
+  rowIndex: number;
+};
 
-    // Convert to number safely
-    let numValue =
-      typeof num === "string" && typeof num.replace === "function"
-        ? parseFloat(num.replace(/,/g, "")) || 0
-        : parseFloat(num) || 0;
+type ApprovalOrder = {
+  orderId: string;
+  date: string;
+  customerName: string;
+  user: string;
+  source: string;
+  orderComments: string;
+  managerComments: string;
+  approvalStatus: string;
+  dispatchStatus: string;
+  dispatchComments: string;
+  dispatchTime: string;
+  items: ApprovalItem[];
+  totalAmount: number;
+};
 
-    // Handle NaN
-    if (isNaN(numValue)) {
-      return "0.00";
-    }
+type LedgerEntry = {
+  Date?: string;
+  Description?: string;
+  Amount?: string | number;
+  DC?: string;
+  Company_Year?: string;
+  [key: string]: unknown;
+};
 
-    // Use toLocaleString for Indian formatting
-    return numValue.toLocaleString("en-IN", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  } catch (error) {
-    console.error("Error formatting number:", error, "Input:", num);
+type ReviewFilter = "all" | "pending" | "recheck";
+type SortOption = "date" | "amount" | "customer" | "source";
+
+const parseIndianDate = (dateStr: string) => {
+  if (!dateStr) {
+    return null;
+  }
+
+  const parts = dateStr.trim().split(/\s+/);
+  const datePart = parts[0];
+  const timePart = parts[1] || "";
+  const meridiem = (parts[2] || "").toUpperCase();
+  const [day, month, year] = datePart.split("/").map(Number);
+
+  if (!day || !month || !year) {
+    const fallback = new Date(dateStr);
+    return Number.isNaN(fallback.getTime()) ? null : fallback;
+  }
+
+  let hours = 0;
+  let minutes = 0;
+
+  if (timePart.includes(":")) {
+    const [hourPart, minutePart] = timePart.split(":").map(Number);
+    hours = hourPart || 0;
+    minutes = minutePart || 0;
+  }
+
+  if (meridiem === "PM" && hours < 12) {
+    hours += 12;
+  }
+
+  if (meridiem === "AM" && hours === 12) {
+    hours = 0;
+  }
+
+  const parsed = new Date(year, month - 1, day, hours, minutes, 0, 0);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatDateChip = (dateStr: string) => {
+  const parsed = parseIndianDate(dateStr);
+  if (!parsed) {
+    return "Unknown";
+  }
+
+  return `${String(parsed.getDate()).padStart(2, "0")}/${String(
+    parsed.getMonth() + 1
+  ).padStart(2, "0")}/${parsed.getFullYear()}`;
+};
+
+const formatTimeAgo = (dateStr: string) => {
+  const parsed = parseIndianDate(dateStr);
+  if (!parsed) {
+    return "Unknown";
+  }
+
+  const diffMs = Date.now() - parsed.getTime();
+  const minutes = Math.max(1, Math.round(diffMs / 60000));
+
+  if (minutes < 60) {
+    return `${minutes} min ago`;
+  }
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) {
+    return `${hours} hr ago`;
+  }
+
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+};
+
+const formatIndianNumber = (value: number | string | null | undefined) => {
+  const numericValue = Number.parseFloat(
+    String(value ?? "0")
+      .replace(/,/g, "")
+      .trim()
+  );
+
+  if (Number.isNaN(numericValue)) {
     return "0.00";
   }
+
+  return numericValue.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 };
-const parseOrderDate = (dateStr) => {
-  if (!dateStr) return new Date(0);
 
-  try {
-    // Split date and time parts
-    const parts = dateStr.trim().split(" ");
-    const datePart = parts[0];
-
-    if (datePart.includes("/")) {
-      const [day, month, year] = datePart
-        .split("/")
-        .map((num) => parseInt(num, 10));
-      if (day && month && year) {
-        // Create date with local timezone (month is 0-indexed in JS)
-        return new Date(year, month - 1, day);
-      }
-    }
-
-    // Fallback to standard JS date parsing
-    return new Date(dateStr);
-  } catch (error) {
-    return new Date(0); // Return epoch date as fallback
+const splitOrderId = (orderId: string) => {
+  if (!orderId) {
+    return ["", 0] as const;
   }
+
+  const [fiscalYear = "", orderNumber = "0"] = orderId.split("_");
+  return [fiscalYear, Number.parseInt(orderNumber, 10) || 0] as const;
 };
 
-const formatDateForSorting = (dateStr) => {
-  try {
-    if (!dateStr) return new Date(0).getTime();
+export default function OrderApprovalScreen() {
+  const { colors, isDark } = useContext(ThemeContext);
+  const { showFeedback } = useFeedback();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
 
-    // First, normalize the date string format
-    // Handle cases where time might have different formats
-    const dateTimeParts = dateStr.split(/\s+/); // Split by any whitespace
-    const datePart = dateTimeParts[0];
-
-    // Extract time and AM/PM parts, handling various formats
-    let timePart = "";
-    let ampmPart = "";
-
-    if (dateTimeParts.length > 1) {
-      // Check if AM/PM is attached to the time or separated
-      const timeString = dateTimeParts.slice(1).join(" ");
-
-      if (timeString.includes("AM") || timeString.includes("PM")) {
-        if (timeString.includes(" ")) {
-          // Format like "12:58 AM"
-          const parts = timeString.split(" ");
-          timePart = parts[0];
-          ampmPart = parts[1];
-        } else {
-          // Format like "12:58AM"
-          const match = timeString.match(/(.+?)(AM|PM)$/i);
-          if (match) {
-            timePart = match[1];
-            ampmPart = match[2];
-          }
-        }
-      } else {
-        // Just time without AM/PM
-        timePart = timeString;
-      }
-    }
-
-    // Parse date part (DD/MM/YYYY)
-    const [day, month, year] = datePart.split("/").map(Number);
-
-    // Create a base date object
-    const date = new Date(year, month - 1, day);
-
-    // Parse and add time if available
-    if (timePart) {
-      const [hourStr, minuteStr, secondStr] = timePart
-        .split(":")
-        .map((s) => s?.trim());
-      let hours = parseInt(hourStr, 10);
-      const minutes = parseInt(minuteStr, 10) || 0;
-      const seconds = parseInt(secondStr, 10) || 0;
-
-      // Convert 12-hour format to 24-hour
-      if (ampmPart) {
-        const isPM = ampmPart.toUpperCase() === "PM";
-
-        // Special case for 12 AM (midnight) = 0 hours in 24-hour format
-        if (hours === 12 && !isPM) {
-          hours = 0;
-        }
-        // Special case for 12 PM (noon) = 12 hours in 24-hour format
-        else if (hours === 12 && isPM) {
-          hours = 12;
-        }
-        // Regular PM time: add 12 hours
-        else if (isPM) {
-          hours += 12;
-        }
-      }
-
-      date.setHours(hours, minutes, seconds);
-    }
-
-    // Get timestamp for comparison
-    const timestamp = date.getTime();
-
-    // Debug logging
-
-    return timestamp;
-  } catch (e) {
-    return new Date(0).getTime(); // Return epoch as fallback
-  }
-};
-
-const getCurrentFiscalYear = () => {
-  const today = new Date();
-  const currentMonth = today.getMonth(); // 0-indexed (January is 0)
-  const currentYear = today.getFullYear();
-
-  // April is month 3 (0-indexed)
-  const fiscalYearStart = currentMonth >= 3 ? currentYear : currentYear - 1;
-  const fiscalYearEnd = fiscalYearStart + 1;
-  return `${fiscalYearStart}-${fiscalYearEnd}`;
-};
-
-const OrderCard = React.memo(
-  ({ item, viewOrderDetails, isDark, colors, formatIndianNumber }) => (
-    <TouchableOpacity
-      style={{
-        backgroundColor: isDark ? colors.surfaceVariant : "#FFF",
-        borderRadius: 10,
-        padding: 15,
-        marginBottom: 10,
-        marginHorizontal: 15,
-        elevation: 2,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: isDark ? 0.3 : 0.1,
-        shadowRadius: 2,
-      }}
-      onPress={() => viewOrderDetails(item)}
-    >
-      <View
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 5,
-        }}
-      >
-        <Text
-          style={{
-            fontSize: 16,
-            fontWeight: "bold",
-            color: isDark ? colors.primary : colors.primary,
-            marginBottom: 5,
-          }}
-        >
-          Order ID: {item.orderId}
-        </Text>
-        <View
-          style={{
-            backgroundColor: "#f39c12",
-            paddingVertical: 3,
-            paddingHorizontal: 8,
-            borderRadius: 12,
-          }}
-        >
-          <Text
-            style={{
-              color: "#fff",
-              fontSize: 12,
-              fontWeight: "600",
-            }}
-          >
-            Review
-          </Text>
-        </View>
-      </View>
-      <Text
-        style={{
-          fontSize: 16,
-          color: isDark ? colors.text : "#000",
-          marginBottom: 3,
-        }}
-      >
-        {item.customerName}
-      </Text>
-      <Text
-        style={{
-          fontSize: 14,
-          color: isDark ? colors.textSecondary : "#666",
-          marginBottom: 3,
-        }}
-      >
-        Date: {item.date}
-      </Text>
-      <Text
-        style={{
-          fontSize: 14,
-          color: isDark ? colors.textSecondary : "#666",
-          marginBottom: 3,
-        }}
-      >
-        Created by: {item.user}
-      </Text>
-      <Text
-        style={{
-          fontSize: 14,
-          color: isDark ? colors.textSecondary : "#666",
-          marginBottom: 3,
-        }}
-      >
-        Source: {item.source}
-      </Text>
-      <Text
-        style={{
-          fontSize: 14,
-          color: isDark ? colors.textSecondary : "#666",
-          marginBottom: 3,
-        }}
-      >
-        Products: {item.items.length}
-      </Text>
-      <Text
-        style={{
-          fontSize: 15,
-          fontWeight: "bold",
-          color: isDark ? colors.text : "#000",
-          marginTop: 5,
-        }}
-      >
-        Total: ₹{formatIndianNumber(item.totalAmount)}
-      </Text>
-    </TouchableOpacity>
-  )
-);
-
-const ApproveOrdersScreen = () => {
-  const { theme, toggleTheme, colors } = useContext(ThemeContext);
-  const isDark = theme === "dark";
-  const [orders, setOrders] = useState([]);
+  const [orders, setOrders] = useState<ApprovalOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState(null);
-  const [ledgerData, setLedgerData] = useState([]);
+  const [selectedOrder, setSelectedOrder] = useState<ApprovalOrder | null>(null);
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [ledgerData, setLedgerData] = useState<LedgerEntry[]>([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
   const [approvalLoading, setApprovalLoading] = useState(false);
-  const [sortBy, setSortBy] = useState("date"); // 'date', 'amount', 'customer'
-  const [showFilters, setShowFilters] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState("");
-  const [showRejectModal, setShowRejectModal] = useState(false);
-  const [expandedFilters, setExpandedFilters] = useState(false);
-  const [sortDirection, setSortDirection] = useState("desc"); // "asc" or "desc"
-  const { showFeedback } = useFeedback();
-  const [displayLimit, setDisplayLimit] = useState(20);
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
+  const [sortBy, setSortBy] = useState<SortOption>("date");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+  const [searchQuery, setSearchQuery] = useState("");
   const [showApproveModal, setShowApproveModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
   const [approvalComments, setApprovalComments] = useState("");
+  const [rejectionReason, setRejectionReason] = useState("");
 
-  useEffect(() => {
-    checkUserRole();
-    loadOrders();
+  const contentWidth = Math.min(width - 24, 560);
+
+  const closeDetail = useCallback(() => {
+    setDetailVisible(false);
+    setSelectedOrder(null);
+    setLedgerData([]);
+    setApprovalComments("");
+    setRejectionReason("");
   }, []);
 
-  const customerStats = useMemo(() => {
-    if (!selectedOrder || !ledgerData || ledgerData.length === 0) {
-      return {
-        totalCredit: "0.00",
-        totalDebit: "0.00",
-        totalCreditRaw: 0,
-        totalDebitRaw: 0,
-        hasCredit: true,
-        transactionTypes: {},
-      };
-    }
-
-    try {
-      return calculateLedgerStats(ledgerData);
-    } catch (error) {
-      console.error("Error calculating customer stats:", error);
-      return {
-        totalCredit: "0.00",
-        totalDebit: "0.00",
-        totalCreditRaw: 0,
-        totalDebitRaw: 0,
-        hasCredit: true,
-        transactionTypes: {},
-      };
-    }
-  }, [selectedOrder, ledgerData]);
-
-  const checkUserRole = async () => {
-    try {
-      const userRole = await AsyncStorage.getItem("userRole");
-      if (userRole !== "Manager") {
-        showFeedback({
-          type: "error",
-          title: "Access Denied",
-          message: "You don't have permission to access this screen.",
-          actionText: "Go to Dashboard",
-          onAction: () => router.replace("/(app)/main"),
-          autoDismiss: false,
-        });
-      }
-    } catch (error) {}
-  };
-
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     try {
       setLoading(true);
 
-      // Check cache first
       const cachedData = apiCache.get("pendingApprovalOrders");
-      const currentTime = new Date().getTime();
+      const currentTime = Date.now();
 
       if (
         cachedData &&
@@ -389,257 +217,216 @@ const ApproveOrdersScreen = () => {
       }
 
       const response = await fetchWithRetry(
-        `${BACKEND_URL}/api/sheets/New_Order_Table!A2:P`,
+        `${BACKEND_URL}/api/sheets/New_Order_Table!A2:Q`,
         {},
-        2, // Reduce retries from 3 to 2
-        1500 // Reduce timeout from 2000 to 1500
+        2,
+        1500
       );
 
-      if (response.data && response.data.values) {
-        const pendingApprovalOrders = response.data.values
-          .map((row, index) => ({
-            id: index,
-            sysTime: row[0] || "",
-            orderTime: row[1] || "",
-            user: row[2] || "",
-            orderComments: row[3] || "",
-            customerName: row[4] || "",
-            orderId: row[5] || "",
-            productName: row[6] || "",
-            quantity: row[7] || "",
-            unit: row[8] || "",
-            rate: row[9] || "",
-            amount: row[10] || "",
-            source: row[11] || "",
-            approvalStatus: row[12] || "",
-            managerComments: row[13] || "",
-            dispatchStatus: row[14] || "",
-            dispatchComments: row[15] || "",
-            dispatchTime: row[16] || "",
-            rowIndex: index + 2,
-          }))
-          .filter(
-            (order) =>
-              order.approvalStatus === "R" || order.approvalStatus === ""
-          );
-
-        // Process data into grouped orders
-        const groupedOrders = pendingApprovalOrders.reduce((acc, order) => {
-          if (!acc[order.orderId]) {
-            acc[order.orderId] = {
-              orderId: order.orderId,
-              date: order.orderTime || order.sysTime,
-              customerName: order.customerName,
-              user: order.user,
-              source: order.source,
-              orderComments: order.orderComments,
-              managerComments: order.managerComments,
+      const rows = response.data?.values || [];
+      const groupedOrders = rows
+        .map((row: string[], index: number) => ({
+          sysTime: row[0] || "",
+          orderTime: row[1] || "",
+          user: row[2] || "",
+          orderComments: row[3] || "",
+          customerName: row[4] || "",
+          orderId: row[5] || "",
+          productName: row[6] || "",
+          quantity: row[7] || "",
+          unit: row[8] || "",
+          rate: row[9] || "",
+          amount: row[10] || "",
+          source: row[11] || "",
+          approvalStatus: row[12] || "",
+          managerComments: row[13] || "",
+          dispatchStatus: row[14] || "",
+          dispatchComments: row[15] || "",
+          dispatchTime: row[16] || "",
+          rowIndex: index + 2,
+        }))
+        .filter(
+          (row) => row.approvalStatus === "" || row.approvalStatus === "R"
+        )
+        .reduce<Record<string, ApprovalOrder>>((acc, row) => {
+          if (!acc[row.orderId]) {
+            acc[row.orderId] = {
+              orderId: row.orderId,
+              date: row.orderTime || row.sysTime,
+              customerName: row.customerName,
+              user: row.user,
+              source: row.source,
+              orderComments: row.orderComments,
+              managerComments: row.managerComments,
+              approvalStatus: row.approvalStatus,
+              dispatchStatus: row.dispatchStatus,
+              dispatchComments: row.dispatchComments,
+              dispatchTime: row.dispatchTime,
               items: [],
               totalAmount: 0,
-              fiscalYear: extractFiscalYear(order.orderId),
             };
           }
 
-          // Add the item
-          acc[order.orderId].items.push({
-            productName: order.productName,
-            quantity: order.quantity,
-            unit: order.unit,
-            rate: order.rate,
-            amount: order.amount,
-            rowIndex: order.rowIndex,
+          acc[row.orderId].items.push({
+            productName: row.productName,
+            quantity: row.quantity,
+            unit: row.unit,
+            rate: row.rate,
+            amount: row.amount,
+            rowIndex: row.rowIndex,
           });
 
-          // Add to total amount
-          const cleanAmount = order.amount.replace(/,/g, "");
-          acc[order.orderId].totalAmount += parseFloat(cleanAmount || 0);
+          acc[row.orderId].totalAmount += Number.parseFloat(
+            (row.amount || "0").replace(/,/g, "")
+          ) || 0;
 
           return acc;
         }, {});
 
-        const ordersList = Object.values(groupedOrders);
+      const nextOrders = Object.values(groupedOrders);
+      apiCache.set("pendingApprovalOrders", {
+        data: nextOrders,
+        timestamp: currentTime,
+      });
 
-        // Cache the result with timestamp
-        apiCache.set("pendingApprovalOrders", {
-          data: ordersList,
-          timestamp: currentTime,
-        });
-
-        setOrders(ordersList);
-      }
-    } catch (error) {
+      setOrders(nextOrders);
+    } catch {
       showFeedback({
         type: "error",
         title: "Data Load Error",
-        message: "Failed to load orders. Please try again.",
+        message: "Failed to load approval orders. Please try again.",
         autoDismiss: true,
       });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [refreshing, showFeedback]);
 
-  // Extract fiscal year from order ID (e.g., "2024-2025_00001" -> "2024-2025")
-  const extractFiscalYear = (orderId) => {
-    if (!orderId) return "";
-    const parts = orderId.split("_");
-    return parts[0] || "";
-  };
-
-  // Split order ID into fiscal year and number parts
-  const splitOrderId = (orderId) => {
-    if (!orderId) return ["", 0];
-    const parts = orderId.split("_");
-    const fiscalYear = parts[0] || "";
-    const orderNum = parts.length > 1 ? parseInt(parts[1], 10) || 0 : 0;
-    return [fiscalYear, orderNum];
-  };
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await loadOrders();
-  };
-
-  const viewOrderDetails = async (order) => {
-    setSelectedOrder(order);
-    setModalVisible(true);
-    loadCustomerLedger(order.customerName);
-  };
-
-  // Replace your existing loadCustomerLedger function with this implementation:
-  const loadCustomerLedger = async (customerName) => {
+  const checkUserRole = useCallback(async () => {
     try {
-      setLedgerLoading(true);
-
-      // Check cache first
-      const cacheKey = `ledger_${customerName}`;
-      const cachedLedger = apiCache.get(cacheKey);
-
-      if (cachedLedger) {
-        setLedgerData(cachedLedger);
-        setLedgerLoading(false);
-        return;
+      const userRole = await AsyncStorage.getItem("userRole");
+      if (userRole !== "Manager") {
+        showFeedback({
+          type: "error",
+          title: "Access Denied",
+          message: "You don't have permission to access this screen.",
+          actionText: "Go to Dashboard",
+          onAction: () => router.replace("/(app)/main"),
+          autoDismiss: false,
+        });
       }
-
-      // Use the same API call as Customer Summary
-      const response = await fetchWithRetry(
-        `${BACKEND_URL}/api/sheets/Customer_Ledger_2!A1:L`,
-        {},
-        2,
-        2000
-      );
-
-      if (response.data && response.data.values) {
-        const headers = response.data.values[0] || [];
-        const dataRows = response.data.values.slice(1);
-
-        console.log("Looking for customerName:", customerName);
-        console.log(
-          "Sample row[8] values:",
-          dataRows.slice(0, 10).map((row) => row[8])
-        );
-        console.log("All customer names in ledger:", [
-          ...new Set(dataRows.map((row) => row[8])),
-        ]);
-        console.log("Looking for customerName:", customerName);
-        // Filter ledger entries by customer name (column 8)
-        // const ledgerEntries = dataRows
-        //   .filter(
-        //     (row) =>
-        //       row.length > 8 &&
-        //       row[8] &&
-        //       row[8].trim().replace(/\s+/g, " ").toLowerCase() ===
-        //         customerName.trim().replace(/\s+/g, " ").toLowerCase()
-        //   )
-        //   .map((row) => {
-        //     const entry = {};
-        //     headers.forEach((header, index) => {
-        //       if (index < row.length) {
-        //         entry[header] = row[index];
-        //       }
-        //     });
-        //     return entry;
-        //   });
-        const ledgerEntries = await fetchCustomerLedger(customerName);
-        // Cache the result
-        apiCache.set(cacheKey, ledgerEntries);
-        setLedgerData(ledgerEntries);
-      } else {
-        setLedgerData([]);
-      }
-    } catch (error) {
-      console.error("Error loading customer ledger:", error);
+    } catch {
       showFeedback({
         type: "error",
-        title: "Data Load Error",
-        message: "Failed to load customer ledger data.",
+        title: "Session Error",
+        message: "Unable to verify your role right now.",
         autoDismiss: true,
       });
-      setLedgerData([]);
-    } finally {
-      setLedgerLoading(false);
     }
-  };
+  }, [showFeedback]);
 
-  const handleApproval = async (approved, comments = "") => {
-    if (!selectedOrder) return;
+  useEffect(() => {
+    checkUserRole();
+    loadOrders();
+  }, [checkUserRole, loadOrders]);
 
-    if (!approved) {
-      setShowRejectModal(true);
-      return;
-    }
+  const loadCustomerLedger = useCallback(
+    async (customerName: string) => {
+      try {
+        setLedgerLoading(true);
+        const cacheKey = `ledger_${customerName}`;
+        const cachedLedger = apiCache.get(cacheKey);
 
-    try {
-      setApprovalLoading(true);
+        if (cachedLedger) {
+          setLedgerData(cachedLedger);
+          return;
+        }
 
-      // Track success and failures
-      let successCount = 0;
-      let failureCount = 0;
+        const entries = await fetchCustomerLedger(customerName);
+        apiCache.set(cacheKey, entries);
+        setLedgerData(entries);
+      } catch {
+        showFeedback({
+          type: "error",
+          title: "Data Load Error",
+          message: "Failed to load customer ledger data.",
+          autoDismiss: true,
+        });
+        setLedgerData([]);
+      } finally {
+        setLedgerLoading(false);
+      }
+    },
+    [showFeedback]
+  );
 
-      // Use Promise.allSettled for more robust error handling
-      const results = await Promise.allSettled(
-        selectedOrder.items.map(async (item) => {
-          try {
+  const openOrder = useCallback(
+    (order: ApprovalOrder) => {
+      setSelectedOrder(order);
+      setDetailVisible(true);
+      loadCustomerLedger(order.customerName);
+    },
+    [loadCustomerLedger]
+  );
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadOrders();
+  }, [loadOrders]);
+
+  const handleApproval = useCallback(
+    async (approved: boolean, comments = "") => {
+      if (!selectedOrder) {
+        return false;
+      }
+
+      if (!approved) {
+        setShowRejectModal(true);
+        return false;
+      }
+
+      try {
+        setApprovalLoading(true);
+
+        let successCount = 0;
+        let failureCount = 0;
+
+        const results = await Promise.allSettled(
+          selectedOrder.items.map(async (item) => {
             const response = await fetchWithRetry(
               `${BACKEND_URL}/api/sheets/New_Order_Table!M${item.rowIndex}:N${item.rowIndex}`,
               {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                data: { values: [["Y", comments || ""]] }, // comments is the approval comment
+                data: { values: [["Y", comments || ""]] },
               },
               2,
               1000
             );
 
-            // Simply check if we got a successful response
-            if (response && response.status >= 200 && response.status < 300) {
-              return true;
-            } else {
+            if (!response || response.status < 200 || response.status >= 300) {
               throw new Error("Failed to update cell");
             }
-          } catch (error) {
-            throw error;
+
+            return true;
+          })
+        );
+
+        results.forEach((result) => {
+          if (result.status === "fulfilled") {
+            successCount += 1;
+          } else {
+            failureCount += 1;
           }
-        })
-      );
+        });
 
-      // Count successes and failures
-      results.forEach((result) => {
-        if (result.status === "fulfilled") {
-          successCount++;
-        } else {
-          failureCount++;
+        if (successCount <= 0) {
+          throw new Error("Failed to update any order items");
         }
-      });
 
-      // If at least one update succeeded, consider it a success
-      if (successCount > 0) {
-        // Clear cache to force reload on next load
-        apiCache.set("pendingApprovalOrders", null); // FIX: use set(key, null) instead of remove
-
-        setModalVisible(false);
-        setSelectedOrder(null);
+        apiCache.set("pendingApprovalOrders", null);
+        closeDetail();
 
         showFeedback({
           type: "success",
@@ -648,114 +435,105 @@ const ApproveOrdersScreen = () => {
             failureCount > 0
               ? `Most items were approved successfully (${successCount}/${
                   successCount + failureCount
-                }). You may need to refresh.`
-              : "The order has been successfully approved and is ready for dispatch.",
+                }). Refresh to confirm.`
+              : "The order has been approved and moved to dispatch.",
           actionText: "Refresh",
           onAction: () => loadOrders(),
         });
 
-        // Reload orders after a brief delay to allow backend updates to propagate
         setTimeout(() => {
           loadOrders();
         }, 500);
 
         return true;
-      } else {
-        throw new Error("Failed to update any order items");
+      } catch {
+        showFeedback({
+          type: "error",
+          title: "Update Failed",
+          message: "Could not update the order status. Please try again.",
+          autoDismiss: false,
+        });
+        return false;
+      } finally {
+        setApprovalLoading(false);
       }
-    } catch (error) {
-      showFeedback({
-        type: "error",
-        title: "Update Failed",
-        message: "Could not update the order status. Please try again.",
-        autoDismiss: false,
-      });
-      return false;
-    } finally {
-      setApprovalLoading(false);
-    }
-  };
+    },
+    [closeDetail, loadOrders, selectedOrder, showFeedback]
+  );
 
-  const confirmRejection = async () => {
+  const confirmRejection = useCallback(async () => {
+    if (!selectedOrder) {
+      return false;
+    }
+
     try {
       setApprovalLoading(true);
 
-      // Track success and failures
       let successCount = 0;
       let failureCount = 0;
 
-      // Update orders with rejection status and reason
       const results = await Promise.allSettled(
         selectedOrder.items.map(async (item) => {
-          try {
-            const response = await fetchWithRetry(
-              `${BACKEND_URL}/api/sheets/New_Order_Table!N${item.rowIndex}:M${item.rowIndex}`,
-              {
-                method: "PUT",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                data: {
-                  values: [["N", rejectionReason || "No reason provided"]],
-                },
+          const response = await fetchWithRetry(
+            `${BACKEND_URL}/api/sheets/New_Order_Table!N${item.rowIndex}:M${item.rowIndex}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              data: {
+                values: [["N", rejectionReason || "No reason provided"]],
               },
-              2,
-              1000
-            );
+            },
+            2,
+            1000
+          );
 
-            // Check for successful response
-            if (response && response.status >= 200 && response.status < 300) {
-              return true;
-            } else {
-              throw new Error("Failed to update cell");
-            }
-          } catch (error) {
-            throw error;
+          if (!response || response.status < 200 || response.status >= 300) {
+            throw new Error("Failed to update cell");
           }
+
+          return true;
         })
       );
 
-      // Count successes and failures
       results.forEach((result) => {
         if (result.status === "fulfilled") {
-          successCount++;
+          successCount += 1;
         } else {
-          failureCount++;
+          failureCount += 1;
         }
       });
 
-      // Clear cache regardless of outcome to ensure fresh data on reload
-      apiCache.set("pendingApprovalOrders", null); // FIX: use set(key, null) instead of remove
+      apiCache.set("pendingApprovalOrders", null);
 
-      // If at least one update succeeded, consider it a success
-      if (successCount > 0) {
-        // Close modals and refresh
-        setShowRejectModal(false);
-        setModalVisible(false);
-        setSelectedOrder(null);
-        setRejectionReason("");
-
-        showFeedback({
-          type: "error", // This should probably be "warning" instead of "error"
-          title: "Order Rejected",
-          message: `The order has been rejected${
-            rejectionReason ? ` with reason: ${rejectionReason}` : ""
-          }.`,
-          actionText: "Refresh",
-          onAction: () => loadOrders(),
-          autoDismiss: false,
-        });
-
-        // Reload orders after a brief delay
-        setTimeout(() => {
-          loadOrders();
-        }, 500);
-
-        return true;
-      } else {
+      if (successCount <= 0) {
         throw new Error("Failed to update any order items");
       }
-    } catch (error) {
+
+      setShowRejectModal(false);
+      closeDetail();
+
+      showFeedback({
+        type: "error",
+        title: "Order Rejected",
+        message:
+          failureCount > 0
+            ? `The order was rejected for most items (${successCount}/${
+                successCount + failureCount
+              }).`
+            : `The order has been rejected${
+                rejectionReason ? ` with reason: ${rejectionReason}` : ""
+              }.`,
+        actionText: "Refresh",
+        onAction: () => loadOrders(),
+        autoDismiss: false,
+      });
+
+      setTimeout(() => {
+        loadOrders();
+      }, 500);
+
+      return true;
+    } catch {
       showFeedback({
         type: "error",
         title: "Update Failed",
@@ -766,448 +544,82 @@ const ApproveOrdersScreen = () => {
     } finally {
       setApprovalLoading(false);
     }
-  };
+  }, [
+    closeDetail,
+    loadOrders,
+    rejectionReason,
+    selectedOrder,
+    showFeedback,
+  ]);
 
-  const styles = StyleSheet.create({
-    // Add these to your StyleSheet
-    statsHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      marginVertical: 4,
-    },
-    statsHeaderValue: {
-      fontSize: 15,
-      fontWeight: "700",
-      color: isDark ? colors.textSecondary : "#666",
-    },
-    container: {
-      flex: 1,
-      backgroundColor: isDark ? colors.background : colors.background,
-    },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingTop: 50,
-      paddingBottom: 15,
-      paddingHorizontal: 20,
-      backgroundColor: isDark ? colors.surfaceVariant : colors.primary,
-    },
-    headerTitle: {
-      color: isDark ? colors.text : "#FFF",
-      fontSize: 20,
-      fontWeight: "bold",
-    },
-    orderCard: {
-      backgroundColor: isDark ? colors.surfaceVariant : "#FFF",
-      borderRadius: 10,
-      padding: 15,
-      marginBottom: 10,
-      marginHorizontal: 15,
-      elevation: 2,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: isDark ? 0.3 : 0.1,
-      shadowRadius: 2,
-    },
-    orderIdText: {
-      fontSize: 16,
-      fontWeight: "bold",
-      color: isDark ? colors.primary : colors.primary,
-      marginBottom: 5,
-    },
-    customerText: {
-      fontSize: 16,
-      color: isDark ? colors.text : "#000",
-      marginBottom: 3,
-    },
-    detailText: {
-      fontSize: 14,
-      color: isDark ? colors.textSecondary : "#666",
-      marginBottom: 3,
-    },
-    totalText: {
-      fontSize: 15,
-      fontWeight: "bold",
-      color: isDark ? colors.text : "#000",
-      marginTop: 5,
-    },
-    emptyContainer: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-      padding: 20,
-      marginTop: 50,
-    },
-    emptyText: {
-      fontSize: 16,
-      color: isDark ? colors.textSecondary : "#666",
-      marginTop: 10,
-      textAlign: "center",
-    },
-    modalContainer: {
-      flex: 1,
-      backgroundColor: isDark ? "rgba(0,0,0,0.9)" : "rgba(0,0,0,0.5)",
-      justifyContent: "center",
-    },
-    modalContent: {
-      backgroundColor: isDark ? colors.background : "#FFF",
-      margin: scale(20),
-      borderRadius: scale(15),
-      padding: scale(20),
-      maxHeight: isTablet ? "90%" : "80%",
-      width: isTablet ? "70%" : undefined,
-      alignSelf: isTablet ? "center" : undefined,
-    },
-    modalScrollContent: {
-      flexGrow: 1,
-    },
-    modalHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 15,
-    },
-    modalTitle: {
-      fontSize: 20,
-      fontWeight: "bold",
-      color: isDark ? colors.text : "#000",
-    },
-    closeButton: {
-      padding: 5,
-    },
-    sectionTitle: {
-      fontSize: 17,
-      fontWeight: "600",
-      color: isDark ? colors.text : "#000",
-      marginTop: 15,
-      marginBottom: 10,
-    },
-    divider: {
-      height: 1,
-      backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
-      marginVertical: 10,
-    },
-    productItem: {
-      padding: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-    },
-    productName: {
-      fontSize: 15,
-      fontWeight: "500",
-      color: isDark ? colors.text : "#000",
-    },
-    productDetail: {
-      fontSize: 14,
-      color: isDark ? colors.textSecondary : "#555",
-      marginTop: 3,
-    },
-    ledgerContainer: {
-      maxHeight: 300,
-      marginVertical: 10,
-      borderWidth: 1,
-      borderRadius: 8,
-      borderColor: isDark ? "rgba(255,255,255,0.1)" : "#eee",
-    },
-    ledgerRow: {
-      flexDirection: "row",
-      paddingVertical: 10,
-      paddingHorizontal: 8,
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? "rgba(255,255,255,0.1)" : "#f0f0f0",
-    },
-    ledgerHeader: {
-      flexDirection: "row",
-      paddingVertical: 10,
-      paddingHorizontal: 8,
-      backgroundColor: isDark ? "rgba(0,0,0,0.3)" : "#f5f5f5",
-    },
-    ledgerCell: {
-      flex: 1,
-      paddingHorizontal: 5,
-    },
-    ledgerHeaderText: {
-      fontWeight: "bold",
-      fontSize: 14,
-      color: isDark ? colors.textSecondary : "#555",
-    },
-    ledgerText: {
-      fontSize: 13,
-      color: isDark ? colors.text : "#333",
-    },
-    statsContainer: {
-      backgroundColor: isDark ? "rgba(0,0,0,0.2)" : "#f9f9f9",
-      padding: 15,
-      borderRadius: 10,
-      marginVertical: 10,
-    },
-    statsRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      marginVertical: 4,
-    },
-    statsLabel: {
-      fontSize: 14,
-      color: isDark ? colors.textSecondary : "#666",
-    },
-    statsValue: {
-      fontSize: 15,
-      fontWeight: "500",
-      color: isDark ? colors.text : "#333",
-    },
-    warningValue: {
-      color: "#e74c3c",
-    },
-    goodValue: {
-      color: "#2ecc71",
-    },
-    buttonsContainer: {
-      flexDirection: "row",
-      justifyContent: "space-around",
-      marginTop: 20,
-    },
-    // approveButton: {
-    //   backgroundColor: "#2ecc71",
-    //   paddingVertical: 12,
-    //   paddingHorizontal: 20,
-    //   borderRadius: 8,
-    //   width: "45%",
-    //   alignItems: "center",
-    // },
-    // rejectButton: {
-    //   backgroundColor: "#e74c3c",
-    //   paddingVertical: 12,
-    //   paddingHorizontal: 20,
-    //   borderRadius: 8,
-    //   width: "45%",
-    //   alignItems: "center",
-    // },
-    // buttonText: {
-    //   color: "#FFFFFF",
-    //   fontSize: 16,
-    //   fontWeight: "600",
-    // },
-    approveButton: {
-      backgroundColor: "#2ecc71",
-      paddingVertical: 12,
-      paddingHorizontal: 10, // reduced from 20
-      borderRadius: 8,
-      minWidth: 150, // add minWidth
-      alignItems: "center",
-    },
-    rejectButton: {
-      backgroundColor: "#e74c3c",
-      paddingVertical: 12,
-      paddingHorizontal: 10, // reduced from 20
-      borderRadius: 8,
-      minWidth: 150, // add minWidth
-      alignItems: "center",
-    },
-    buttonText: {
-      color: "#FFFFFF",
-      fontSize: 15, // reduced from 16
-      fontWeight: "600",
-    },
-    iconStyle: {
-      color: isDark ? colors.text : "#FFF",
-    },
-    // Add these to your StyleSheet
+  const customerStats = useMemo(() => {
+    if (!selectedOrder || !ledgerData.length) {
+      return {
+        totalCredit: "0.00",
+        totalDebit: "0.00",
+        totalCreditRaw: 0,
+        totalDebitRaw: 0,
+        hasCredit: true,
+      };
+    }
 
-    summaryRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      paddingVertical: 5,
-    },
-    summaryLabel: {
-      fontSize: 15,
-      color: isDark ? colors.textSecondary : "#666",
-    },
-    summaryValue: {
-      fontSize: 15,
-      fontWeight: "600",
-      color: isDark ? colors.text : "#333",
-    },
-    totalCredit: {
-      color: "#27ae60",
-    },
-    totalDebit: {
-      color: "#e74c3c",
-    },
-    balanceValue: {
-      fontSize: 16,
-      fontWeight: "bold",
-    },
-    statusBadge: {
-      backgroundColor: "#f39c12",
-      paddingVertical: 3,
-      paddingHorizontal: 8,
-      borderRadius: 12,
-    },
-    statusText: {
-      color: "#fff",
-      fontSize: 12,
-      fontWeight: "600",
-    },
-    filterContainer: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      paddingHorizontal: 15,
-      paddingVertical: 8,
-      alignItems: "center",
-      backgroundColor: isDark ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.03)",
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-    },
-    filterButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingVertical: 6,
-      paddingHorizontal: 12,
-      backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "#fff",
-      borderRadius: 15,
-      borderWidth: 1,
-      borderColor: isDark ? "rgba(255,255,255,0.1)" : "#ddd",
-    },
-    filterText: {
-      marginLeft: 5,
-      color: isDark ? colors.text : "#333",
-      fontSize: 14,
-    },
-    sortButtons: {
-      flexDirection: "row",
-    },
-    sortButton: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      marginLeft: 8,
-      borderRadius: 12,
-      backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "#f5f5f5",
-    },
-    activeSortButton: {
-      backgroundColor: isDark ? colors.primary + "33" : colors.primary + "15",
-    },
-    sortText: {
-      fontSize: 13,
-      color: isDark ? colors.textSecondary : "#666",
-    },
-    activeSortText: {
-      color: isDark ? colors.primary : colors.primary,
-      fontWeight: "500",
-    },
-    reasonInput: {
-      backgroundColor: isDark ? "rgba(0,0,0,0.3)" : "#f5f5f5",
-      borderWidth: 1,
-      borderColor: isDark ? "rgba(255,255,255,0.1)" : "#ddd",
-      borderRadius: 8,
-      padding: 12,
-      color: isDark ? colors.text : "#333",
-      fontSize: 16,
-      textAlignVertical: "top",
-    },
-    cancelButton: {
-      paddingVertical: 12,
-      paddingHorizontal: 20,
-      borderRadius: 8,
-      backgroundColor: isDark ? "rgba(0,0,0,0.3)" : "#e0e0e0",
-      width: "45%",
-      alignItems: "center",
-    },
-    cancelButtonText: {
-      color: isDark ? colors.text : "#333",
-      fontSize: 16,
-      fontWeight: "600",
-    },
-    sectionHeader: {
-      backgroundColor: isDark ? "rgba(0,0,0,0.4)" : "#f5f5f5",
-      padding: 10,
-      paddingHorizontal: 15,
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-    },
-    sectionHeaderText: {
-      fontSize: 16,
-      fontWeight: "600",
-      color: isDark ? colors.text : "#333",
-    },
-    filtersModalContent: {
-      width: 250,
-      backgroundColor: isDark ? colors.surfaceVariant : "#FFF",
-      borderRadius: 12,
-      padding: 15,
-      elevation: 5,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
-    },
-    filtersModalTitle: {
-      fontSize: 16,
-      fontWeight: "bold",
-      color: isDark ? colors.text : "#333",
-      marginBottom: 10,
-    },
-    filtersModalSubtitle: {
-      fontSize: 14,
-      color: isDark ? colors.textSecondary : "#666",
-      marginVertical: 8,
-      fontWeight: "500",
-    },
-    filterOption: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingVertical: 10,
-      paddingHorizontal: 5,
-      borderRadius: 8,
-    },
-    activeFilterOption: {
-      backgroundColor: isDark ? "rgba(0,0,0,0.2)" : "rgba(0,0,0,0.05)",
-    },
-    filterOptionText: {
-      flex: 1,
-      marginLeft: 10,
-      fontSize: 15,
-      color: isDark ? colors.text : "#333",
-    },
-    activeFilterOptionText: {
-      color: isDark ? colors.primary : colors.primary,
-      fontWeight: "500",
-    },
-    productListContainer: {
-      borderWidth: 1,
-      borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
-      borderRadius: 8,
-      marginBottom: 10,
-    },
-  });
+    try {
+      return calculateLedgerStats(ledgerData);
+    } catch {
+      return {
+        totalCredit: "0.00",
+        totalDebit: "0.00",
+        totalCreditRaw: 0,
+        totalDebitRaw: 0,
+        hasCredit: true,
+      };
+    }
+  }, [ledgerData, selectedOrder]);
 
-  // Replace getSortedOrders and getGroupedOrdersByDate with this memoized version
-  const sortedAndGroupedOrders = useMemo(() => {
-    if (!orders || orders.length === 0) return [];
+  const filteredOrders = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
 
-    // First sort orders
-    const sortedOrders = [...orders].sort((a, b) => {
-      let comparison = 0;
+    return orders.filter((order) => {
+      const matchesFilter =
+        reviewFilter === "all"
+          ? true
+          : reviewFilter === "recheck"
+          ? order.approvalStatus === "R"
+          : order.approvalStatus !== "R";
+
+      if (!matchesFilter) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return (
+        order.orderId.toLowerCase().includes(query) ||
+        order.customerName.toLowerCase().includes(query) ||
+        order.user.toLowerCase().includes(query) ||
+        order.source.toLowerCase().includes(query) ||
+        order.items.some((item) =>
+          item.productName.toLowerCase().includes(query)
+        )
+      );
+    });
+  }, [orders, reviewFilter, searchQuery]);
+
+  const sortedOrders = useMemo(() => {
+    return [...filteredOrders].sort((a, b) => {
       const [aFY, aNum] = splitOrderId(a.orderId);
       const [bFY, bNum] = splitOrderId(b.orderId);
+      let comparison = 0;
 
       switch (sortBy) {
-        case "orderId":
         case "date":
-          if (aFY !== bFY) {
-            comparison = bFY.localeCompare(aFY);
-          } else {
-            comparison = bNum - aNum;
-          }
+          comparison =
+            aFY !== bFY ? bFY.localeCompare(aFY) : bNum - aNum;
           break;
         case "amount":
-          // Ensure we're comparing numbers, not strings
-          const amountA = parseFloat(String(a.totalAmount).replace(/,/g, ""));
-          const amountB = parseFloat(String(b.totalAmount).replace(/,/g, ""));
-          comparison = amountB - amountA; // Higher amount first
+          comparison = b.totalAmount - a.totalAmount;
           break;
         case "customer":
           comparison = a.customerName.localeCompare(b.customerName);
@@ -1215,706 +627,1541 @@ const ApproveOrdersScreen = () => {
         case "source":
           comparison = a.source.localeCompare(b.source);
           break;
-        default:
-          comparison = 0;
       }
 
       return sortDirection === "asc" ? comparison : -comparison;
     });
+  }, [filteredOrders, sortBy, sortDirection]);
 
-    // Then group by date
-    const grouped = {};
-    sortedOrders.forEach((order) => {
-      const date = order.date.split(" ")[0];
-      if (!grouped[date]) {
-        grouped[date] = [];
-      }
-      grouped[date].push(order);
-    });
+  const summary = useMemo(() => {
+    return orders.reduce(
+      (acc, order) => {
+        if (order.approvalStatus === "R") {
+          acc.recheckCount += 1;
+        } else {
+          acc.pendingCount += 1;
+        }
 
-    // Create sections array for SectionList
-    const sortedDates = Object.keys(grouped).sort((a, b) => {
-      const dateA = formatDateForSorting(a);
-      const dateB = formatDateForSorting(b);
-      return sortDirection === "asc" ? dateA - dateB : dateB - dateA;
-    });
+        acc.totalValue += order.totalAmount;
+        return acc;
+      },
+      { pendingCount: 0, recheckCount: 0, totalValue: 0 }
+    );
+  }, [orders]);
 
-    return sortedDates.map((date) => ({
-      date,
-      data: grouped[date],
-    }));
-  }, [orders, sortBy, sortDirection]);
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        screen: {
+          flex: 1,
+          backgroundColor: colors.background,
+        },
+        topGlow: {
+          position: "absolute",
+          top: -40,
+          left: -20,
+          right: -20,
+          height: 240,
+          backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#e9eef6",
+          borderBottomLeftRadius: 120,
+          borderBottomRightRadius: 120,
+          opacity: isDark ? 0.35 : 0.55,
+        },
+        scrollContent: {
+          paddingTop: insets.top + 16,
+          paddingBottom: 40,
+        },
+        shell: {
+          width: contentWidth,
+          alignSelf: "center",
+        },
+        headerRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 20,
+        },
+        circleButton: {
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          alignItems: "center",
+          justifyContent: "center",
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 1,
+          shadowRadius: 20,
+          elevation: 7,
+        },
+        headerCopy: {
+          flex: 1,
+          marginLeft: 14,
+        },
+        eyebrow: {
+          color: colors.textSecondary,
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.6,
+          textTransform: "uppercase",
+          marginBottom: 4,
+        },
+        headerTitle: {
+          color: colors.text,
+          fontSize: 28,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -0.8,
+        },
+        headerSubtitle: {
+          color: colors.textSecondary,
+          fontSize: 13,
+          fontFamily: omaTypography.medium,
+          marginTop: 4,
+        },
+        summaryCard: {
+          backgroundColor: colors.card,
+          borderRadius: 28,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: 22,
+          marginBottom: 18,
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 14 },
+          shadowOpacity: 1,
+          shadowRadius: 28,
+          elevation: 9,
+          overflow: "hidden",
+        },
+        summaryAccent: {
+          position: "absolute",
+          width: 180,
+          height: 180,
+          borderRadius: 90,
+          right: -50,
+          top: -70,
+          backgroundColor: isDark ? "rgba(0,102,255,0.14)" : "#eaf1ff",
+        },
+        summaryLabel: {
+          color: colors.textSecondary,
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.4,
+          textTransform: "uppercase",
+          marginBottom: 8,
+        },
+        summaryValue: {
+          color: colors.text,
+          fontSize: 32,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -1,
+        },
+        summaryFoot: {
+          flexDirection: "row",
+          marginTop: 18,
+          gap: 10,
+        },
+        metricPill: {
+          flex: 1,
+          borderRadius: 18,
+          paddingVertical: 12,
+          paddingHorizontal: 14,
+        },
+        metricLabel: {
+          fontSize: 10,
+          fontFamily: omaTypography.bold,
+          textTransform: "uppercase",
+          letterSpacing: 1.2,
+          marginBottom: 5,
+        },
+        metricValue: {
+          fontSize: 18,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -0.4,
+        },
+        searchWrap: {
+          backgroundColor: colors.card,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: colors.border,
+          flexDirection: "row",
+          alignItems: "center",
+          paddingHorizontal: 16,
+          minHeight: 56,
+          marginBottom: 14,
+        },
+        searchInput: {
+          flex: 1,
+          color: colors.text,
+          marginLeft: 12,
+          fontSize: 14,
+          fontFamily: omaTypography.medium,
+        },
+        filterRow: {
+          flexDirection: "row",
+          gap: 10,
+          marginBottom: 14,
+        },
+        segmentShell: {
+          flex: 1,
+          backgroundColor: isDark ? colors.surfaceVariant : "#edf1f6",
+          padding: 5,
+          borderRadius: 18,
+          flexDirection: "row",
+        },
+        segmentButton: {
+          flex: 1,
+          borderRadius: 14,
+          paddingVertical: 10,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        segmentButtonActive: {
+          backgroundColor: colors.navActive,
+        },
+        segmentText: {
+          color: colors.textSecondary,
+          fontSize: 12,
+          fontFamily: omaTypography.bold,
+        },
+        segmentTextActive: {
+          color: isDark ? colors.background : "#ffffff",
+        },
+        segmentCount: {
+          fontSize: 10,
+          fontFamily: omaTypography.bold,
+          marginTop: 2,
+        },
+        sortRow: {
+          flexDirection: "row",
+          gap: 8,
+          marginBottom: 18,
+        },
+        sortButton: {
+          paddingVertical: 11,
+          paddingHorizontal: 14,
+          borderRadius: 16,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+        },
+        sortButtonActive: {
+          backgroundColor: isDark ? colors.surfaceVariant : "#eef5ff",
+          borderColor: colors.primary,
+        },
+        sortButtonText: {
+          color: colors.textSecondary,
+          fontSize: 12,
+          fontFamily: omaTypography.bold,
+        },
+        sortButtonTextActive: {
+          color: colors.primary,
+        },
+        sectionLabel: {
+          color: colors.textSecondary,
+          fontSize: 12,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.2,
+          textTransform: "uppercase",
+          marginBottom: 12,
+          marginLeft: 4,
+        },
+        emptyCard: {
+          backgroundColor: colors.card,
+          borderRadius: 28,
+          borderWidth: 1,
+          borderStyle: "dashed",
+          borderColor: colors.border,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingVertical: 42,
+          paddingHorizontal: 24,
+        },
+        emptyTitle: {
+          marginTop: 14,
+          color: colors.text,
+          fontSize: 16,
+          fontFamily: omaTypography.extrabold,
+        },
+        emptyBody: {
+          marginTop: 6,
+          color: colors.textSecondary,
+          fontSize: 13,
+          fontFamily: omaTypography.medium,
+          textAlign: "center",
+          lineHeight: 20,
+        },
+        orderCard: {
+          backgroundColor: colors.card,
+          borderRadius: 28,
+          borderWidth: 1,
+          borderColor: colors.border,
+          marginBottom: 14,
+          overflow: "hidden",
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 14 },
+          shadowOpacity: 1,
+          shadowRadius: 26,
+          elevation: 9,
+        },
+        orderBanner: {
+          paddingHorizontal: 18,
+          paddingVertical: 12,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+        },
+        orderBannerLeft: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          flex: 1,
+        },
+        orderBannerLabel: {
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.2,
+          textTransform: "uppercase",
+        },
+        orderBannerDate: {
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          color: colors.textSecondary,
+        },
+        orderBody: {
+          paddingHorizontal: 18,
+          paddingVertical: 18,
+        },
+        orderHeader: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 14,
+        },
+        repBadge: {
+          width: 48,
+          height: 48,
+          borderRadius: 24,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? colors.surfaceVariant : "#edf4ff",
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        repBadgeText: {
+          color: colors.primary,
+          fontSize: 16,
+          fontFamily: omaTypography.extrabold,
+        },
+        orderIdentity: {
+          flex: 1,
+        },
+        customerName: {
+          color: colors.text,
+          fontSize: 16,
+          fontFamily: omaTypography.extrabold,
+          lineHeight: 22,
+        },
+        orderId: {
+          color: colors.textSecondary,
+          fontSize: 12,
+          fontFamily: omaTypography.semibold,
+          marginTop: 3,
+        },
+        orderAmount: {
+          color: colors.text,
+          fontSize: 20,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -0.5,
+          textAlign: "right",
+        },
+        orderAge: {
+          color: colors.textSecondary,
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          marginTop: 6,
+        },
+        metaRow: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginTop: 16,
+        },
+        metaChip: {
+          borderRadius: 12,
+          paddingHorizontal: 10,
+          paddingVertical: 8,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+        },
+        metaChipText: {
+          color: colors.textSecondary,
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+        },
+        notePreview: {
+          marginTop: 16,
+          borderRadius: 18,
+          padding: 14,
+          backgroundColor: isDark ? "rgba(251,146,60,0.12)" : "#fff7ed",
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(251,146,60,0.25)" : "#fed7aa",
+        },
+        notePreviewLabel: {
+          color: colors.accentOrange,
+          fontSize: 10,
+          fontFamily: omaTypography.bold,
+          textTransform: "uppercase",
+          letterSpacing: 1.1,
+          marginBottom: 6,
+        },
+        notePreviewText: {
+          color: colors.text,
+          fontSize: 13,
+          fontFamily: omaTypography.semibold,
+          lineHeight: 19,
+        },
+        detailScreen: {
+          flex: 1,
+          backgroundColor: colors.background,
+        },
+        detailHeader: {
+          paddingHorizontal: 18,
+          paddingBottom: 18,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+          backgroundColor: colors.card,
+        },
+        detailHeaderCenter: {
+          flex: 1,
+          alignItems: "center",
+          paddingHorizontal: 12,
+        },
+        detailHeaderEyebrow: {
+          color: colors.textSecondary,
+          fontSize: 10,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.5,
+          textTransform: "uppercase",
+          marginBottom: 4,
+        },
+        detailHeaderTitle: {
+          color: colors.text,
+          fontSize: 16,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -0.3,
+          textAlign: "center",
+        },
+        detailContent: {
+          paddingTop: 18,
+        },
+        infoGrid: {
+          flexDirection: "row",
+          gap: 10,
+          marginBottom: 18,
+        },
+        infoCard: {
+          flex: 1,
+          borderRadius: 24,
+          padding: 18,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        infoLabel: {
+          color: colors.textSecondary,
+          fontSize: 10,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.2,
+          textTransform: "uppercase",
+          marginBottom: 8,
+        },
+        infoValue: {
+          color: colors.text,
+          fontSize: 15,
+          fontFamily: omaTypography.extrabold,
+          lineHeight: 21,
+        },
+        infoMeta: {
+          color: colors.textSecondary,
+          fontSize: 12,
+          fontFamily: omaTypography.semibold,
+          marginTop: 4,
+        },
+        detailNoteCard: {
+          borderRadius: 26,
+          padding: 20,
+          marginBottom: 18,
+          backgroundColor: isDark ? "rgba(251,146,60,0.12)" : "#fff7ed",
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(251,146,60,0.25)" : "#fed7aa",
+        },
+        detailNoteValue: {
+          color: colors.text,
+          fontSize: 15,
+          fontFamily: omaTypography.bold,
+          lineHeight: 23,
+        },
+        managerNoteCard: {
+          borderRadius: 22,
+          padding: 18,
+          marginBottom: 18,
+          backgroundColor: isDark ? "rgba(248,113,113,0.12)" : "#fff1f2",
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(248,113,113,0.22)" : "#fecdd3",
+        },
+        ledgerCard: {
+          backgroundColor: "#111111",
+          borderRadius: 30,
+          padding: 22,
+          marginBottom: 18,
+          overflow: "hidden",
+        },
+        ledgerBlur: {
+          position: "absolute",
+          top: -70,
+          right: -50,
+          width: 180,
+          height: 180,
+          borderRadius: 90,
+          backgroundColor: customerStats.hasCredit
+            ? "rgba(0,102,255,0.24)"
+            : "rgba(251,146,60,0.22)",
+        },
+        ledgerHeader: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 20,
+        },
+        ledgerTitle: {
+          color: "rgba(255,255,255,0.65)",
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.5,
+          textTransform: "uppercase",
+        },
+        ledgerCategory: {
+          color: "#ffffff",
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.2,
+        },
+        ledgerBalanceLabel: {
+          color: "rgba(255,255,255,0.55)",
+          fontSize: 10,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.2,
+          textTransform: "uppercase",
+        },
+        ledgerBalanceValue: {
+          color: "#ffffff",
+          fontSize: 34,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -1.2,
+          marginTop: 8,
+        },
+        ledgerBalanceSuffix: {
+          fontSize: 17,
+          fontFamily: omaTypography.bold,
+        },
+        ledgerDivider: {
+          height: 1,
+          backgroundColor: "rgba(255,255,255,0.1)",
+          marginVertical: 18,
+        },
+        ledgerStatsRow: {
+          flexDirection: "row",
+          gap: 16,
+        },
+        ledgerStat: {
+          flex: 1,
+        },
+        ledgerStatLabel: {
+          color: "rgba(255,255,255,0.48)",
+          fontSize: 10,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.2,
+          textTransform: "uppercase",
+          marginBottom: 6,
+        },
+        ledgerStatValue: {
+          color: "#ffffff",
+          fontSize: 16,
+          fontFamily: omaTypography.extrabold,
+        },
+        sectionCard: {
+          backgroundColor: colors.card,
+          borderRadius: 28,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: 18,
+          marginBottom: 18,
+        },
+        sectionTitle: {
+          color: colors.textSecondary,
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.4,
+          textTransform: "uppercase",
+          marginBottom: 12,
+        },
+        ledgerRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 10,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+        },
+        ledgerRowDate: {
+          color: colors.textSecondary,
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          width: 88,
+        },
+        ledgerRowBody: {
+          flex: 1,
+          marginHorizontal: 12,
+        },
+        ledgerRowTitle: {
+          color: colors.text,
+          fontSize: 13,
+          fontFamily: omaTypography.bold,
+        },
+        ledgerRowMeta: {
+          color: colors.textSecondary,
+          fontSize: 11,
+          fontFamily: omaTypography.medium,
+          marginTop: 3,
+        },
+        ledgerAmount: {
+          fontSize: 12,
+          fontFamily: omaTypography.extrabold,
+          textAlign: "right",
+        },
+        productRow: {
+          borderRadius: 20,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          padding: 14,
+          marginBottom: 10,
+        },
+        productTitle: {
+          color: colors.text,
+          fontSize: 14,
+          fontFamily: omaTypography.extrabold,
+          lineHeight: 20,
+        },
+        productMeta: {
+          color: colors.textSecondary,
+          fontSize: 12,
+          fontFamily: omaTypography.semibold,
+          marginTop: 6,
+        },
+        productAmount: {
+          color: colors.text,
+          fontSize: 14,
+          fontFamily: omaTypography.extrabold,
+          marginTop: 8,
+        },
+        totalBar: {
+          marginTop: 8,
+          borderRadius: 22,
+          paddingHorizontal: 16,
+          paddingVertical: 16,
+          backgroundColor: isDark ? "rgba(34,197,94,0.12)" : "#ecfdf5",
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(74,222,128,0.2)" : "#bbf7d0",
+        },
+        totalLabel: {
+          color: isDark ? colors.accentGreen : "#166534",
+          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          letterSpacing: 1.2,
+          textTransform: "uppercase",
+        },
+        totalValue: {
+          color: isDark ? colors.accentGreen : "#16a34a",
+          fontSize: 22,
+          fontFamily: omaTypography.extrabold,
+        },
+        dock: {
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: isDark ? "rgba(9,17,31,0.96)" : "rgba(255,255,255,0.96)",
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
+          paddingHorizontal: 18,
+          paddingTop: 16,
+          flexDirection: "row",
+          gap: 12,
+        },
+        actionButton: {
+          borderRadius: 20,
+          minHeight: 56,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: 16,
+          flexDirection: "row",
+          gap: 8,
+        },
+        secondaryAction: {
+          flex: 1,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        primaryAction: {
+          flex: 1.7,
+          backgroundColor: colors.navActive,
+        },
+        secondaryActionText: {
+          color: colors.text,
+          fontSize: 14,
+          fontFamily: omaTypography.extrabold,
+        },
+        primaryActionText: {
+          color: isDark ? colors.background : "#ffffff",
+          fontSize: 14,
+          fontFamily: omaTypography.extrabold,
+        },
+        sheetBackdrop: {
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.48)",
+          justifyContent: "center",
+          paddingHorizontal: 20,
+        },
+        sheetCard: {
+          backgroundColor: colors.card,
+          borderRadius: 28,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: 22,
+        },
+        sheetTitle: {
+          color: colors.text,
+          fontSize: 18,
+          fontFamily: omaTypography.extrabold,
+          marginBottom: 8,
+        },
+        sheetBody: {
+          color: colors.textSecondary,
+          fontSize: 13,
+          fontFamily: omaTypography.medium,
+          lineHeight: 20,
+          marginBottom: 18,
+        },
+        commentInput: {
+          minHeight: 110,
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          paddingHorizontal: 16,
+          paddingTop: 16,
+          color: colors.text,
+          fontSize: 14,
+          fontFamily: omaTypography.medium,
+          textAlignVertical: "top",
+        },
+        sheetActions: {
+          flexDirection: "row",
+          gap: 10,
+          marginTop: 18,
+        },
+        sheetActionButton: {
+          flex: 1,
+          minHeight: 52,
+          borderRadius: 18,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        sheetActionSecondary: {
+          backgroundColor: colors.cardMuted,
+        },
+        sheetActionPrimary: {
+          backgroundColor: colors.navActive,
+        },
+        sheetActionSecondaryText: {
+          color: colors.text,
+          fontSize: 14,
+          fontFamily: omaTypography.extrabold,
+        },
+        sheetActionPrimaryText: {
+          color: isDark ? colors.background : "#ffffff",
+          fontSize: 14,
+          fontFamily: omaTypography.extrabold,
+        },
+      }),
+    [colors, contentWidth, customerStats.hasCredit, insets.top, isDark]
+  );
+
+  const balanceAmount = Math.abs(
+    (customerStats.totalCreditRaw || 0) - (customerStats.totalDebitRaw || 0)
+  );
+  const balanceSuffix = customerStats.hasCredit ? "CR" : "DR";
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle={isDark ? "light-content" : "light-content"} />
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} style={styles.iconStyle} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Pending Approvals</Text>
-        <TouchableOpacity onPress={toggleTheme}>
-          <Ionicons
-            name={isDark ? "sunny" : "moon"}
-            size={24}
-            style={styles.iconStyle}
-          />
-        </TouchableOpacity>
-      </View>
-      {/* Filtering and Sorting Controls */}
-      <View style={styles.filterContainer}>
-        <TouchableOpacity
-          style={[
-            styles.filterButton,
-            {
-              backgroundColor: isDark
-                ? colors.primary + "33"
-                : colors.primary + "15",
-            },
-          ]}
-          onPress={() => {
-            setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-          }}
-        >
-          <Ionicons
-            name="funnel-outline"
-            size={18}
-            color={isDark ? colors.primary : colors.primary}
-          />
-          <Text
-            style={[
-              styles.filterText,
-              { color: isDark ? colors.primary : colors.primary },
-            ]}
-          >
-            {sortBy.charAt(0).toUpperCase() + sortBy.slice(1)}
-            {sortBy === "date"
-              ? sortDirection === "asc"
-                ? " (Oldest)"
-                : " (Newest)"
-              : sortBy === "amount"
-              ? sortDirection === "asc"
-                ? " (Lowest)"
-                : " (Highest)"
-              : sortDirection === "asc"
-              ? " (A→Z)"
-              : " (Z→A)"}
-          </Text>
-          <Ionicons
-            name={sortDirection === "asc" ? "arrow-down" : "arrow-up"}
-            size={16}
-            color={isDark ? colors.primary : colors.primary}
-            style={{ marginLeft: 4 }}
-          />
-        </TouchableOpacity>
-
-        <View style={styles.sortButtons}>
-          <TouchableOpacity
-            style={[
-              styles.sortButton,
-              sortBy === "date" && styles.activeSortButton,
-            ]}
-            onPress={() => {
-              if (sortBy === "date") {
-                // If already sorted by date, toggle direction
-                setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-              } else {
-                // Otherwise, set sort by date with default desc direction
-                setSortBy("date");
-                setSortDirection("desc"); // Default to newest first
-              }
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text
-                style={[
-                  styles.sortText,
-                  sortBy === "date" && styles.activeSortText,
-                ]}
-              >
-                Date
-              </Text>
-              {sortBy === "date" && (
-                <Ionicons
-                  name={
-                    sortBy === "date"
-                      ? sortDirection === "asc"
-                        ? "arrow-down" // Oldest: up arrow
-                        : "arrow-up" // Newest: down arrow
-                      : sortDirection === "asc"
-                      ? "arrow-up"
-                      : "arrow-down"
-                  }
-                  size={16}
-                  color={isDark ? colors.primary : colors.primary}
-                  style={{ marginLeft: 4 }}
-                />
-              )}
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.sortButton,
-              sortBy === "amount" && styles.activeSortButton,
-            ]}
-            onPress={() => {
-              if (sortBy === "amount") {
-                setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-              } else {
-                setSortBy("amount");
-                setSortDirection("desc"); // Default to highest first
-              }
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text
-                style={[
-                  styles.sortText,
-                  sortBy === "amount" && styles.activeSortText,
-                ]}
-              >
-                Amount
-              </Text>
-              {sortBy === "amount" && (
-                <Ionicons
-                  name={sortDirection === "asc" ? "arrow-down" : "arrow-up"}
-                  size={14}
-                  color={isDark ? colors.primary : colors.primary}
-                  style={{ marginLeft: 4 }}
-                />
-              )}
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.sortButton,
-              sortBy === "customer" && styles.activeSortButton,
-            ]}
-            onPress={() => {
-              if (sortBy === "customer") {
-                setSortDirection(sortDirection === "asc" ? "desc" : "asc");
-              } else {
-                setSortBy("customer");
-                setSortDirection("asc"); // Default to A-Z
-              }
-            }}
-          >
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text
-                style={[
-                  styles.sortText,
-                  sortBy === "customer" && styles.activeSortText,
-                ]}
-              >
-                Customer
-              </Text>
-              {sortBy === "customer" && (
-                <Ionicons
-                  name={sortDirection === "asc" ? "arrow-down" : "arrow-up"}
-                  size={14}
-                  color={isDark ? colors.primary : colors.primary}
-                  style={{ marginLeft: 4 }}
-                />
-              )}
-            </View>
-          </TouchableOpacity>
-        </View>
-      </View>
-      {/* Orders List */}
+    <View style={styles.screen}>
+      <StatusBar
+        barStyle={isDark ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
+      <View style={styles.topGlow} />
 
       {loading ? (
-        <LoadingIndicator message="Loading orders..." showTips={true} />
+        <LoadingIndicator message="Loading approvals..." showTips={true} />
       ) : (
-        <SectionList
-          sections={sortedAndGroupedOrders.slice(0, displayLimit)}
-          keyExtractor={(item) => item.orderId}
-          contentContainerStyle={{ paddingVertical: 15 }}
-          refreshing={refreshing}
-          onRefresh={handleRefresh}
-          stickySectionHeadersEnabled={true}
-          renderSectionHeader={({ section: { date } }) => (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionHeaderText}>{date}</Text>
-              {sortBy !== "date" && (
-                <View style={{ flexDirection: "row", alignItems: "center" }}>
-                  <Text
-                    style={[
-                      styles.sectionHeaderText,
-                      { fontSize: 13, fontWeight: "400", marginRight: 3 },
-                    ]}
-                  >
-                    sorted by {sortBy}
-                  </Text>
-                  <Ionicons
-                    name={sortDirection === "asc" ? "arrow-down" : "arrow-up"}
-                    size={12}
-                    color={isDark ? colors.textSecondary : "#666"}
-                  />
-                </View>
-              )}
-            </View>
-          )}
-          renderItem={({ item }) => (
-            <OrderCard
-              item={item}
-              viewOrderDetails={viewOrderDetails}
-              isDark={isDark}
-              colors={colors}
-              formatIndianNumber={formatIndianNumber}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
             />
-          )}
-          ListFooterComponent={() =>
-            sortedAndGroupedOrders.length > displayLimit ? (
-              <TouchableOpacity
-                style={{
-                  backgroundColor: isDark
-                    ? "rgba(138, 80, 177, 0.1)"
-                    : "rgba(138, 80, 177, 0.05)",
-                  paddingVertical: 15,
-                  borderRadius: 10,
-                  alignItems: "center",
-                  margin: 15,
-                }}
-                onPress={() => setDisplayLimit((prev) => prev + 20)}
-              >
-                <Text
-                  style={{
-                    color: colors.primary,
-                    fontWeight: "500",
-                  }}
-                >
-                  Load More ({sortedAndGroupedOrders.length - displayLimit}{" "}
-                  remaining)
-                </Text>
-              </TouchableOpacity>
-            ) : null
           }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={60}
-                color={isDark ? "rgba(255,255,255,0.2)" : "#ccc"}
-              />
-              <Text style={styles.emptyText}>No pending orders to approve</Text>
-            </View>
-          }
-          initialNumToRender={10}
-          maxToRenderPerBatch={10}
-          windowSize={10}
-        />
-      )}
-      {/* Order Details Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => {
-          setModalVisible(false);
-          setSelectedOrder(null);
-        }}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            {/* Modal Header */}
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Order Details</Text>
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.shell}>
+            <View style={styles.headerRow}>
               <TouchableOpacity
-                style={styles.closeButton}
-                onPress={() => {
-                  setModalVisible(false);
-                  setSelectedOrder(null);
-                }}
+                onPress={() => router.back()}
+                style={styles.circleButton}
               >
                 <Ionicons
-                  name="close"
-                  size={24}
-                  color={isDark ? colors.text : "#000"}
+                  color={colors.text}
+                  name="arrow-back"
+                  size={20}
                 />
               </TouchableOpacity>
+
+              <View style={styles.headerCopy}>
+                <Text style={styles.eyebrow}>Executive Inbox</Text>
+                <Text style={styles.headerTitle}>Approvals</Text>
+                <Text style={styles.headerSubtitle}>
+                  Manager review queue for live OMA orders.
+                </Text>
+              </View>
             </View>
-            {/* Order Summary */}
-            // Replace the problematic section around line 1500-1660 with this
-            corrected version:
-            {selectedOrder ? (
-              <ScrollView contentContainerStyle={styles.modalScrollContent}>
-                <Text style={styles.orderIdText}>{selectedOrder.orderId}</Text>
-                <Text style={styles.customerText}>
-                  {selectedOrder.customerName}
-                </Text>
-                <Text style={styles.detailText}>
-                  Date: {selectedOrder.date}
-                </Text>
-                {selectedOrder.orderComments ? (
-                  <Text style={styles.detailText}>
-                    O.Note: {selectedOrder.orderComments}
+
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryAccent} />
+              <Text style={styles.summaryLabel}>Pending approval value</Text>
+              <Text style={styles.summaryValue}>
+                ₹{formatIndianNumber(summary.totalValue)}
+              </Text>
+
+              <View style={styles.summaryFoot}>
+                <View
+                  style={[
+                    styles.metricPill,
+                    {
+                      backgroundColor: isDark
+                        ? "rgba(0,102,255,0.16)"
+                        : "#eef5ff",
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[styles.metricLabel, { color: colors.primary }]}
+                  >
+                    Fresh
                   </Text>
-                ) : null}
+                  <Text
+                    style={[styles.metricValue, { color: colors.primary }]}
+                  >
+                    {summary.pendingCount}
+                  </Text>
+                </View>
+                <View
+                  style={[
+                    styles.metricPill,
+                    {
+                      backgroundColor: isDark
+                        ? "rgba(248,113,113,0.16)"
+                        : "#fff1f2",
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[styles.metricLabel, { color: colors.accentRed }]}
+                  >
+                    Recheck
+                  </Text>
+                  <Text
+                    style={[styles.metricValue, { color: colors.accentRed }]}
+                  >
+                    {summary.recheckCount}
+                  </Text>
+                </View>
+              </View>
+            </View>
 
-                <View style={styles.divider} />
+            <View style={styles.searchWrap}>
+              <Ionicons
+                color={colors.textSecondary}
+                name="search-outline"
+                size={20}
+              />
+              <TextInput
+                placeholder="Search order, customer, rep, source, product"
+                placeholderTextColor={colors.textPlaceholder}
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery ? (
+                <TouchableOpacity onPress={() => setSearchQuery("")}>
+                  <Ionicons
+                    color={colors.textSecondary}
+                    name="close-circle"
+                    size={20}
+                  />
+                </TouchableOpacity>
+              ) : null}
+            </View>
 
-                <Text style={styles.sectionTitle}>Customer Ledger Summary</Text>
-
-                {ledgerLoading ? (
-                  <View style={{ marginVertical: 20 }}>
-                    <LoadingIndicator
-                      message="Loading customer data..."
-                      size="small"
-                      showTips={false}
-                    />
-                  </View>
-                ) : (
-                  <View>
-                    <View style={styles.statsContainer}>
-                      {/* Customer name */}
+            <View style={styles.filterRow}>
+              <View style={styles.segmentShell}>
+                {[
+                  {
+                    key: "all" as const,
+                    label: "All",
+                    count: orders.length,
+                  },
+                  {
+                    key: "pending" as const,
+                    label: "Fresh",
+                    count: summary.pendingCount,
+                  },
+                  {
+                    key: "recheck" as const,
+                    label: "Recheck",
+                    count: summary.recheckCount,
+                  },
+                ].map((item) => {
+                  const active = reviewFilter === item.key;
+                  return (
+                    <TouchableOpacity
+                      key={item.key}
+                      onPress={() => setReviewFilter(item.key)}
+                      style={[
+                        styles.segmentButton,
+                        active && styles.segmentButtonActive,
+                      ]}
+                    >
                       <Text
                         style={[
-                          styles.statsLabel,
-                          { fontWeight: "600", fontSize: 15, marginBottom: 8 },
+                          styles.segmentText,
+                          active && styles.segmentTextActive,
                         ]}
                       >
-                        {selectedOrder?.customerName || "Unknown Customer"}
+                        {item.label}
                       </Text>
-
-                      <View style={styles.divider} />
-
-                      {/* Summary Rows - Total Credits, Total Debits, Balance */}
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Total Credits:</Text>
-                        <Text style={[styles.summaryValue, styles.totalCredit]}>
-                          ₹{customerStats?.totalCredit || "0.00"}
-                        </Text>
-                      </View>
-
-                      <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Total Debits:</Text>
-                        <Text style={[styles.summaryValue, styles.totalDebit]}>
-                          ₹{customerStats?.totalDebit || "0.00"}
-                        </Text>
-                      </View>
-
-                      <View
+                      <Text
                         style={[
-                          styles.summaryRow,
-                          {
-                            marginTop: 8,
-                            paddingTop: 8,
-                            borderTopWidth: 1,
-                            borderTopColor: isDark
-                              ? "rgba(255,255,255,0.1)"
-                              : "rgba(0,0,0,0.05)",
-                          },
+                          styles.segmentCount,
+                          active
+                            ? styles.segmentTextActive
+                            : { color: colors.textSecondary },
                         ]}
                       >
-                        <Text
-                          style={[
-                            styles.summaryLabel,
-                            { fontWeight: "600", fontSize: 16 },
-                          ]}
-                        >
-                          Balance:
-                        </Text>
-                        <Text
-                          style={[
-                            styles.balanceValue,
-                            customerStats?.hasCredit
-                              ? styles.totalCredit
-                              : styles.totalDebit,
-                          ]}
-                        >
-                          ₹
-                          {customerStats
-                            ? formatIndianNumber(
-                                Math.abs(
-                                  (customerStats.totalCreditRaw || 0) -
-                                    (customerStats.totalDebitRaw || 0)
-                                )
-                              )
-                            : "0.00"}{" "}
-                          {customerStats?.hasCredit ? "CR" : "DR"}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {ledgerData.length > 0 && (
-                      <View>
-                        <Text style={styles.sectionTitle}>
-                          Transaction History
-                        </Text>
-                        <View style={styles.ledgerHeader}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.ledgerHeaderText}>Date</Text>
-                          </View>
-                          <View style={{ flex: 2 }}>
-                            <Text style={styles.ledgerHeaderText}>
-                              Description
-                            </Text>
-                          </View>
-                          <View style={{ flex: 1, alignItems: "flex-end" }}>
-                            <Text style={styles.ledgerHeaderText}>Amount</Text>
-                          </View>
-                        </View>
-
-                        <View
-                          style={[styles.ledgerContainer, { maxHeight: 300 }]}
-                        >
-                          <ScrollView nestedScrollEnabled={true}>
-                            {ledgerData.map((item, index) => (
-                              <TouchableOpacity
-                                key={index}
-                                style={styles.ledgerRow}
-                                onPress={() => {
-                                  Alert.alert(
-                                    "Transaction Details",
-                                    `Date: ${item.Date}\nDescription: ${
-                                      item.Description
-                                    }\nAmount: ₹${item.Amount} ${
-                                      item.DC === "D" ? "DR" : "CR"
-                                    }\nCompany Year: ${
-                                      item.Company_Year || "N/A"
-                                    }`
-                                  );
-                                }}
-                              >
-                                <View style={{ flex: 1 }}>
-                                  <Text style={styles.ledgerText}>
-                                    {item.Date}
-                                  </Text>
-                                </View>
-                                <View style={{ flex: 2 }}>
-                                  <Text
-                                    style={styles.ledgerText}
-                                    numberOfLines={1}
-                                    ellipsizeMode="tail"
-                                  >
-                                    {(item.Description || "").replace(
-                                      "Default ",
-                                      ""
-                                    )}
-                                  </Text>
-                                </View>
-                                <View
-                                  style={{ flex: 1, alignItems: "flex-end" }}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.ledgerText,
-                                      {
-                                        color:
-                                          item.DC === "D"
-                                            ? "#e74c3c"
-                                            : "#2ecc71",
-                                        fontWeight: "500",
-                                      },
-                                    ]}
-                                  >
-                                    ₹{formatIndianNumber(item.Amount ?? 0)}{" "}
-                                    {item.DC === "D" ? "DR" : "CR"}
-                                  </Text>
-                                </View>
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
-                        </View>
-                      </View>
-                    )}
-                  </View>
-                )}
-
-                <View style={styles.divider} />
-
-                {/* Products section */}
-                <Text style={styles.sectionTitle}>Products</Text>
-                <View style={styles.productListContainer}>
-                  <ScrollView
-                    nestedScrollEnabled={true}
-                    style={{ maxHeight: 150 }}
-                  >
-                    {selectedOrder.items.map((item, index) => (
-                      <View key={index} style={styles.productItem}>
-                        <Text style={styles.productName}>
-                          {item.productName}
-                        </Text>
-                        <Text style={styles.productDetail}>
-                          Quantity: {item.quantity} {item.unit}
-                        </Text>
-                        <Text style={styles.productDetail}>
-                          Rate: ₹{item.rate} • Amount: ₹{item.amount}
-                        </Text>
-                      </View>
-                    ))}
-                  </ScrollView>
-                </View>
-
-                <View style={styles.divider} />
-
-                <Text
-                  style={{
-                    ...styles.totalText,
-                    alignSelf: "flex-end",
-                    marginTop: 15,
-                    marginBottom: 10,
-                  }}
-                >
-                  Total: ₹{formatIndianNumber(selectedOrder.totalAmount)}
-                </Text>
-
-                {/* Approve/Reject buttons */}
-                <View style={[styles.buttonsContainer, { marginTop: 15 }]}>
-                  <TouchableOpacity
-                    style={[
-                      styles.approveButton,
-                      approvalLoading && { opacity: 0.7 },
-                    ]}
-                    onPress={() => setShowApproveModal(true)}
-                    disabled={approvalLoading}
-                  >
-                    <Text style={styles.buttonText}>
-                      {approvalLoading ? "Processing..." : "Approve"}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.rejectButton,
-                      approvalLoading && { opacity: 0.7 },
-                    ]}
-                    onPress={() => handleApproval(false)}
-                    disabled={approvalLoading}
-                  >
-                    <Text style={styles.buttonText}>
-                      {approvalLoading ? "Processing..." : "Reject"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
-            ) : (
-              <View style={{ padding: 20 }}>
-                <Text style={styles.detailText}>Loading order details...</Text>
+                        {item.count}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
-            )}
-          </View>
-        </View>
-      </Modal>
-      {/* Rejection Reason Modal - Also ensuring all text is in Text components */}
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={showRejectModal}
-        onRequestClose={() => setShowRejectModal(false)}
-      >
-        <View style={styles.modalContainer}>
-          <View
-            style={[styles.modalContent, { padding: 20, maxHeight: "50%" }]}
-          >
-            <Text style={[styles.modalTitle, { marginBottom: 20 }]}>
-              Rejection Reason
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.sortRow}
+            >
+              {(["date", "amount", "customer", "source"] as SortOption[]).map(
+                (option) => {
+                  const active = sortBy === option;
+                  return (
+                    <TouchableOpacity
+                      key={option}
+                      onPress={() => {
+                        if (sortBy === option) {
+                          setSortDirection((current) =>
+                            current === "asc" ? "desc" : "asc"
+                          );
+                        } else {
+                          setSortBy(option);
+                          setSortDirection(
+                            option === "customer" || option === "source"
+                              ? "asc"
+                              : "desc"
+                          );
+                        }
+                      }}
+                      style={[
+                        styles.sortButton,
+                        active && styles.sortButtonActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.sortButtonText,
+                          active && styles.sortButtonTextActive,
+                        ]}
+                      >
+                        {option === "date"
+                          ? "Order ID"
+                          : option.charAt(0).toUpperCase() + option.slice(1)}
+                      </Text>
+                      {active ? (
+                        <Ionicons
+                          color={colors.primary}
+                          name={
+                            sortDirection === "asc"
+                              ? "arrow-down-outline"
+                              : "arrow-up-outline"
+                          }
+                          size={14}
+                        />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                }
+              )}
+            </ScrollView>
+
+            <Text style={styles.sectionLabel}>
+              {sortedOrders.length} orders in manager queue
             </Text>
 
-            <TextInput
-              style={styles.reasonInput}
-              placeholder="Enter reason for rejection (optional)"
-              placeholderTextColor={
-                isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)"
-              }
-              value={rejectionReason}
-              onChangeText={setRejectionReason}
-              multiline={true}
-              numberOfLines={3}
-            />
-
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                marginTop: 20,
-              }}
-            >
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setShowRejectModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.rejectButton,
-                  approvalLoading && { opacity: 0.7 },
-                ]}
-                onPress={confirmRejection}
-                disabled={approvalLoading}
-              >
-                <Text style={styles.buttonText}>
-                  {approvalLoading ? "Processing..." : "Confirm Rejection"}
+            {sortedOrders.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons
+                  color={colors.textPlaceholder}
+                  name="checkmark-circle-outline"
+                  size={56}
+                />
+                <Text style={styles.emptyTitle}>No approvals pending</Text>
+                <Text style={styles.emptyBody}>
+                  Everything in this queue is cleared. Pull to refresh if you
+                  expect new orders.
                 </Text>
-              </TouchableOpacity>
-            </View>
+              </View>
+            ) : (
+              sortedOrders.map((order) => {
+                const isRecheck = order.approvalStatus === "R";
+                const hasNote = Boolean(order.orderComments?.trim());
+                const bannerBackground = isRecheck
+                  ? isDark
+                    ? "rgba(248,113,113,0.16)"
+                    : "#fff1f2"
+                  : hasNote
+                  ? isDark
+                    ? "rgba(251,146,60,0.16)"
+                    : "#fff7ed"
+                  : isDark
+                  ? "rgba(0,102,255,0.16)"
+                  : "#eef5ff";
+                const bannerColor = isRecheck
+                  ? colors.accentRed
+                  : hasNote
+                  ? colors.accentOrange
+                  : colors.primary;
+
+                return (
+                  <TouchableOpacity
+                    key={order.orderId}
+                    activeOpacity={0.92}
+                    onPress={() => openOrder(order)}
+                    style={styles.orderCard}
+                  >
+                    <View
+                      style={[
+                        styles.orderBanner,
+                        { backgroundColor: bannerBackground },
+                      ]}
+                    >
+                      <View style={styles.orderBannerLeft}>
+                        <Ionicons
+                          color={bannerColor}
+                          name={
+                            isRecheck
+                              ? "alert-circle-outline"
+                              : hasNote
+                              ? "document-text-outline"
+                              : "shield-checkmark-outline"
+                          }
+                          size={14}
+                        />
+                        <Text
+                          style={[
+                            styles.orderBannerLabel,
+                            { color: bannerColor },
+                          ]}
+                        >
+                          {isRecheck
+                            ? "Needs Recheck"
+                            : hasNote
+                            ? "Field Note Attached"
+                            : "Manager Review"}
+                        </Text>
+                      </View>
+                      <Text style={styles.orderBannerDate}>
+                        {formatDateChip(order.date)}
+                      </Text>
+                    </View>
+
+                    <View style={styles.orderBody}>
+                      <View style={styles.orderHeader}>
+                        <View
+                          style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
+                        >
+                          <View style={styles.repBadge}>
+                            <Text style={styles.repBadgeText}>
+                              {(order.user || "O").slice(0, 1).toUpperCase()}
+                            </Text>
+                          </View>
+
+                          <View style={styles.orderIdentity}>
+                            <Text numberOfLines={2} style={styles.customerName}>
+                              {order.customerName}
+                            </Text>
+                            <Text style={styles.orderId}>{order.orderId}</Text>
+                          </View>
+                        </View>
+
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text style={styles.orderAmount}>
+                            ₹{formatIndianNumber(order.totalAmount)}
+                          </Text>
+                          <Text style={styles.orderAge}>
+                            {formatTimeAgo(order.date)}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.metaRow}>
+                        <View style={styles.metaChip}>
+                          <Ionicons
+                            color={colors.textSecondary}
+                            name="person-outline"
+                            size={12}
+                          />
+                          <Text style={styles.metaChipText}>{order.user}</Text>
+                        </View>
+                        <View style={styles.metaChip}>
+                          <Ionicons
+                            color={colors.textSecondary}
+                            name="cube-outline"
+                            size={12}
+                          />
+                          <Text style={styles.metaChipText}>
+                            {order.items.length} line
+                            {order.items.length === 1 ? "" : "s"}
+                          </Text>
+                        </View>
+                        <View style={styles.metaChip}>
+                          <Ionicons
+                            color={colors.textSecondary}
+                            name="call-outline"
+                            size={12}
+                          />
+                          <Text style={styles.metaChipText}>{order.source}</Text>
+                        </View>
+                      </View>
+
+                      {order.orderComments ? (
+                        <View style={styles.notePreview}>
+                          <Text style={styles.notePreviewLabel}>O.Note</Text>
+                          <Text numberOfLines={2} style={styles.notePreviewText}>
+                            {order.orderComments}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </View>
+        </ScrollView>
+      )}
+
+      <Modal
+        animationType="slide"
+        visible={detailVisible}
+        onRequestClose={closeDetail}
+      >
+        <View style={styles.detailScreen}>
+          <View style={styles.topGlow} />
+          <View style={[styles.detailHeader, { paddingTop: insets.top + 10 }]}>
+            <TouchableOpacity onPress={closeDetail} style={styles.circleButton}>
+              <Ionicons color={colors.text} name="arrow-back" size={20} />
+            </TouchableOpacity>
+
+            <View style={styles.detailHeaderCenter}>
+              <Text style={styles.detailHeaderEyebrow}>
+                Authorization Review
+              </Text>
+              <Text numberOfLines={1} style={styles.detailHeaderTitle}>
+                {selectedOrder?.orderId || "Order"}
+              </Text>
+            </View>
+
+            <View style={{ width: 44 }} />
+          </View>
+
+          {selectedOrder ? (
+            <>
+              <ScrollView
+                contentContainerStyle={[
+                  styles.detailContent,
+                  styles.shell,
+                  { paddingBottom: insets.bottom + 120 },
+                ]}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={styles.infoGrid}>
+                  <View style={styles.infoCard}>
+                    <Text style={styles.infoLabel}>Client</Text>
+                    <Text style={styles.infoValue}>
+                      {selectedOrder.customerName}
+                    </Text>
+                  </View>
+
+                  <View style={styles.infoCard}>
+                    <Text style={styles.infoLabel}>Submitted</Text>
+                    <Text style={styles.infoValue}>
+                      {formatDateChip(selectedOrder.date)}
+                    </Text>
+                    <Text style={styles.infoMeta}>Rep: {selectedOrder.user}</Text>
+                  </View>
+                </View>
+
+                {selectedOrder.orderComments ? (
+                  <View style={styles.detailNoteCard}>
+                    <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>
+                      Field Note
+                    </Text>
+                    <Text style={styles.detailNoteValue}>
+                      "{selectedOrder.orderComments}"
+                    </Text>
+                  </View>
+                ) : null}
+
+                {selectedOrder.managerComments ? (
+                  <View style={styles.managerNoteCard}>
+                    <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>
+                      Previous Manager Note
+                    </Text>
+                    <Text style={styles.detailNoteValue}>
+                      {selectedOrder.managerComments}
+                    </Text>
+                  </View>
+                ) : null}
+
+                <View style={styles.ledgerCard}>
+                  <View style={styles.ledgerBlur} />
+                  <View style={styles.ledgerHeader}>
+                    <Text style={styles.ledgerTitle}>Ledger Summary</Text>
+                    <Text style={styles.ledgerCategory}>
+                      {selectedOrder.source || "OMA"}
+                    </Text>
+                  </View>
+
+                  {ledgerLoading ? (
+                    <View style={{ paddingVertical: 28 }}>
+                      <ActivityIndicator color="#ffffff" size="small" />
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.ledgerBalanceLabel}>
+                        Current Balance
+                      </Text>
+                      <Text style={styles.ledgerBalanceValue}>
+                        ₹{formatIndianNumber(balanceAmount)}{" "}
+                        <Text
+                          style={[
+                            styles.ledgerBalanceSuffix,
+                            {
+                              color: customerStats.hasCredit
+                                ? colors.primary
+                                : colors.accentOrange,
+                            },
+                          ]}
+                        >
+                          {balanceSuffix}
+                        </Text>
+                      </Text>
+
+                      <View style={styles.ledgerDivider} />
+
+                      <View style={styles.ledgerStatsRow}>
+                        <View style={styles.ledgerStat}>
+                          <Text style={styles.ledgerStatLabel}>Total Credits</Text>
+                          <Text style={styles.ledgerStatValue}>
+                            ₹{customerStats.totalCredit}
+                          </Text>
+                        </View>
+                        <View style={styles.ledgerStat}>
+                          <Text style={styles.ledgerStatLabel}>Total Debits</Text>
+                          <Text style={styles.ledgerStatValue}>
+                            ₹{customerStats.totalDebit}
+                          </Text>
+                        </View>
+                      </View>
+                    </>
+                  )}
+                </View>
+
+                {ledgerData.length > 0 ? (
+                  <View style={styles.sectionCard}>
+                    <Text style={styles.sectionTitle}>Recent ledger activity</Text>
+                    {ledgerData.slice(0, 5).map((entry, index) => {
+                      const amount = formatIndianNumber(entry.Amount as string);
+                      const isDebit = entry.DC === "D";
+                      return (
+                        <View
+                          key={`${String(entry.Date)}-${index}`}
+                          style={[
+                            styles.ledgerRow,
+                            index === Math.min(ledgerData.length, 5) - 1 && {
+                              borderBottomWidth: 0,
+                            },
+                          ]}
+                        >
+                          <Text style={styles.ledgerRowDate}>
+                            {String(entry.Date || "")}
+                          </Text>
+                          <View style={styles.ledgerRowBody}>
+                            <Text numberOfLines={1} style={styles.ledgerRowTitle}>
+                              {String(entry.Description || "").replace(
+                                "Default ",
+                                ""
+                              )}
+                            </Text>
+                            <Text style={styles.ledgerRowMeta}>
+                              {String(entry.Company_Year || "Company Year N/A")}
+                            </Text>
+                          </View>
+                          <Text
+                            style={[
+                              styles.ledgerAmount,
+                              {
+                                color: isDebit
+                                  ? colors.accentRed
+                                  : colors.accentGreen,
+                              },
+                            ]}
+                          >
+                            ₹{amount} {isDebit ? "DR" : "CR"}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
+
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionTitle}>
+                    Line Items ({selectedOrder.items.length})
+                  </Text>
+
+                  {selectedOrder.items.map((item) => (
+                    <View
+                      key={`${selectedOrder.orderId}-${item.rowIndex}`}
+                      style={styles.productRow}
+                    >
+                      <Text style={styles.productTitle}>{item.productName}</Text>
+                      <Text style={styles.productMeta}>
+                        {item.quantity} {item.unit} • @ ₹{item.rate}
+                      </Text>
+                      <Text style={styles.productAmount}>
+                        ₹{formatIndianNumber(item.amount)}
+                      </Text>
+                    </View>
+                  ))}
+
+                  <View style={styles.totalBar}>
+                    <Text style={styles.totalLabel}>Gross Total</Text>
+                    <Text style={styles.totalValue}>
+                      ₹{formatIndianNumber(selectedOrder.totalAmount)}
+                    </Text>
+                  </View>
+                </View>
+              </ScrollView>
+
+              <View style={[styles.dock, { paddingBottom: insets.bottom + 12 }]}>
+                <TouchableOpacity
+                  disabled={approvalLoading}
+                  onPress={() => handleApproval(false)}
+                  style={[
+                    styles.actionButton,
+                    styles.secondaryAction,
+                    approvalLoading && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={styles.secondaryActionText}>
+                    {approvalLoading ? "Processing..." : "Reject"}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  disabled={approvalLoading}
+                  onPress={() => setShowApproveModal(true)}
+                  style={[
+                    styles.actionButton,
+                    styles.primaryAction,
+                    approvalLoading && { opacity: 0.7 },
+                  ]}
+                >
+                  <Text style={styles.primaryActionText}>
+                    {approvalLoading ? "Processing..." : "Authorize Order"}
+                  </Text>
+                  {!approvalLoading ? (
+                    <Ionicons
+                      color={isDark ? colors.background : "#ffffff"}
+                      name="checkmark-circle-outline"
+                      size={18}
+                    />
+                  ) : null}
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
         </View>
       </Modal>
+
       <Modal
+        transparent
         animationType="fade"
-        transparent={true}
         visible={showApproveModal}
         onRequestClose={() => setShowApproveModal(false)}
       >
-        <View style={styles.modalContainer}>
-          <View
-            style={[styles.modalContent, { padding: 20, maxHeight: "50%" }]}
-          >
-            <Text style={[styles.modalTitle, { marginBottom: 20 }]}>
-              Approval Comments
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setShowApproveModal(false)}
+        >
+          <Pressable style={styles.sheetCard}>
+            <Text style={styles.sheetTitle}>Approval Comments</Text>
+            <Text style={styles.sheetBody}>
+              Add optional context for dispatch or finance before authorizing.
             </Text>
+
             <TextInput
-              style={styles.reasonInput}
+              multiline
+              numberOfLines={4}
               placeholder="Enter approval comments (optional)"
-              placeholderTextColor={
-                isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)"
-              }
+              placeholderTextColor={colors.textPlaceholder}
+              style={styles.commentInput}
               value={approvalComments}
               onChangeText={setApprovalComments}
-              multiline={true}
-              numberOfLines={3}
             />
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                marginTop: 20,
-              }}
-            >
+
+            <View style={styles.sheetActions}>
               <TouchableOpacity
-                style={styles.cancelButton}
                 onPress={() => setShowApproveModal(false)}
+                style={[
+                  styles.sheetActionButton,
+                  styles.sheetActionSecondary,
+                ]}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={styles.sheetActionSecondaryText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.approveButton,
-                  approvalLoading && { opacity: 0.7 },
-                ]}
+                disabled={approvalLoading}
                 onPress={async () => {
                   setShowApproveModal(false);
                   await handleApproval(true, approvalComments);
                   setApprovalComments("");
                 }}
-                disabled={approvalLoading}
+                style={[
+                  styles.sheetActionButton,
+                  styles.sheetActionPrimary,
+                  approvalLoading && { opacity: 0.7 },
+                ]}
               >
-                <Text style={styles.buttonText}>
-                  {approvalLoading ? "Processing..." : "Confirm Approval"}
+                <Text style={styles.sheetActionPrimaryText}>
+                  {approvalLoading ? "Saving..." : "Confirm Approval"}
                 </Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={showRejectModal}
+        onRequestClose={() => setShowRejectModal(false)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setShowRejectModal(false)}
+        >
+          <Pressable style={styles.sheetCard}>
+            <Text style={styles.sheetTitle}>Rejection Reason</Text>
+            <Text style={styles.sheetBody}>
+              Capture the manager reason so the sales team knows what to fix.
+            </Text>
+
+            <TextInput
+              multiline
+              numberOfLines={4}
+              placeholder="Enter reason for rejection"
+              placeholderTextColor={colors.textPlaceholder}
+              style={styles.commentInput}
+              value={rejectionReason}
+              onChangeText={setRejectionReason}
+            />
+
+            <View style={styles.sheetActions}>
+              <TouchableOpacity
+                onPress={() => setShowRejectModal(false)}
+                style={[
+                  styles.sheetActionButton,
+                  styles.sheetActionSecondary,
+                ]}
+              >
+                <Text style={styles.sheetActionSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={approvalLoading}
+                onPress={confirmRejection}
+                style={[
+                  styles.sheetActionButton,
+                  styles.sheetActionPrimary,
+                  { backgroundColor: colors.accentRed },
+                  approvalLoading && { opacity: 0.7 },
+                ]}
+              >
+                <Text style={styles.sheetActionPrimaryText}>
+                  {approvalLoading ? "Saving..." : "Confirm Rejection"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
-};
-
-export default ApproveOrdersScreen;
+}
