@@ -22,12 +22,12 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
-import { ThemeContext } from "../context/ThemeContext";
-import { useFeedback } from "../context/FeedbackContext";
-import { apiCache, BACKEND_URL, fetchWithRetry } from "../utils/apiManager";
-import LoadingIndicator from "../components/LoadingIndicator";
-import { omaTypography } from "../utils/typography";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
+import { ThemeContext } from "@/context/ThemeContext";
+import { useFeedback } from "@/context/FeedbackContext";
+import { apiCache, BACKEND_URL, fetchWithRetry } from "@/utils/apiManager";
+import LoadingIndicator from "@/components/LoadingIndicator";
+import { omaTypography } from "@/utils/typography";
 
 type ContactInfo = {
   number: string;
@@ -2375,3 +2375,5 @@ const CustomersScreen = () => {
 };
 
 export default CustomersScreen;
+
+

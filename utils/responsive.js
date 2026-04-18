@@ -20,3 +20,5 @@ export const isIOS = Platform.OS === "ios";
 export const isAndroid = Platform.OS === "android";
 export const isTablet = width >= 768;
 export const isSmallDevice = width < 375;
+
+

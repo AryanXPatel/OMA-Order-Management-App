@@ -5,3 +5,5 @@ export const omaTypography = {
   bold: "Inter_700Bold",
   extrabold: "Inter_800ExtraBold",
 } as const;
+
+

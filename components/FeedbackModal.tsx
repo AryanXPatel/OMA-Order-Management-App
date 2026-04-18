@@ -8,8 +8,8 @@ import {
   Animated,
   Platform,
 } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import { ThemeContext } from "../context/ThemeContext";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
+import { ThemeContext } from "@/context/ThemeContext";
 
 export type FeedbackType = "success" | "error" | "warning" | "info";
 
@@ -249,3 +249,5 @@ const styles = StyleSheet.create({
 });
 
 export default FeedbackModal;
+
+

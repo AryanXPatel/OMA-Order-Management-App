@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, {
   Circle,
@@ -19,18 +19,18 @@ import Svg, {
   Path,
   Stop,
 } from "react-native-svg";
-import { FLOATING_NAV_SPACE } from "../components/oma/OmaFloatingNav";
-import { LoadingIndicator } from "../components/LoadingIndicator";
-import { useFeedback } from "../context/FeedbackContext";
-import { ThemeContext } from "../context/ThemeContext";
+import { FLOATING_NAV_SPACE } from "@/components/oma/OmaFloatingNav";
+import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { useFeedback } from "@/context/FeedbackContext";
+import { ThemeContext } from "@/context/ThemeContext";
 import {
   apiCache,
   BACKEND_URL,
   fetchWithRetry,
   preloadData,
   wakeUpServer,
-} from "../utils/apiManager";
-import { omaTypography } from "../utils/typography";
+} from "@/utils/apiManager";
+import { omaTypography } from "@/utils/typography";
 
 type Timeframe = "MTD" | "QTD" | "YTD";
 type ViewMode = "financial" | "team" | "ops";
@@ -2230,3 +2230,5 @@ export default function AnalyticsScreen() {
     </View>
   );
 }
+
+

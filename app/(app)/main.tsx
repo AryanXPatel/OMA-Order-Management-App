@@ -14,19 +14,19 @@ import {
 } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Ionicons } from "@expo/vector-icons";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ThemeContext } from "../context/ThemeContext";
-import type { AppColors } from "../context/ThemeContext";
-import { useFeedback } from "../context/FeedbackContext";
-import { omaTypography } from "../utils/typography";
+import { ThemeContext } from "@/context/ThemeContext";
+import type { AppColors } from "@/context/ThemeContext";
+import { useFeedback } from "@/context/FeedbackContext";
+import { omaTypography } from "@/utils/typography";
 import {
   apiCache,
   BACKEND_URL,
   fetchWithRetry,
   preloadData,
   wakeUpServer,
-} from "../utils/apiManager";
+} from "@/utils/apiManager";
 
 type OrderRow = {
   sysTime: string;
@@ -2215,3 +2215,5 @@ export default function MainScreen() {
     </View>
   );
 }
+
+

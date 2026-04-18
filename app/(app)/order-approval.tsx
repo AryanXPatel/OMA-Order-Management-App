@@ -15,21 +15,21 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Ionicons } from "@expo/vector-icons";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ThemeContext } from "../context/ThemeContext";
-import { useFeedback } from "../context/FeedbackContext";
-import { omaTypography } from "../utils/typography";
+import { ThemeContext } from "@/context/ThemeContext";
+import { useFeedback } from "@/context/FeedbackContext";
+import { omaTypography } from "@/utils/typography";
 import {
   BACKEND_URL,
   apiCache,
   fetchWithRetry,
-} from "../utils/apiManager";
-import LoadingIndicator from "../components/LoadingIndicator";
+} from "@/utils/apiManager";
+import LoadingIndicator from "@/components/LoadingIndicator";
 import {
   calculateLedgerStats,
   fetchCustomerLedger,
-} from "../utils/ledgerUtils";
+} from "@/utils/ledgerUtils";
 
 type ApprovalItem = {
   productName: string;
@@ -2165,3 +2165,5 @@ export default function OrderApprovalScreen() {
     </View>
   );
 }
+
+

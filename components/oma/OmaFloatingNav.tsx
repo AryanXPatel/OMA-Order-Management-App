@@ -2,9 +2,9 @@ import React, { useContext, useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Href, useRouter, useSegments } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
-import { ThemeContext } from "../../context/ThemeContext";
-import { omaTypography } from "../../utils/typography";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
+import { ThemeContext } from "@/context/ThemeContext";
+import { omaTypography } from "@/utils/typography";
 
 type NavItem = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -189,3 +189,5 @@ export default function OmaFloatingNav() {
     </View>
   );
 }
+
+

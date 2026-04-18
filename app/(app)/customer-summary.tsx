@@ -19,16 +19,16 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
-import { ThemeContext } from "../context/ThemeContext";
-import { useFeedback } from "../context/FeedbackContext";
-import { BACKEND_URL, apiCache, fetchWithRetry } from "../utils/apiManager";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
+import { ThemeContext } from "@/context/ThemeContext";
+import { useFeedback } from "@/context/FeedbackContext";
+import { BACKEND_URL, apiCache, fetchWithRetry } from "@/utils/apiManager";
 import {
   calculateLedgerStats,
   fetchCustomerLedger,
   formatIndianNumber,
-} from "../utils/ledgerUtils";
-import { omaTypography } from "../utils/typography";
+} from "@/utils/ledgerUtils";
+import { omaTypography } from "@/utils/typography";
 
 type CustomerOption = {
   "Customer CODE": string;
@@ -2234,3 +2234,5 @@ const CustomerSummaryScreen = () => {
 };
 
 export default CustomerSummaryScreen;
+
+

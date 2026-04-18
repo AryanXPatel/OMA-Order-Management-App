@@ -11,7 +11,7 @@ import Animated, {
   SlideInRight,
   SlideOutLeft,
 } from "react-native-reanimated";
-import { BACKEND_URL, fetchWithRetry } from "../utils/apiManager";
+import { BACKEND_URL, fetchWithRetry } from "@/utils/apiManager";
 import {
   TimePickerModal,
   DatePickerModal,
@@ -36,10 +36,10 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
-import { ThemeContext } from "../context/ThemeContext";
-import { Ionicons } from "@expo/vector-icons";
+import { ThemeContext } from "@/context/ThemeContext";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
 import NetInfo from "@react-native-community/netinfo";
-import { omaTypography } from "../utils/typography";
+import { omaTypography } from "@/utils/typography";
 registerTranslation("en", {}); // English locale
 
 const NewSalesOrderScreen = () => {
@@ -3369,3 +3369,5 @@ const NewSalesOrderScreen = () => {
 };
 
 export default NewSalesOrderScreen;
+
+

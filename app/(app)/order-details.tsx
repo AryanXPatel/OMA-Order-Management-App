@@ -1,6 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Ionicons } from "@expo/vector-icons";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { router } from "expo-router";
 import {
   ScrollView,
@@ -13,11 +13,11 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import LoadingIndicator from "../components/LoadingIndicator";
-import { useFeedback } from "../context/FeedbackContext";
-import { ThemeContext } from "../context/ThemeContext";
-import { omaTypography } from "../utils/typography";
-import { APP_VERSION } from "../utils/appConfig";
+import LoadingIndicator from "@/components/LoadingIndicator";
+import { useFeedback } from "@/context/FeedbackContext";
+import { ThemeContext } from "@/context/ThemeContext";
+import { omaTypography } from "@/utils/typography";
+import { APP_VERSION } from "@/utils/appConfig";
 
 type DetailTab = "details" | "logistics" | "notes";
 
@@ -1445,3 +1445,5 @@ export default function OrderDetailsScreen() {
     </View>
   );
 }
+
+

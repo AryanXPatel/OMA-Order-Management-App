@@ -1,8 +1,8 @@
 import { useEffect } from "react";
-import { fetchWithRetry } from "./utils/apiManager";
+import { fetchWithRetry } from "@/utils/apiManager";
 import { Stack, useSegments } from "expo-router";
-import { ThemeProvider } from "./context/ThemeContext";
-import { FeedbackProvider } from "./context/FeedbackContext";
+import { ThemeProvider } from "@/context/ThemeContext";
+import { FeedbackProvider } from "@/context/FeedbackContext";
 import { Dimensions } from "react-native";
 import {
   Inter_400Regular,
@@ -16,11 +16,11 @@ import {
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { useContext } from "react";
-import { ThemeContext } from "./context/ThemeContext";
+import { ThemeContext } from "@/context/ThemeContext";
 import { View } from "react-native";
 import OmaFloatingNav, {
   FLOATING_NAV_SPACE,
-} from "./components/oma/OmaFloatingNav";
+} from "@/components/oma/OmaFloatingNav";
 
 // Add dimension change listener
 Dimensions.addEventListener("change", ({ window }) => {
@@ -108,3 +108,6 @@ export default function RootLayout() {
     </SafeAreaProvider>
   );
 }
+
+
+

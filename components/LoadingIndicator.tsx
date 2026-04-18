@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from "react";
 import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
-import { ThemeContext } from "../context/ThemeContext";
+import { ThemeContext } from "@/context/ThemeContext";
 
 export const LoadingIndicator = ({
   message = "Loading...",
@@ -80,3 +80,5 @@ const styles = StyleSheet.create({
 });
 
 export default LoadingIndicator;
+
+

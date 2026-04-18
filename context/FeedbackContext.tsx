@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext } from "react";
-import FeedbackModal, { FeedbackType } from "../components/FeedbackModal";
+import FeedbackModal, { FeedbackType } from "@/components/FeedbackModal";
 import * as Haptics from "expo-haptics";
 import { Platform } from "react-native";
 
@@ -88,3 +88,5 @@ export const FeedbackProvider: React.FC<{ children: React.ReactNode }> = ({
     </FeedbackContext.Provider>
   );
 };
+
+

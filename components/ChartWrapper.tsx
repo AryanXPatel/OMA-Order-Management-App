@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { ThemeContext } from "../context/ThemeContext";
+import { ThemeContext } from "@/context/ThemeContext";
 
 interface ChartWrapperProps {
   children: React.ReactNode;
@@ -98,3 +98,5 @@ const styles = StyleSheet.create({
 });
 
 export default ChartWrapper;
+
+

@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import NetInfo from "@react-native-community/netinfo";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Ionicons } from "@expo/vector-icons";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { router } from "expo-router";
 import {
   ActivityIndicator,
@@ -25,10 +25,10 @@ import {
   useWindowDimensions,
 } from "react-native";
 
-import { useFeedback } from "../context/FeedbackContext";
-import { ThemeContext } from "../context/ThemeContext";
-import { wakeUpServer, preloadData } from "../utils/apiManager";
-import { omaTypography } from "../utils/typography";
+import { useFeedback } from "@/context/FeedbackContext";
+import { ThemeContext } from "@/context/ThemeContext";
+import { wakeUpServer, preloadData } from "@/utils/apiManager";
+import { omaTypography } from "@/utils/typography";
 
 const APP_VERSION = "2.4.0";
 
@@ -1043,3 +1043,5 @@ const LoginScreen = () => {
 };
 
 export default LoginScreen;
+
+

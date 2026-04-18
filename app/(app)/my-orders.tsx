@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Ionicons } from "@expo/vector-icons";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { router } from "expo-router";
 import {
   Alert,
@@ -16,11 +16,11 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import LoadingIndicator from "../components/LoadingIndicator";
-import { FLOATING_NAV_SPACE } from "../components/oma/OmaFloatingNav";
-import { ThemeContext } from "../context/ThemeContext";
-import { BACKEND_URL, apiCache, fetchWithRetry } from "../utils/apiManager";
-import { omaTypography } from "../utils/typography";
+import LoadingIndicator from "@/components/LoadingIndicator";
+import { FLOATING_NAV_SPACE } from "@/components/oma/OmaFloatingNav";
+import { ThemeContext } from "@/context/ThemeContext";
+import { BACKEND_URL, apiCache, fetchWithRetry } from "@/utils/apiManager";
+import { omaTypography } from "@/utils/typography";
 
 type FilterStatus = "all" | "pending" | "approved" | "rejected" | "dispatched";
 
@@ -1140,3 +1140,5 @@ export default function MyOrdersScreen() {
     </View>
   );
 }
+
+
