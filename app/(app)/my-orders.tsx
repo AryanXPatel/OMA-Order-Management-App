@@ -924,7 +924,7 @@ export default function MyOrdersScreen() {
                 style={[styles.filterChip, isActive && styles.activeFilterChip]}
               >
                 <Ionicons
-                  color={isActive ? "#ffffff" : colors.textSecondary}
+                  color={isActive ? activeContentColor : colors.textSecondary}
                   name={option.icon}
                   size={16}
                 />
