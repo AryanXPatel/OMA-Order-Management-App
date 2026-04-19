@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { fetchWithRetry } from "@/utils/apiManager";
+import { wakeUpServer } from "@/utils/apiManager";
 import { Stack, useSegments } from "expo-router";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { FeedbackProvider } from "@/context/FeedbackContext";
@@ -38,15 +38,7 @@ function RootLayoutNav() {
     const warmUpAPI = async () => {
       try {
         console.log("Pre-warming API...");
-        // Make a simple request to wake up the server - replace with any endpoint that exists
-        await fetchWithRetry(
-          "https://oma-demo-server.onrender.com/api/sheets/warmup",
-          {},
-          2,
-          2000
-        ).catch(() =>
-          console.log("API warming failed, will retry on first data request")
-        );
+        await wakeUpServer();
         console.log("API pre-warming complete");
       } catch {
         console.log("API pre-warming failed, will retry on first data request");
@@ -60,7 +52,6 @@ function RootLayoutNav() {
     <View style={{ flex: 1, backgroundColor: isDark ? "#09111f" : "#f7f8f9" }}>
       <StatusBar style={isDark ? "light" : "dark"} />
       <View
-        pointerEvents="none"
         style={{
           position: "absolute",
           top: 0,
@@ -69,6 +60,7 @@ function RootLayoutNav() {
           height: 260,
           backgroundColor: isDark ? "rgba(20, 33, 54, 0.45)" : "#eef2f6",
           opacity: isDark ? 0.6 : 1,
+          pointerEvents: "none",
         }}
       />
       <Stack

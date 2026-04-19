@@ -23,6 +23,8 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+.omx/
+.playwright-cli/
 
 # macOS
 .DS_Store

@@ -95,6 +95,7 @@ export default function OmaFloatingNav() {
           bottom: Math.max(insets.bottom, 12),
           alignItems: "center",
           paddingHorizontal: 16,
+          pointerEvents: "box-none",
         },
         shell: {
           width: "100%",
@@ -153,7 +154,7 @@ export default function OmaFloatingNav() {
   }
 
   return (
-    <View pointerEvents="box-none" style={styles.wrapper}>
+    <View style={styles.wrapper}>
       <View style={styles.shell}>
         {navItems.map((item) => {
           const isActive = item.segment === leaf;

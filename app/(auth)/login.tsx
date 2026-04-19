@@ -703,9 +703,11 @@ const LoginScreen = () => {
     <>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       <View style={styles.container}>
-        <View style={styles.ambientOrbPrimary} pointerEvents="none" />
-        <View style={styles.ambientOrbSecondary} pointerEvents="none" />
-        <View style={styles.ambientHalo} pointerEvents="none" />
+        <View style={[styles.ambientOrbPrimary, { pointerEvents: "none" }]} />
+        <View
+          style={[styles.ambientOrbSecondary, { pointerEvents: "none" }]}
+        />
+        <View style={[styles.ambientHalo, { pointerEvents: "none" }]} />
 
         <TouchableOpacity
           activeOpacity={0.85}
@@ -731,7 +733,6 @@ const LoginScreen = () => {
           >
             <View style={styles.shell}>
               <Animated.View
-                pointerEvents={showForm ? "none" : "auto"}
                 style={{
                   opacity: showForm ? Animated.subtract(1, formOpacity) : fadeAnim,
                   transform: [{ translateY: slideAnim }],
@@ -739,11 +740,16 @@ const LoginScreen = () => {
                   top: 0,
                   left: 0,
                   right: 0,
+                  pointerEvents: showForm ? "none" : "auto",
                 }}
               >
                 <View style={styles.heroSurface}>
-                  <View style={styles.heroGlowPrimary} pointerEvents="none" />
-                  <View style={styles.heroGlowSecondary} pointerEvents="none" />
+                  <View
+                    style={[styles.heroGlowPrimary, { pointerEvents: "none" }]}
+                  />
+                  <View
+                    style={[styles.heroGlowSecondary, { pointerEvents: "none" }]}
+                  />
 
                   <View style={styles.heroBadge}>
                     <Ionicons
@@ -805,7 +811,7 @@ const LoginScreen = () => {
                 }}
               >
                 <View style={styles.formSurface}>
-                  <View style={styles.formGlow} pointerEvents="none" />
+                  <View style={[styles.formGlow, { pointerEvents: "none" }]} />
 
                   <View style={styles.formHeaderRow}>
                     <View style={{ flex: 1 }}>
