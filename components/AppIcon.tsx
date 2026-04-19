@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ChevronUp,
   Clipboard,
+  Clock3,
   CloudOff,
   DollarSign,
   FileText,
@@ -132,8 +133,8 @@ const iconMap = {
   "stats-chart-outline": { component: BarChart3 },
   "sunny": { component: Sun },
   "sunny-outline": { component: Sun },
-  time: { component: ClockIcon },
-  "time-outline": { component: ClockIcon },
+  time: { component: Clock3 },
+  "time-outline": { component: Clock3 },
   warning: { component: AlertCircle },
   "wallet-outline": { component: Wallet },
 } as const satisfies Record<string, IconMapEntry>;
