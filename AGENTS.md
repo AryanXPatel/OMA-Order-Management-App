@@ -75,6 +75,11 @@ There is no general `build` script in `package.json`. Do not invent one. If the 
 - Avoid scattering new hardcoded backend URLs. If a new endpoint is needed, build it from `BACKEND_URL`.
 - Preserve existing retry, warm-up, and cache behavior unless the task is explicitly about changing it.
 - Web requests may use the web proxy logic in `app/utils/webApiManager.ts`. Do not break web behavior when editing API calls.
+- Local development now prefers a local backend automatically in `__DEV__`:
+  - `http://localhost:3000` for web / iOS simulator
+  - `http://10.0.2.2:3000` for Android emulator
+  - `EXPO_PUBLIC_BACKEND_URL` overrides both when set
+- Before assuming a backend bug on analytics work, verify whether the app is pointed at local or remote backend.
 
 ## Owner Analytics Architecture
 - The owner command center is an exception-first analytics surface for manager/business-owner decisions. Prefer surfacing revenue at risk, queue pressure, concentration risk, and collections pressure over decorative KPI walls.
@@ -98,6 +103,13 @@ There is no general `build` script in `package.json`. Do not invent one. If the 
   - `Source_Channel_Daily`
   - `Attention_Queue_Snapshot`
   - `Targets`
+- Current repository-backed command center path now exists in:
+  - `utils/commandCenterRepository.ts`
+  - `utils/commandCenterTransforms.ts`
+  - `utils/managerAnalytics.ts`
+  - `app/(app)/analytics.tsx`
+- `app/(app)/analytics.tsx` should prefer the repository/derived-tab path but keep a controlled raw fallback during rollout.
+- `Attention_Queue_Snapshot` and `Targets` are now valid backend-facing tabs and should be treated as first-class data inputs, not ad hoc additions.
 - Business definitions to keep consistent:
   - `bookings`: order amount at order create time
   - `dispatch_value`: value of dispatched lines/orders
@@ -157,6 +169,11 @@ For dependency work:
 
 For navigation or API work:
 - verify affected routes, storage keys, and API helper usage
+
+For owner analytics work:
+- verify the local or deployed server route `POST /api/analytics/rebuild`
+- verify the local or deployed server route `POST /api/sheets/batch-update`
+- run the focused Jest suites under `utils/__tests__/`
 
 ## Known Repo Realities
 - README version badges and some docs are older than the current installed Expo stack.

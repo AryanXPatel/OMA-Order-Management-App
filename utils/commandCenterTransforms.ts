@@ -1,5 +1,4 @@
 import {
-  buildFinancialSnapshot,
   buildSummaryMetrics,
   type GroupedOrder,
   type LedgerRow,
@@ -296,8 +295,46 @@ export const buildAnalyticsKpiDailyRows = (
   }
 ): AnalyticsKpiDailyRow[] => {
   const summary = buildSummaryMetrics([...groupedOrders]);
-  const financial = buildFinancialSnapshot([...ledgerRows]);
   const { asOfDate, lastUpdatedAt } = buildSnapshotStamp(options);
+  const customerSnapshots = rollupCustomerExposure(ledgerRows, lastUpdatedAt);
+  const totalExposure = customerSnapshots.reduce(
+    (sum, row) => sum + row.totalExposure,
+    0
+  );
+  const currentExposure = customerSnapshots.reduce(
+    (sum, row) => sum + row.currentExposure,
+    0
+  );
+  const thirtyExposure = customerSnapshots.reduce(
+    (sum, row) => sum + row.thirtyDayExposure,
+    0
+  );
+  const sixtyExposure = customerSnapshots.reduce(
+    (sum, row) => sum + row.sixtyDayExposure,
+    0
+  );
+  const ninetyExposure = customerSnapshots.reduce(
+    (sum, row) => sum + row.ninetyDayExposure,
+    0
+  );
+  const highRiskExposure = customerSnapshots.reduce(
+    (sum, row) => sum + row.highRiskExposure,
+    0
+  );
+  const collectedValue = customerSnapshots.reduce(
+    (sum, row) => sum + row.collectedValue,
+    0
+  );
+  const invoicedValue = customerSnapshots.reduce(
+    (sum, row) => sum + row.invoicedValue,
+    0
+  );
+  const weightedAverageAgeNumerator = customerSnapshots.reduce(
+    (sum, row) => sum + row.averageAgeDays * row.totalExposure,
+    0
+  );
+  const averageAgeDays =
+    totalExposure > 0 ? weightedAverageAgeNumerator / totalExposure : 0;
 
   return [
     {
@@ -326,16 +363,17 @@ export const buildAnalyticsKpiDailyRows = (
       highValueOpenOrders: summary.highValueOpenOrders,
       topCustomerShare: summary.topCustomerShare,
       topSourceShare: summary.topSourceShare,
-      totalExposure: financial.totalExposure,
-      currentExposure: financial.currentExposure,
-      thirtyExposure: financial.thirtyExposure,
-      sixtyExposure: financial.sixtyExposure,
-      ninetyExposure: financial.ninetyExposure,
-      highRiskExposure: financial.highRiskExposure,
-      collectedValue: financial.collectedValue,
-      invoicedValue: financial.invoicedValue,
-      collectionRate: financial.collectionRate,
-      averageAgeDays: financial.averageAgeDays,
+      totalExposure,
+      currentExposure,
+      thirtyExposure,
+      sixtyExposure,
+      ninetyExposure,
+      highRiskExposure,
+      collectedValue,
+      invoicedValue,
+      collectionRate:
+        invoicedValue > 0 ? (collectedValue / invoicedValue) * 100 : 0,
+      averageAgeDays,
       lastUpdatedAt,
     },
   ];

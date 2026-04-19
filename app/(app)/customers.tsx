@@ -26,6 +26,7 @@ import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { ThemeContext } from "@/context/ThemeContext";
 import { useFeedback } from "@/context/FeedbackContext";
 import { apiCache, BACKEND_URL, fetchWithRetry } from "@/utils/apiManager";
+import { fetchSheetObjects } from "@/utils/fetchSheetObjects";
 import LoadingIndicator from "@/components/LoadingIndicator";
 import { omaTypography } from "@/utils/typography";
 
@@ -1021,41 +1022,26 @@ const CustomersScreen = () => {
   const fetchLedgerSummary = useCallback(async (): Promise<LedgerSummary> => {
     try {
       const response = await fetchWithRetry(
-        `${BACKEND_URL}/api/sheets/Customer_Ledger!A1:G`,
+        `${BACKEND_URL}/api/sheets/Customer_Account_Snapshot!A1:Z`,
         {},
         2,
         1500
       );
 
-      const dataRows = response.data?.values?.slice(1) || [];
-      const balances: Record<string, { totalCredit: number; totalDebit: number }> =
-        {};
+      const rows = fetchSheetObjects(response.data?.values || [], [
+        "customer_code",
+        "total_exposure",
+      ]);
 
-      dataRows.forEach((row: string[]) => {
-        if (row.length < 6) {
-          return;
+      return rows.reduce<LedgerSummary>((summary, row) => {
+        const customerCode = row.customer_code;
+        const balance = Number.parseFloat(row.total_exposure || "0");
+
+        if (!customerCode || Number.isNaN(balance)) {
+          return summary;
         }
 
-        const customerCode = row[5];
-        const amount = Number.parseFloat(row[1] || "0");
-        const dcType = row[2];
-
-        if (!customerCode || Number.isNaN(amount)) {
-          return;
-        }
-
-        balances[customerCode] ??= { totalCredit: 0, totalDebit: 0 };
-
-        if (dcType === "C") {
-          balances[customerCode].totalCredit += amount;
-        } else if (dcType === "D") {
-          balances[customerCode].totalDebit += amount;
-        }
-      });
-
-      return Object.entries(balances).reduce<LedgerSummary>((summary, [code, row]) => {
-        const balance = row.totalDebit - row.totalCredit;
-        summary[code] = {
+        summary[customerCode] = {
           balance,
           hasCredit: balance <= 0,
         };

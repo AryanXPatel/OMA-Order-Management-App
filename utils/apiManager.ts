@@ -1,7 +1,27 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
 
-export const BACKEND_URL = "https://oma-demo-server.onrender.com";
+const REMOTE_BACKEND_URL = "https://oma-demo-server.onrender.com";
+
+const resolveBackendUrl = () => {
+  const explicitUrl = process.env.EXPO_PUBLIC_BACKEND_URL?.trim();
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+
+  if (__DEV__) {
+    if (Platform.OS === "android") {
+      return "http://10.0.2.2:3000";
+    }
+
+    return "http://localhost:3000";
+  }
+
+  return REMOTE_BACKEND_URL;
+};
+
+export const BACKEND_URL = resolveBackendUrl();
 
 // Types
 interface CacheData {
@@ -21,6 +41,11 @@ interface ApiCache {
   set: (key: string, data: any) => void;
   clear: () => Promise<void>; // Only the signature, not implementation
 }
+
+export type BatchSheetUpdate = {
+  range: string;
+  values: string[][];
+};
 
 // Function to wake up the server before the user needs it
 export const wakeUpServer = async (): Promise<boolean> => {
@@ -173,11 +198,32 @@ export const fetchWithRetry = async <T = any>(
   throw lastError || new Error("Request failed after maximum retries");
 };
 
+export const batchUpdateSheetRanges = async (
+  updates: BatchSheetUpdate[],
+  initialDelay: number = 1000
+) => {
+  if (!Array.isArray(updates) || updates.length === 0) {
+    throw new Error("Invalid updates");
+  }
+
+  return fetchWithRetry(
+    `${BACKEND_URL}/api/sheets/batch-update`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      data: { updates },
+    },
+    2,
+    initialDelay
+  );
+};
+
 export default {
   BACKEND_URL,
   wakeUpServer,
   preloadData,
   apiCache,
+  batchUpdateSheetRanges,
   fetchWithRetry,
 };
 

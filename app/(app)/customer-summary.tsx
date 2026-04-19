@@ -26,8 +26,9 @@ import { BACKEND_URL, apiCache, fetchWithRetry } from "@/utils/apiManager";
 import {
   calculateLedgerStats,
   fetchCustomerLedger,
-  formatIndianNumber,
+  formatIndianNumber as formatLedgerIndianNumber,
 } from "@/utils/ledgerUtils";
+import { fetchSheetObjects } from "@/utils/fetchSheetObjects";
 import { omaTypography } from "@/utils/typography";
 
 type CustomerOption = {
@@ -85,6 +86,24 @@ type CustomerProfile = {
   gst: string;
 };
 
+type CustomerSnapshot = {
+  customer_code: string;
+  customer_name: string;
+  customer_contact: string;
+  customer_group: string;
+  total_exposure: string;
+  current_exposure: string;
+  thirty_day_exposure: string;
+  sixty_day_exposure: string;
+  ninety_day_exposure: string;
+  high_risk_exposure: string;
+  collected_value: string;
+  invoiced_value: string;
+  collection_rate: string;
+  average_age_days: string;
+  last_updated_at: string;
+};
+
 const ALPHABET = Array.from({ length: 26 }, (_, index) =>
   String.fromCharCode(65 + index)
 );
@@ -114,7 +133,7 @@ const parseAmountValue = (value: string | number | null | undefined) => {
 };
 
 const formatCurrency = (value: string | number) =>
-  `₹${formatIndianNumber(
+  `₹${formatLedgerIndianNumber(
     typeof value === "number" ? value : parseAmountValue(value)
   )}`;
 
@@ -151,6 +170,9 @@ const CustomerSummaryScreen = () => {
   const [ledgerData, setLedgerData] = useState<LedgerEntry[]>([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>("overview");
+  const [customerSnapshot, setCustomerSnapshot] = useState<CustomerSnapshot | null>(
+    null
+  );
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<CustomerOption[]>([]);
@@ -333,7 +355,23 @@ const CustomerSummaryScreen = () => {
         void fetchCustomers(customerInitial);
       }
 
-      const ledgerEntries = (await fetchCustomerLedger(customerName)) as LedgerEntry[];
+      const [ledgerEntries, snapshotResponse] = await Promise.all([
+        fetchCustomerLedger(customerName),
+        fetchWithRetry(
+          `${BACKEND_URL}/api/sheets/Customer_Account_Snapshot!A1:Z`,
+          {},
+          2,
+          1500
+        ),
+      ]);
+      const snapshots = fetchSheetObjects(snapshotResponse.data?.values || [], [
+        "customer_code",
+      ]) as CustomerSnapshot[];
+      setCustomerSnapshot(
+        snapshots.find(
+          (snapshot) => snapshot.customer_code === customer["Customer CODE"]
+        ) || null
+      );
       setLedgerData(Array.isArray(ledgerEntries) ? ledgerEntries : []);
     } catch {
       showFeedback({
@@ -513,9 +551,15 @@ const CustomerSummaryScreen = () => {
     return Object.values(families);
   }, [colors.accentBlue, colors.accentGreen, colors.accentOrange, sortedLedgerEntries]);
 
-  const creditTotal = customerStats?.totalCreditRaw ?? 0;
-  const debitTotal = customerStats?.totalDebitRaw ?? 0;
-  const balanceAmount = Math.abs(creditTotal - debitTotal);
+  const creditTotal = customerSnapshot
+    ? parseAmountValue(customerSnapshot.collected_value)
+    : customerStats?.totalCreditRaw ?? 0;
+  const debitTotal = customerSnapshot
+    ? parseAmountValue(customerSnapshot.invoiced_value)
+    : customerStats?.totalDebitRaw ?? 0;
+  const balanceAmount = customerSnapshot
+    ? parseAmountValue(customerSnapshot.total_exposure)
+    : Math.abs(creditTotal - debitTotal);
   const creditRatio =
     creditTotal + debitTotal > 0 ? creditTotal / (creditTotal + debitTotal) : 0.5;
   const debitRatio = 1 - creditRatio;

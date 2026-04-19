@@ -1,6 +1,4 @@
-import { fetchWithRetry } from "./apiManager";
-
-const BACKEND_URL = "https://oma-demo-server.onrender.com";
+import { BACKEND_URL, fetchWithRetry } from "./apiManager";
 
 /**
  * Fetches and processes customer ledger data by customer name

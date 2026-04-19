@@ -243,4 +243,38 @@ describe("commandCenterTransforms", () => {
     expect(row.collectionRate).toBe(20);
     expect(row.averageAgeDays).toBe(40);
   });
+
+  it("keeps KPI financial totals aligned with the customer snapshot rollup", () => {
+    const snapshots = buildCustomerAccountSnapshotRows(ledgerRows, {
+      lastUpdatedAt: "2025-01-10T18:30:00.000Z",
+    });
+    const [row] = buildAnalyticsKpiDailyRows(groupedOrders, ledgerRows, {
+      lastUpdatedAt: "2025-01-10T18:30:00.000Z",
+    });
+
+    expect(row.totalExposure).toBe(
+      snapshots.reduce((sum, snapshot) => sum + snapshot.totalExposure, 0)
+    );
+    expect(row.currentExposure).toBe(
+      snapshots.reduce((sum, snapshot) => sum + snapshot.currentExposure, 0)
+    );
+    expect(row.thirtyExposure).toBe(
+      snapshots.reduce((sum, snapshot) => sum + snapshot.thirtyDayExposure, 0)
+    );
+    expect(row.sixtyExposure).toBe(
+      snapshots.reduce((sum, snapshot) => sum + snapshot.sixtyDayExposure, 0)
+    );
+    expect(row.ninetyExposure).toBe(
+      snapshots.reduce((sum, snapshot) => sum + snapshot.ninetyDayExposure, 0)
+    );
+    expect(row.highRiskExposure).toBe(
+      snapshots.reduce((sum, snapshot) => sum + snapshot.highRiskExposure, 0)
+    );
+    expect(row.collectedValue).toBe(
+      snapshots.reduce((sum, snapshot) => sum + snapshot.collectedValue, 0)
+    );
+    expect(row.invoicedValue).toBe(
+      snapshots.reduce((sum, snapshot) => sum + snapshot.invoicedValue, 0)
+    );
+  });
 });

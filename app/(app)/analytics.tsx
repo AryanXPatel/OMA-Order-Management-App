@@ -30,6 +30,9 @@ import { omaTypography } from "@/utils/typography";
 import {
   AnalyticsPayload,
   AttentionItem,
+  buildAnalyticsPayload,
+  buildManagerAnalyticsModelFromCommandCenterPayload,
+  buildManagerAnalyticsModel,
   ComparisonMetric,
   FinancialAccount,
   FocusSignal,
@@ -39,8 +42,6 @@ import {
   Timeframe,
   ToneKey,
   ViewMode,
-  buildAnalyticsPayload,
-  buildManagerAnalyticsModel,
   buildSparklineArea,
   buildSparklinePath,
   formatCurrencyLabel,
@@ -50,6 +51,10 @@ import {
   getSparklineMarker,
   hydrateAnalyticsPayload,
 } from "@/utils/managerAnalytics";
+import {
+  commandCenterRepository,
+  type CommandCenterPayload,
+} from "@/utils/commandCenterRepository";
 
 const CACHE_KEY = "analyticsPayloadV2";
 
@@ -107,12 +112,55 @@ function AnalyticsScreen() {
   const [userRole, setUserRole] = useState("Manager");
   const [timeframe, setTimeframe] = useState<Timeframe>("QTD");
   const [view, setView] = useState<ViewMode>("overview");
-  const [payload, setPayload] = useState<AnalyticsPayload | null>(null);
+  const [payload, setPayload] = useState<CommandCenterPayload | null>(null);
+  const [legacyPayload, setLegacyPayload] = useState<AnalyticsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const isWideLayout = width >= 420;
+
+  const loadLegacyAnalytics = useCallback(
+    async (forceRefresh = false) => {
+      const cachedPayload = apiCache.get(CACHE_KEY) as AnalyticsPayload | null;
+      if (!forceRefresh && cachedPayload?.groupedOrders?.length) {
+        setLegacyPayload(hydrateAnalyticsPayload(cachedPayload));
+        setPayload(null);
+        return;
+      }
+
+      const results = await Promise.allSettled([
+        fetchWithRetry(`${BACKEND_URL}/api/sheets/New_Order_Table!A2:Q`, {}, 2, 1500),
+        fetchWithRetry(`${BACKEND_URL}/api/sheets/Customer_Ledger_2!A1:L`, {}, 2, 1500),
+        fetchWithRetry(`${BACKEND_URL}/api/sheets/Customer_Master!A1:C`, {}, 2, 1500),
+        fetchWithRetry(`${BACKEND_URL}/api/sheets/Product_Master!A1:F`, {}, 2, 1500),
+      ]);
+
+      const readValues = (result: PromiseSettledResult<any>) =>
+        result.status === "fulfilled" && Array.isArray(result.value.data?.values)
+          ? (result.value.data.values as string[][])
+          : [];
+
+      const orderValues = readValues(results[0]);
+      const ledgerValues = readValues(results[1]);
+
+      if (!orderValues.length && !ledgerValues.length) {
+        throw new Error("No analytics rows were returned from the backend.");
+      }
+
+      const nextPayload = buildAnalyticsPayload({
+        orderValues,
+        ledgerValues,
+        customerValues: readValues(results[2]),
+        productValues: readValues(results[3]),
+      });
+
+      setLegacyPayload(nextPayload);
+      setPayload(null);
+      apiCache.set(CACHE_KEY, nextPayload);
+    },
+    []
+  );
 
   const loadAnalytics = useCallback(
     async (forceRefresh = false) => {
@@ -128,44 +176,19 @@ function AnalyticsScreen() {
           setUserRole(storedRole);
         }
 
-        const cachedPayload = apiCache.get(CACHE_KEY) as AnalyticsPayload | null;
-        if (!forceRefresh && cachedPayload?.groupedOrders?.length) {
-          setPayload(hydrateAnalyticsPayload(cachedPayload));
-          setLoading(false);
-          return;
-        }
-
         await wakeUpServer();
         await preloadData();
-
-        const results = await Promise.allSettled([
-          fetchWithRetry(`${BACKEND_URL}/api/sheets/New_Order_Table!A2:Q`, {}, 2, 1500),
-          fetchWithRetry(`${BACKEND_URL}/api/sheets/Customer_Ledger_2!A1:L`, {}, 2, 1500),
-          fetchWithRetry(`${BACKEND_URL}/api/sheets/Customer_Master!A1:C`, {}, 2, 1500),
-          fetchWithRetry(`${BACKEND_URL}/api/sheets/Product_Master!A1:F`, {}, 2, 1500),
-        ]);
-
-        const readValues = (result: PromiseSettledResult<any>) =>
-          result.status === "fulfilled" && Array.isArray(result.value.data?.values)
-            ? (result.value.data.values as string[][])
-            : [];
-
-        const orderValues = readValues(results[0]);
-        const ledgerValues = readValues(results[1]);
-
-        if (!orderValues.length && !ledgerValues.length) {
-          throw new Error("No analytics rows were returned from the backend.");
+        try {
+          const nextPayload = await commandCenterRepository.getManagerPayload(
+            timeframe,
+            { skipCache: forceRefresh }
+          );
+          setPayload(nextPayload);
+          setLegacyPayload(null);
+        } catch (repoError) {
+          console.warn("Derived analytics unavailable, falling back to raw payload.", repoError);
+          await loadLegacyAnalytics(forceRefresh);
         }
-
-        const nextPayload = buildAnalyticsPayload({
-          orderValues,
-          ledgerValues,
-          customerValues: readValues(results[2]),
-          productValues: readValues(results[3]),
-        });
-
-        setPayload(nextPayload);
-        apiCache.set(CACHE_KEY, nextPayload);
       } catch (error: any) {
         showFeedback({
           type: "error",
@@ -179,7 +202,7 @@ function AnalyticsScreen() {
         setRefreshing(false);
       }
     },
-    [showFeedback]
+    [loadLegacyAnalytics, showFeedback, timeframe]
   );
 
   useFocusEffect(
@@ -189,8 +212,11 @@ function AnalyticsScreen() {
   );
 
   const model = useMemo(
-    () => buildManagerAnalyticsModel(payload, timeframe),
-    [payload, timeframe]
+    () =>
+      payload
+        ? buildManagerAnalyticsModelFromCommandCenterPayload(payload, timeframe)
+        : buildManagerAnalyticsModel(legacyPayload, timeframe),
+    [legacyPayload, payload, timeframe]
   );
 
   const palette = paletteMap[view];
@@ -356,6 +382,48 @@ function AnalyticsScreen() {
       },
     ],
     [formatComparison, model]
+  );
+
+  const targetMetrics = useMemo<MetricTile[]>(
+    () =>
+      model.targetSummary
+        ? [
+            {
+              label: "Bookings vs target",
+              value: formatCurrencyLabel(model.summary.totalValue),
+              detail: `Target ${formatCurrencyLabel(
+                model.targetSummary.bookingTarget
+              )} • variance ${formatCurrencyLabel(
+                model.targetSummary.bookingVariance
+              )}`,
+              tone:
+                model.targetSummary.bookingVariance >= 0 ? "green" : "orange",
+            },
+            {
+              label: "Dispatch vs target",
+              value: formatCurrencyLabel(model.summary.dispatchedValue),
+              detail: `Target ${formatCurrencyLabel(
+                model.targetSummary.dispatchTarget
+              )} • variance ${formatCurrencyLabel(
+                model.targetSummary.dispatchVariance
+              )}`,
+              tone:
+                model.targetSummary.dispatchVariance >= 0 ? "green" : "blue",
+            },
+            {
+              label: "Collections vs target",
+              value: formatCurrencyLabel(model.periodFinancial.collectedValue),
+              detail: `Target ${formatCurrencyLabel(
+                model.targetSummary.collectionTarget
+              )} • variance ${formatCurrencyLabel(
+                model.targetSummary.collectionVariance
+              )}`,
+              tone:
+                model.targetSummary.collectionVariance >= 0 ? "green" : "red",
+            },
+          ]
+        : [],
+    [model]
   );
 
   const revenueMetrics = useMemo<MetricTile[]>(
@@ -1261,6 +1329,17 @@ function AnalyticsScreen() {
     </View>
   );
 
+  const renderTargetSummary = () =>
+    model.targetSummary ? (
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Owner targets</Text>
+          <Text style={styles.sectionHint}>{model.targetSummary.period}</Text>
+        </View>
+        {renderMetrics(targetMetrics)}
+      </View>
+    ) : null;
+
   const renderPipeline = () => {
     const peakValue = Math.max(...model.pipeline.map((stage) => stage.value), 1);
 
@@ -1355,7 +1434,9 @@ function AnalyticsScreen() {
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Recent movement</Text>
-        <Text style={styles.sectionHint}>Updated {formatLastUpdated(payload?.lastUpdatedAt || null)}</Text>
+        <Text style={styles.sectionHint}>
+          Updated {formatLastUpdated(payload?.summary.lastUpdatedAt || legacyPayload?.lastUpdatedAt || null)}
+        </Text>
       </View>
 
       {model.activities.length ? (
@@ -1667,6 +1748,7 @@ function AnalyticsScreen() {
     <>
       {renderHero(overviewHero)}
       {renderFocusSignals(model.focusSignals)}
+      {renderTargetSummary()}
       {renderMetrics(overviewMetrics)}
       {renderPipeline()}
       {renderAttentionQueue(model.attentionItems)}
@@ -1769,7 +1851,7 @@ function AnalyticsScreen() {
                 </View>
 
                 <Text style={styles.headerMetaInline}>
-                  Updated {formatLastUpdated(payload?.lastUpdatedAt || null)} •{" "}
+                  Updated {formatLastUpdated(payload?.summary.lastUpdatedAt || legacyPayload?.lastUpdatedAt || null)} •{" "}
                   {model.summary.orderCount} tracked orders in {timeframe}
                 </Text>
               </View>

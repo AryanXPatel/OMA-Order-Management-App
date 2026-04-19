@@ -1,4 +1,11 @@
 import { fetchSheetObjects } from "./fetchSheetObjects";
+import type {
+  CommandCenterAttentionQueueRow,
+  CommandCenterCustomerSnapshotRow,
+  CommandCenterOrderHeaderRow,
+  CommandCenterPayload,
+  CommandCenterTargetRow,
+} from "./commandCenterRepository";
 
 export type Timeframe = "MTD" | "QTD" | "YTD";
 export type ViewMode = "overview" | "revenue" | "execution";
@@ -205,6 +212,17 @@ export type ComparisonMetric = {
   direction: "up" | "down" | "flat";
 };
 
+export type TargetSummary = {
+  period: string;
+  bookingTarget: number;
+  dispatchTarget: number;
+  collectionTarget: number;
+  marginTarget: number;
+  bookingVariance: number;
+  dispatchVariance: number;
+  collectionVariance: number;
+};
+
 export type ManagerAnalyticsModel = {
   currentOrderLines: OrderLine[];
   currentOrders: GroupedOrder[];
@@ -219,6 +237,7 @@ export type ManagerAnalyticsModel = {
   productGroups: ProductGroupInsight[];
   pipeline: PipelineStage[];
   attentionItems: AttentionItem[];
+  targetSummary: TargetSummary | null;
   focusSignals: FocusSignal[];
   activities: ActivityInsight[];
   comparisons: {
@@ -1125,6 +1144,46 @@ const buildProductGroupInsights = (orderLines: OrderLine[]) => {
     .sort((a, b) => b.totalAmount - a.totalAmount);
 };
 
+const buildProductGroupInsightsFromOrders = (orders: GroupedOrder[]) => {
+  const groupMap = new Map<
+    string,
+    { totalAmount: number; units: number; orderCount: number }
+  >();
+
+  orders.forEach((order) => {
+    const groups = order.productGroups.filter(Boolean);
+    const normalizedGroups = groups.length ? groups : ["Ungrouped"];
+
+    const amountPerGroup = order.totalAmount / normalizedGroups.length;
+    const unitsPerGroup = order.quantityTotal / normalizedGroups.length;
+
+    normalizedGroups.forEach((group) => {
+      const current = groupMap.get(group) || {
+        totalAmount: 0,
+        units: 0,
+        orderCount: 0,
+      };
+
+      current.totalAmount += amountPerGroup;
+      current.units += unitsPerGroup;
+      current.orderCount += 1;
+      groupMap.set(group, current);
+    });
+  });
+
+  const totalAmount = orders.reduce((sum, order) => sum + order.totalAmount, 0);
+
+  return Array.from(groupMap.entries())
+    .map<ProductGroupInsight>(([label, value]) => ({
+      label,
+      totalAmount: value.totalAmount,
+      units: value.units,
+      orderCount: value.orderCount,
+      share: totalAmount > 0 ? value.totalAmount / totalAmount : 0,
+    }))
+    .sort((a, b) => b.totalAmount - a.totalAmount);
+};
+
 const buildPipelineStages = (orders: GroupedOrder[], summary: SummaryMetrics): PipelineStage[] => {
   const totalOrders = Math.max(summary.orderCount, 1);
   const values = {
@@ -1478,6 +1537,7 @@ export const buildManagerAnalyticsModel = (
       productGroups: [],
       pipeline: [],
       attentionItems: [],
+      targetSummary: null,
       focusSignals: [],
       activities: [],
       comparisons: {
@@ -1529,6 +1589,7 @@ export const buildManagerAnalyticsModel = (
     productGroups,
     pipeline,
     attentionItems,
+    targetSummary: null,
     focusSignals,
     activities,
     comparisons: {
@@ -1545,5 +1606,255 @@ export const buildManagerAnalyticsModel = (
       revenue: buildTrendSeries(currentOrders, timeframe, "revenue"),
       execution: buildTrendSeries(currentOrders, timeframe, "execution"),
     },
+  };
+};
+
+const toCommandCenterDate = (value: string) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const splitCommandCenterList = (value: string) =>
+  String(value || "")
+    .split("|")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const mapRepositoryOrderToGroupedOrder = (
+  row: CommandCenterOrderHeaderRow
+): GroupedOrder => ({
+  orderId: row.orderId,
+  customerName: row.customerName,
+  customerCode: row.customerCode,
+  customerContact: row.customerContact,
+  user: row.user,
+  source: row.source,
+  createdAt: toCommandCenterDate(row.createdAt),
+  dispatchAt: toCommandCenterDate(row.dispatchAt),
+  totalAmount: row.totalAmount,
+  status:
+    row.status === "approved" ||
+    row.status === "rejected" ||
+    row.status === "dispatched"
+      ? row.status
+      : "pending",
+  itemCount: row.itemCount,
+  quantityTotal: row.quantityTotal,
+  approvedItems: row.approvedItems,
+  dispatchedItems: row.dispatchedItems,
+  cycleHours: row.cycleHours,
+  ageHours: row.ageHours,
+  productGroups: splitCommandCenterList(row.productGroups),
+  products: splitCommandCenterList(row.products),
+  latestManagerComment: row.latestManagerComment,
+  latestDispatchComment: row.latestDispatchComment,
+});
+
+const mapRepositoryCustomersToFinancial = (
+  rows: CommandCenterCustomerSnapshotRow[]
+): FinancialSnapshot => ({
+  totalExposure: rows.reduce((sum, row) => sum + row.totalExposure, 0),
+  currentExposure: rows.reduce((sum, row) => sum + row.currentExposure, 0),
+  thirtyExposure: rows.reduce((sum, row) => sum + row.thirtyDayExposure, 0),
+  sixtyExposure: rows.reduce((sum, row) => sum + row.sixtyDayExposure, 0),
+  ninetyExposure: rows.reduce((sum, row) => sum + row.ninetyDayExposure, 0),
+  highRiskExposure: rows.reduce((sum, row) => sum + row.highRiskExposure, 0),
+  collectedValue: rows.reduce((sum, row) => sum + row.collectedValue, 0),
+  invoicedValue: rows.reduce((sum, row) => sum + row.invoicedValue, 0),
+  collectionRate: (() => {
+    const invoiced = rows.reduce((sum, row) => sum + row.invoicedValue, 0);
+    const collected = rows.reduce((sum, row) => sum + row.collectedValue, 0);
+    return invoiced > 0 ? (collected / invoiced) * 100 : 0;
+  })(),
+  averageAgeDays: (() => {
+    const totalExposure = rows.reduce((sum, row) => sum + row.totalExposure, 0);
+    const weighted = rows.reduce(
+      (sum, row) => sum + row.averageAgeDays * row.totalExposure,
+      0
+    );
+    return totalExposure > 0 ? weighted / totalExposure : 0;
+  })(),
+  topCustomers: rows
+    .filter((row) => row.totalExposure > 0)
+    .sort((left, right) => right.totalExposure - left.totalExposure)
+    .slice(0, 5)
+    .map((row) => ({
+      name: row.customerName,
+      code: row.customerCode,
+      contact: row.customerContact,
+      customerGroup: row.customerGroup,
+      exposure: row.totalExposure,
+    })),
+});
+
+const mapAttentionQueueRowToItem = (
+  row: CommandCenterAttentionQueueRow
+): AttentionItem => ({
+  id: row.entityId || row.headline,
+  orderId: row.entityId || row.reasonCode,
+  customerName: row.customerCode || "Unknown customer",
+  tone:
+    row.severity === "critical"
+      ? "red"
+      : row.severity === "high"
+      ? "orange"
+      : "blue",
+  title: row.headline || "Attention required",
+  detail: `${row.queueType || "queue"} • ${row.reasonCode || "review"}`,
+  meta: row.ageHours !== null ? `${formatShortAge(row.ageHours)} • ${row.owner || "Unassigned"}` : row.owner || "Unassigned",
+  amount: row.amount,
+});
+
+const buildTargetSummary = (
+  timeframe: Timeframe,
+  summary: SummaryMetrics,
+  periodFinancial: FinancialSnapshot,
+  summaryDate: string,
+  targets: CommandCenterTargetRow[]
+): TargetSummary | null => {
+  if (!targets.length) {
+    return null;
+  }
+
+  const parsed = summaryDate ? new Date(`${summaryDate}T00:00:00.000Z`) : new Date();
+  const year = parsed.getUTCFullYear();
+  const quarter = Math.floor(parsed.getUTCMonth() / 3) + 1;
+  const expectedPeriod = `${year}-Q${quarter}`;
+  const scopeTarget =
+    targets.find(
+      (target) =>
+        target.ownerType === "All" &&
+        target.period === expectedPeriod
+    ) ||
+    targets.find((target) => target.ownerType === "All") ||
+    targets[0];
+
+  if (!scopeTarget) {
+    return null;
+  }
+
+  const bookingTarget = scopeTarget.bookingTarget;
+  const dispatchTarget = scopeTarget.dispatchTarget;
+  const collectionTarget = scopeTarget.collectionTarget;
+
+  return {
+    period: timeframe === "QTD" ? scopeTarget.period : `${scopeTarget.period} (${timeframe})`,
+    bookingTarget,
+    dispatchTarget,
+    collectionTarget,
+    marginTarget: scopeTarget.marginTarget,
+    bookingVariance: summary.totalValue - bookingTarget,
+    dispatchVariance: summary.dispatchedValue - dispatchTarget,
+    collectionVariance: periodFinancial.collectedValue - collectionTarget,
+  };
+};
+
+export const buildManagerAnalyticsModelFromCommandCenterPayload = (
+  payload: CommandCenterPayload | null,
+  timeframe: Timeframe
+): ManagerAnalyticsModel => {
+  if (!payload) {
+    return buildManagerAnalyticsModel(null, timeframe);
+  }
+
+  const allOrders = payload.pipeline.map(mapRepositoryOrderToGroupedOrder);
+  const currentRange = getCurrentRange(timeframe);
+  const previousRange = getPreviousRange(timeframe);
+  const filterSummaryHistoryByRange = (range: DateRange) =>
+    payload.summaryHistory.filter((row) => {
+      if (!row.asOfDate) {
+        return false;
+      }
+
+      const parsed = new Date(`${row.asOfDate}T00:00:00.000Z`);
+      return !Number.isNaN(parsed.getTime()) && isWithinRange(parsed, range);
+    });
+  const aggregatePeriodFinancial = (rows: typeof payload.summaryHistory) => {
+    const collectedValue = rows.reduce((sum, row) => sum + row.collectedValue, 0);
+    const invoicedValue = rows.reduce((sum, row) => sum + row.invoicedValue, 0);
+
+    return {
+      ...financial,
+      collectedValue,
+      invoicedValue,
+      collectionRate: invoicedValue > 0 ? (collectedValue / invoicedValue) * 100 : 0,
+      averageAgeDays: financial.averageAgeDays,
+    };
+  };
+  const currentOrders = filterOrdersByRange(allOrders, currentRange);
+  const previousOrders = filterOrdersByRange(allOrders, previousRange);
+  const summary = buildSummaryMetrics(currentOrders);
+  const previousSummary = buildSummaryMetrics(previousOrders);
+  const financial = mapRepositoryCustomersToFinancial(payload.customers);
+  const currentSummaryHistory = filterSummaryHistoryByRange(currentRange);
+  const previousSummaryHistory = filterSummaryHistoryByRange(previousRange);
+  const periodFinancial = aggregatePeriodFinancial(currentSummaryHistory);
+  const previousPeriodFinancial =
+    previousSummaryHistory.length > 0
+      ? aggregatePeriodFinancial(previousSummaryHistory)
+      : {
+          ...financial,
+          collectedValue: 0,
+          invoicedValue: 0,
+          collectionRate: 0,
+          averageAgeDays: financial.averageAgeDays,
+        };
+  const reps = buildRepInsights(currentOrders);
+  const sources = buildSourceInsights(currentOrders);
+  const productGroups = buildProductGroupInsightsFromOrders(currentOrders);
+  const pipeline = buildPipelineStages(currentOrders, summary);
+  const attentionItems =
+    payload.attentionQueue.length > 0
+      ? payload.attentionQueue.map(mapAttentionQueueRowToItem).slice(0, 8)
+      : buildAttentionItems(currentOrders, summary);
+  const targetSummary = buildTargetSummary(
+    timeframe,
+    summary,
+    periodFinancial,
+    payload.summary.asOfDate,
+    payload.targets
+  );
+  const focusSignals = buildFocusSignals(summary, financial, sources, reps);
+  const activities = buildActivityInsights(currentOrders);
+  const trends = {
+    overview: buildTrendSeries(currentOrders, timeframe, "overview"),
+    revenue: buildTrendSeries(currentOrders, timeframe, "revenue"),
+    execution: buildTrendSeries(currentOrders, timeframe, "execution"),
+  } as Record<ViewMode, TrendPoint[]>;
+
+  return {
+    currentOrderLines: [],
+    currentOrders,
+    currentLedgerRows: [],
+    summary,
+    previousSummary,
+    financial,
+    periodFinancial,
+    previousPeriodFinancial,
+    reps,
+    sources,
+    productGroups,
+    pipeline,
+    attentionItems,
+    targetSummary,
+    focusSignals,
+    activities,
+    comparisons: {
+      booked: buildComparisonMetric(summary.totalValue, previousSummary.totalValue),
+      orders: buildComparisonMetric(summary.orderCount, previousSummary.orderCount),
+      collections: buildComparisonMetric(
+        periodFinancial.collectedValue,
+        previousPeriodFinancial.collectedValue
+      ),
+      dispatchRate: buildComparisonMetric(
+        summary.dispatchRate,
+        previousSummary.dispatchRate
+      ),
+    },
+    trends,
   };
 };

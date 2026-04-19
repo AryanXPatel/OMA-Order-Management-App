@@ -22,6 +22,7 @@ import { omaTypography } from "@/utils/typography";
 import {
   BACKEND_URL,
   apiCache,
+  batchUpdateSheetRanges,
   fetchWithRetry,
 } from "@/utils/apiManager";
 import LoadingIndicator from "@/components/LoadingIndicator";
@@ -191,6 +192,29 @@ export default function ProcessOrdersScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [productRemarks, setProductRemarks] = useState<Record<number, string>>({});
   const [dispatchingItemId, setDispatchingItemId] = useState<number | null>(null);
+
+  const runSheetUpdates = useCallback(
+    async (updates: { range: string; values: string[][] }[]) => {
+      try {
+        await batchUpdateSheetRanges(updates, 1000);
+        return;
+      } catch {
+        for (const update of updates) {
+          await fetchWithRetry(
+            `${BACKEND_URL}/api/sheets/${update.range}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              data: { values: update.values },
+            },
+            3,
+            1000
+          );
+        }
+      }
+    },
+    []
+  );
 
   const contentWidth = Math.min(width - 24, 560);
 
@@ -430,19 +454,7 @@ export default function ProcessOrdersScreen() {
           dispatchDisplayTime: dispatchTime,
           dispatchAtIso,
         });
-
-        for (const update of updates) {
-          await fetchWithRetry(
-            `${BACKEND_URL}/api/sheets/${update.range}`,
-            {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              data: { values: update.values },
-            },
-            3,
-            1000
-          );
-        }
+        await runSheetUpdates(updates);
 
         let shouldClose = false;
 
@@ -520,7 +532,7 @@ export default function ProcessOrdersScreen() {
         setDispatchingItemId(null);
       }
     },
-    [closeDetail, productRemarks, selectedOrder, showFeedback]
+    [closeDetail, productRemarks, runSheetUpdates, selectedOrder, showFeedback]
   );
 
   const styles = useMemo(

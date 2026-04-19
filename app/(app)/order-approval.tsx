@@ -23,6 +23,7 @@ import { omaTypography } from "@/utils/typography";
 import {
   BACKEND_URL,
   apiCache,
+  batchUpdateSheetRanges,
   fetchWithRetry,
 } from "@/utils/apiManager";
 import LoadingIndicator from "@/components/LoadingIndicator";
@@ -190,6 +191,33 @@ export default function OrderApprovalScreen() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [approvalComments, setApprovalComments] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
+
+  const runSheetUpdates = useCallback(
+    async (updates: { range: string; values: string[][] }[]) => {
+      try {
+        await batchUpdateSheetRanges(updates, 1000);
+        return;
+      } catch {
+        for (const update of updates) {
+          const response = await fetchWithRetry(
+            `${BACKEND_URL}/api/sheets/${update.range}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              data: { values: update.values },
+            },
+            2,
+            1000
+          );
+
+          if (!response || response.status < 200 || response.status >= 300) {
+            throw new Error("Failed to update cell");
+          }
+        }
+      }
+    },
+    []
+  );
 
   const contentWidth = Math.min(width - 24, 560);
 
@@ -405,23 +433,7 @@ export default function OrderApprovalScreen() {
               comments: comments || "",
               updatedAtIso,
             });
-
-            for (const update of updates) {
-              const response = await fetchWithRetry(
-                `${BACKEND_URL}/api/sheets/${update.range}`,
-                {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  data: { values: update.values },
-                },
-                2,
-                1000
-              );
-
-              if (!response || response.status < 200 || response.status >= 300) {
-                throw new Error("Failed to update cell");
-              }
-            }
+            await runSheetUpdates(updates);
 
             return true;
           })
@@ -472,7 +484,7 @@ export default function OrderApprovalScreen() {
         setApprovalLoading(false);
       }
     },
-    [closeDetail, loadOrders, selectedOrder, showFeedback]
+    [closeDetail, loadOrders, runSheetUpdates, selectedOrder, showFeedback]
   );
 
   const confirmRejection = useCallback(async () => {
@@ -495,25 +507,7 @@ export default function OrderApprovalScreen() {
             rejectionReason: rejectionReason || "No reason provided",
             updatedAtIso,
           });
-
-          for (const update of updates) {
-            const response = await fetchWithRetry(
-              `${BACKEND_URL}/api/sheets/${update.range}`,
-              {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                data: {
-                  values: update.values,
-                },
-              },
-              2,
-              1000
-            );
-
-            if (!response || response.status < 200 || response.status >= 300) {
-              throw new Error("Failed to update cell");
-            }
-          }
+          await runSheetUpdates(updates);
 
           return true;
         })
@@ -572,6 +566,7 @@ export default function OrderApprovalScreen() {
     closeDetail,
     loadOrders,
     rejectionReason,
+    runSheetUpdates,
     selectedOrder,
     showFeedback,
   ]);
