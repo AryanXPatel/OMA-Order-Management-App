@@ -1,3 +1,5 @@
+import { fetchSheetObjects } from "./fetchSheetObjects";
+
 export type Timeframe = "MTD" | "QTD" | "YTD";
 export type ViewMode = "overview" | "revenue" | "execution";
 export type ToneKey = "blue" | "green" | "orange" | "red";
@@ -422,20 +424,6 @@ export const formatLastUpdated = (isoString: string | null) => {
   });
 };
 
-const valuesToRecords = (values: string[][]) => {
-  if (!Array.isArray(values) || values.length < 2) {
-    return [] as Record<string, string>[];
-  }
-
-  const [headers, ...rows] = values;
-  return rows.map((row) =>
-    headers.reduce<Record<string, string>>((record, key, index) => {
-      record[String(key || "").trim()] = row[index] || "";
-      return record;
-    }, {})
-  );
-};
-
 const normalizeSourceLabel = (source: string) => {
   const normalized = source.trim().toLowerCase();
 
@@ -542,7 +530,7 @@ const buildCustomerDirectory = (values: string[][]) => {
 
 const buildProductDirectory = (values: string[][]) => {
   const byName = new Map<string, ProductDirectoryEntry>();
-  const records = valuesToRecords(values);
+  const records = fetchSheetObjects(values);
 
   records.forEach((record) => {
     const name = record["Product NAME"] || record["Product Name"] || "";
@@ -812,7 +800,7 @@ const filterOrderLinesByRange = (orderLines: OrderLine[], range: DateRange) =>
 const filterLedgerByRange = (rows: LedgerRow[], range: DateRange) =>
   rows.filter((row) => isWithinRange(row.parsedDate, range));
 
-const buildSummaryMetrics = (orders: GroupedOrder[]): SummaryMetrics => {
+export const buildSummaryMetrics = (orders: GroupedOrder[]): SummaryMetrics => {
   if (!orders.length) {
     return emptySummaryMetrics;
   }
@@ -937,7 +925,7 @@ const buildSummaryMetrics = (orders: GroupedOrder[]): SummaryMetrics => {
   };
 };
 
-const buildFinancialSnapshot = (rows: LedgerRow[]): FinancialSnapshot => {
+export const buildFinancialSnapshot = (rows: LedgerRow[]): FinancialSnapshot => {
   if (!rows.length) {
     return emptyFinancialSnapshot;
   }

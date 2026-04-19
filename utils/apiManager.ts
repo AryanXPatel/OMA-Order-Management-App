@@ -44,6 +44,7 @@ export const preloadData = async (): Promise<void> => {
 
     const requests = [
       axios.get(`${BACKEND_URL}/api/sheets/Product_Master!A1:E`),
+      // Keep the raw order tab warm; its canonical analytics contract lives in utils/sheetContracts.ts.
       axios.get(`${BACKEND_URL}/api/sheets/New_Order_Table!D2:D`),
     ];
 

@@ -30,6 +30,10 @@ import {
   calculateLedgerStats,
   fetchCustomerLedger,
 } from "@/utils/ledgerUtils";
+import {
+  buildApprovalSheetUpdates,
+  buildRejectionSheetUpdates,
+} from "@/utils/orderSheetSerializer";
 
 type ApprovalItem = {
   productName: string;
@@ -388,25 +392,35 @@ export default function OrderApprovalScreen() {
 
       try {
         setApprovalLoading(true);
+        const actionedAt = new Date();
+        const updatedAtIso = actionedAt.toISOString();
 
         let successCount = 0;
         let failureCount = 0;
 
         const results = await Promise.allSettled(
           selectedOrder.items.map(async (item) => {
-            const response = await fetchWithRetry(
-              `${BACKEND_URL}/api/sheets/New_Order_Table!M${item.rowIndex}:N${item.rowIndex}`,
-              {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                data: { values: [["Y", comments || ""]] },
-              },
-              2,
-              1000
-            );
+            const updates = buildApprovalSheetUpdates({
+              rowIndex: item.rowIndex,
+              comments: comments || "",
+              updatedAtIso,
+            });
 
-            if (!response || response.status < 200 || response.status >= 300) {
-              throw new Error("Failed to update cell");
+            for (const update of updates) {
+              const response = await fetchWithRetry(
+                `${BACKEND_URL}/api/sheets/${update.range}`,
+                {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  data: { values: update.values },
+                },
+                2,
+                1000
+              );
+
+              if (!response || response.status < 200 || response.status >= 300) {
+                throw new Error("Failed to update cell");
+              }
             }
 
             return true;
@@ -468,27 +482,37 @@ export default function OrderApprovalScreen() {
 
     try {
       setApprovalLoading(true);
+      const actionedAt = new Date();
+      const updatedAtIso = actionedAt.toISOString();
 
       let successCount = 0;
       let failureCount = 0;
 
       const results = await Promise.allSettled(
         selectedOrder.items.map(async (item) => {
-          const response = await fetchWithRetry(
-            `${BACKEND_URL}/api/sheets/New_Order_Table!N${item.rowIndex}:M${item.rowIndex}`,
-            {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              data: {
-                values: [["N", rejectionReason || "No reason provided"]],
-              },
-            },
-            2,
-            1000
-          );
+          const updates = buildRejectionSheetUpdates({
+            rowIndex: item.rowIndex,
+            rejectionReason: rejectionReason || "No reason provided",
+            updatedAtIso,
+          });
 
-          if (!response || response.status < 200 || response.status >= 300) {
-            throw new Error("Failed to update cell");
+          for (const update of updates) {
+            const response = await fetchWithRetry(
+              `${BACKEND_URL}/api/sheets/${update.range}`,
+              {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                data: {
+                  values: update.values,
+                },
+              },
+              2,
+              1000
+            );
+
+            if (!response || response.status < 200 || response.status >= 300) {
+              throw new Error("Failed to update cell");
+            }
           }
 
           return true;

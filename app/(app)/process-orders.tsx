@@ -25,6 +25,7 @@ import {
   fetchWithRetry,
 } from "@/utils/apiManager";
 import LoadingIndicator from "@/components/LoadingIndicator";
+import { buildDispatchSheetUpdates } from "@/utils/orderSheetSerializer";
 
 type DispatchItem = {
   productName: string;
@@ -419,43 +420,29 @@ export default function ProcessOrdersScreen() {
     async (item: DispatchItem) => {
       try {
         setDispatchingItemId(item.actualRowIndex);
-        const dispatchTime = formatDateTime(new Date());
+        const dispatchMoment = new Date();
+        const dispatchTime = formatDateTime(dispatchMoment);
+        const dispatchAtIso = dispatchMoment.toISOString();
         const itemRemark = (productRemarks[item.actualRowIndex] || "").trim();
+        const updates = buildDispatchSheetUpdates({
+          rowIndex: item.actualRowIndex,
+          dispatchRemark: itemRemark,
+          dispatchDisplayTime: dispatchTime,
+          dispatchAtIso,
+        });
 
-        await fetchWithRetry(
-          `${BACKEND_URL}/api/sheets/New_Order_Table!O${item.actualRowIndex}`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            data: { values: [["Y"]] },
-          },
-          3,
-          1000
-        );
-
-        if (itemRemark) {
+        for (const update of updates) {
           await fetchWithRetry(
-            `${BACKEND_URL}/api/sheets/New_Order_Table!P${item.actualRowIndex}`,
+            `${BACKEND_URL}/api/sheets/${update.range}`,
             {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
-              data: { values: [[itemRemark]] },
+              data: { values: update.values },
             },
             3,
             1000
           );
         }
-
-        await fetchWithRetry(
-          `${BACKEND_URL}/api/sheets/New_Order_Table!Q${item.actualRowIndex}`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            data: { values: [[dispatchTime]] },
-          },
-          3,
-          1000
-        );
 
         let shouldClose = false;
 

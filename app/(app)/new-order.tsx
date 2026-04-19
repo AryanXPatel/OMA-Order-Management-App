@@ -12,6 +12,7 @@ import Animated, {
   SlideOutLeft,
 } from "react-native-reanimated";
 import { BACKEND_URL, fetchWithRetry } from "@/utils/apiManager";
+import { serializeOrderLineForSheet } from "@/utils/orderSheetSerializer";
 import {
   TimePickerModal,
   DatePickerModal,
@@ -718,6 +719,10 @@ const NewSalesOrderScreen = () => {
     const newProduct = {
       productName: selectedProduct["Product NAME"],
       productCode: selectedProduct["Product CODE"] || "",
+      productGroup:
+        selectedProduct["Product Group Name"] ||
+        selectedProduct["Category"] ||
+        "",
       quantity: numericQuantity,
       unit: "Unit",
       rate: numericRate,
@@ -796,24 +801,38 @@ const NewSalesOrderScreen = () => {
 
       const approvalStatus = userRole === "Manager" ? "Y" : "R"; // If manager is creating order, auto-approve
 
-      const transformedRows = products.map((product) => [
-        formatDate(new Date()), // SYS-TIME
-        formatDate(orderDate), // ORDER-TIME
-        userRole, // USER
-        orderComments, // ORDER COMMENTS
-        customerName, // CUSTOMER NAME
-        orderId, // ORDER ID
-        product.productName || "", // PRODUCT NAME
-        (product.quantity !== undefined ? product.quantity : "").toString(), // QUANTITY
-        product.unit || "", // UNIT
-        product.formattedRate || "", // PRODUCT RATE
-        product.orderAmount || "", // ORDER AMOUNT
-        orderSource, // SOURCE
-        approvalStatus, // APPROVED BY MANAGER: Y/N/R
-        "", // MANAGER COMMENTS
-        "", // ORDER DISPATCHED: Y/N
-        "", // DISPATCH COMMENTS
-      ]);
+      const currentTimestamp = new Date();
+      const sysTime = formatDate(currentTimestamp);
+      const orderTime = formatDate(orderDate);
+      const createdAtIso = currentTimestamp.toISOString();
+
+      const transformedRows = products.map((product, index) =>
+        serializeOrderLineForSheet({
+          sysTime,
+          orderTime,
+          user: userRole,
+          orderComments,
+          customerName,
+          orderId,
+          productName: product.productName || "",
+          quantity:
+            product.quantity !== undefined ? String(product.quantity) : "",
+          unit: product.unit || "",
+          productRate: product.formattedRate || "",
+          orderAmount: product.orderAmount || "",
+          source: orderSource,
+          approvalStatus,
+          managerComments: "",
+          dispatchStatus: "",
+          dispatchComments: "",
+          dispatchTime: "",
+          createdAtIso,
+          customerCode: selectedCustomerCode,
+          productCode: product.productCode || "",
+          productGroup: product.productGroup || "",
+          lineSequence: index,
+        })
+      );
 
       const response = await fetch(
         `${BACKEND_URL}/api/sheets/New_Order_Table`,

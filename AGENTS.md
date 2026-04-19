@@ -51,6 +51,7 @@ There is no general `build` script in `package.json`. Do not invent one. If the 
 - `app/components/*`: reusable UI pieces
 - `app/context/*`: shared providers such as theme and feedback
 - `app/utils/*`: API, caching, responsive, and config helpers
+- `docs/analytics/*`: owner command center research, workbook spec, and implementation status
 - `assets/*`: fonts, icons, images, and some legacy files
 - `app.json`: Expo config
 - `eas.json`: EAS build profiles
@@ -74,6 +75,42 @@ There is no general `build` script in `package.json`. Do not invent one. If the 
 - Avoid scattering new hardcoded backend URLs. If a new endpoint is needed, build it from `BACKEND_URL`.
 - Preserve existing retry, warm-up, and cache behavior unless the task is explicitly about changing it.
 - Web requests may use the web proxy logic in `app/utils/webApiManager.ts`. Do not break web behavior when editing API calls.
+
+## Owner Analytics Architecture
+- The owner command center is an exception-first analytics surface for manager/business-owner decisions. Prefer surfacing revenue at risk, queue pressure, concentration risk, and collections pressure over decorative KPI walls.
+- Current analytics foundations live in:
+  - `app/(app)/analytics.tsx`
+  - `utils/managerAnalytics.ts`
+  - `utils/sheetContracts.ts`
+  - `utils/fetchSheetObjects.ts`
+  - `utils/orderSheetSerializer.ts`
+  - `utils/commandCenterTransforms.ts`
+- Treat `New_Order_Table`, `Customer_Master`, `Product_Master`, and `Customer_Ledger_2` as operational/raw tabs. Raw tab changes must be append-only to the right. Do not insert columns in the middle of the currently used ranges.
+- Prefer header-based parsing for analytics-related reads. Do not add new positional analytics parsing if `fetchSheetObjects` can be used instead.
+- The first derived analytics tabs for the command center are:
+  - `Order_Header_Fact`
+  - `Customer_Account_Snapshot`
+  - `Analytics_KPI_Daily`
+- Planned later derived tabs include:
+  - `AR_Open_Items_Fact`
+  - `Rep_Performance_Daily`
+  - `Product_Group_Daily`
+  - `Source_Channel_Daily`
+  - `Attention_Queue_Snapshot`
+  - `Targets`
+- Business definitions to keep consistent:
+  - `bookings`: order amount at order create time
+  - `dispatch_value`: value of dispatched lines/orders
+  - `invoiced_value`: invoice-linked value
+  - `collections_value`: received cash / receipt-side collections
+  - `ar_exposure`: outstanding open receivables only
+- When editing approval or dispatch flows, preserve the legacy `M:Q` updates in `New_Order_Table` and layer normalized append-only updates through `utils/orderSheetSerializer.ts`.
+- If analytics numbers appear inconsistent, validate whether the issue is from `Customer_Ledger` vs `Customer_Ledger_2` semantics before changing UI logic.
+
+## Sheet Snapshots
+- The local `Sheets/` folder contains CSV snapshots used as workbook references during migration planning.
+- Treat `Sheets/` as local reference material, not the source of truth for runtime behavior.
+- Do not commit `Sheets/` contents unless the task explicitly asks for repository-tracked workbook fixtures.
 
 ## Persistence Rules
 Current `AsyncStorage` keys include:
