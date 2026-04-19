@@ -1,0 +1,44 @@
+snapshot_date,queue_type,entity_type,entity_id,customer_code,severity,reason_code,headline,amount,age_hours,owner
+19-04-2026,orders,order,2026-2027_00001,100104,medium,pending_approval,Flipkart Sellers Pvt Ltd order requires attention,2409000,10.78,User
+19-04-2026,orders,order,2025-2026_00102,100103,medium,ready_for_dispatch,Vijay Sales Ahmedabad order requires attention,109500,6138.08,User
+19-04-2026,orders,order,2024-2025_00123,,medium,ready_for_dispatch,ABC Industries Ltd order requires attention,62500,7239.6,Sales Rep
+19-04-2026,orders,order,2025-2026_00092,100105,medium,ready_for_dispatch,Amazon India Enterprises order requires attention,699990,7863.68,User
+19-04-2026,orders,order,2025-2026_00091,100103,critical,rejected_order,Vijay Sales Ahmedabad order requires attention,3620,7863.73,User
+19-04-2026,orders,order,2025-2026_00088,100115,medium,ready_for_dispatch,Gadgetry Hub Jaipur order requires attention,777974,7884.35,Manager
+19-04-2026,orders,order,2025-2026_00085,100112,medium,ready_for_dispatch,TechNexus Gadgets Surat order requires attention,431992,7909.6,User
+19-04-2026,orders,order,2025-2026_00081,100108,medium,ready_for_dispatch,Poorvika Mobiles Chennai order requires attention,283462,7938.6,User
+19-04-2026,orders,order,2025-2026_00076,100103,medium,ready_for_dispatch,Vijay Sales Ahmedabad order requires attention,222997,7983.77,Manager
+19-04-2026,collections,receivable,SA100001,100121,critical,aged_receivable,Receivable aging past 90+ days,41048,17880,Sarah Jenkins
+19-04-2026,collections,receivable,SA100002,100108,critical,aged_receivable,Receivable aging past 90+ days,18434,17784,Priya Sharma
+19-04-2026,collections,receivable,SA100004,100119,critical,aged_receivable,Receivable aging past 90+ days,17280,17640,Rohit Verma
+19-04-2026,collections,receivable,SA100007,100118,critical,aged_receivable,Receivable aging past 90+ days,82236,17640,Priya Sharma
+19-04-2026,collections,receivable,SA100009,100123,critical,aged_receivable,Receivable aging past 90+ days,25379,17640,Priya Sharma
+19-04-2026,collections,receivable,SA100011,100102,critical,aged_receivable,Receivable aging past 90+ days,119999,17688,Amit Rao
+19-04-2026,collections,receivable,SA100012,100115,critical,aged_receivable,Receivable aging past 90+ days,69999,17544,Kavya Menon
+19-04-2026,collections,receivable,SA100014,100104,critical,aged_receivable,Receivable aging past 90+ days,139999,17856,Rohit Verma
+19-04-2026,collections,receivable,SA100015,100113,critical,aged_receivable,Receivable aging past 90+ days,29999,17760,Priya Sharma
+19-04-2026,collections,receivable,SA100017,100110,critical,aged_receivable,Receivable aging past 90+ days,114999,17496,Kavya Menon
+19-04-2026,collections,receivable,SA100018,100124,critical,aged_receivable,Receivable aging past 90+ days,32999,17376,Rohit Verma
+19-04-2026,collections,receivable,SA100020,100101,critical,aged_receivable,Receivable aging past 90+ days,41999,17184,Sarah Jenkins
+19-04-2026,collections,receivable,SA100022,100111,critical,aged_receivable,Receivable aging past 90+ days,106999,17712,Sarah Jenkins
+19-04-2026,collections,receivable,SA100023,100114,critical,aged_receivable,Receivable aging past 90+ days,124999,17616,Rohit Verma
+19-04-2026,collections,receivable,SA100024,100120,critical,aged_receivable,Receivable aging past 90+ days,9999,17520,Kavya Menon
+19-04-2026,collections,receivable,SA100026,100127,critical,aged_receivable,Receivable aging past 90+ days,14999,17328,Amit Rao
+19-04-2026,collections,receivable,SA100027,100129,critical,aged_receivable,Receivable aging past 90+ days,7999,17208,Rohit Verma
+19-04-2026,collections,receivable,SA100029,100103,critical,aged_receivable,Receivable aging past 90+ days,52999,17664,Priya Sharma
+19-04-2026,collections,receivable,SA100030,100116,critical,aged_receivable,Receivable aging past 90+ days,34999,17568,Sarah Jenkins
+19-04-2026,collections,receivable,SA100032,100106,critical,aged_receivable,Receivable aging past 90+ days,2499,17280,Sarah Jenkins
+19-04-2026,collections,receivable,SA100034,100108,critical,aged_receivable,Receivable aging past 90+ days,14499,17088,Priya Sharma
+19-04-2026,collections,receivable,SA100035,100119,critical,aged_receivable,Receivable aging past 90+ days,5499,17736,Rohit Verma
+19-04-2026,collections,receivable,SA100037,100118,critical,aged_receivable,Receivable aging past 90+ days,9499,17064,Priya Sharma
+19-04-2026,collections,receivable,SA100039,100123,critical,aged_receivable,Receivable aging past 90+ days,8999,17832,Priya Sharma
+19-04-2026,collections,receivable,SA100042,100115,critical,aged_receivable,Receivable aging past 90+ days,154999,16968,Kavya Menon
+19-04-2026,collections,receivable,SA100043,100112,critical,aged_receivable,Receivable aging past 90+ days,41999,16944,Amit Rao
+19-04-2026,collections,receivable,SA100045,100113,critical,aged_receivable,Receivable aging past 90+ days,52999,16896,Priya Sharma
+19-04-2026,collections,receivable,SA100047,100110,critical,aged_receivable,Receivable aging past 90+ days,124999,16848,Kavya Menon
+19-04-2026,collections,receivable,SA100049,100126,critical,aged_receivable,Receivable aging past 90+ days,106999,16800,Sarah Jenkins
+19-04-2026,collections,receivable,SA100051,100117,critical,aged_receivable,Receivable aging past 90+ days,9999,16752,Amit Rao
+19-04-2026,collections,receivable,SA100053,100114,critical,aged_receivable,Receivable aging past 90+ days,139999,16704,Rohit Verma
+19-04-2026,collections,receivable,SA100055,100125,critical,aged_receivable,Receivable aging past 90+ days,114999,17904,Kavya Menon
+19-04-2026,collections,receivable,SA100058,100128,critical,aged_receivable,Receivable aging past 90+ days,52999,16656,Priya Sharma
+19-04-2026,collections,receivable,SA100060,100130,critical,aged_receivable,Receivable aging past 90+ days,11999,16608,Kavya Menon

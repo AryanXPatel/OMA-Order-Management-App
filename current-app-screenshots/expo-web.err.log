@@ -1,0 +1,11 @@
+  --non-interactive is not supported, use $CI=1 instead
+Error: spawn EPERM
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:420:11)
+    at Object.spawn (node:child_process:762:9)
+    at baseOpen (D:\dev\OMA\OMA-Order-Management-App\node_modules\better-opn\node_modules\open\index.js:224:34)
+    at openBrowserAsync (D:\dev\OMA\OMA-Order-Management-App\node_modules\@expo\cli\src\utils\open.ts:20:12)
+    at MetroBundlerDevServer.openPlatformAsync (D:\dev\OMA\OMA-Order-Management-App\node_modules\@expo\cli\src\start\server\BundlerDevServer.ts:427:7)
+    at async Promise.allSettled (index 2)
+    at openPlatformsAsync (D:\dev\OMA\OMA-Order-Management-App\node_modules\@expo\cli\src\start\server\openPlatforms.ts:10:19)
+    at startAsync (D:\dev\OMA\OMA-Order-Management-App\node_modules\@expo\cli\src\start\startAsync.ts:113:3)
