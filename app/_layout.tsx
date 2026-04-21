@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { wakeUpServer } from "@/utils/apiManager";
-import { Stack, useSegments } from "expo-router";
+import { Stack } from "expo-router";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { FeedbackProvider } from "@/context/FeedbackContext";
 import { Dimensions } from "react-native";
@@ -18,9 +18,7 @@ import { StatusBar } from "expo-status-bar";
 import { useContext } from "react";
 import { ThemeContext } from "@/context/ThemeContext";
 import { View } from "react-native";
-import OmaFloatingNav, {
-  FLOATING_NAV_SPACE,
-} from "@/components/oma/OmaFloatingNav";
+import OmaFloatingNav from "@/components/oma/OmaFloatingNav";
 
 // Add dimension change listener
 Dimensions.addEventListener("change", ({ window }) => {
@@ -28,11 +26,7 @@ Dimensions.addEventListener("change", ({ window }) => {
   // You can use this to update your global state if needed
 });
 function RootLayoutNav() {
-  const { theme } = useContext(ThemeContext);
-  const isDark = theme === "dark";
-  const segments = useSegments();
-  const group = segments[0];
-  const showFloatingNav = group === "(app)";
+  const { colors, isDark } = useContext(ThemeContext);
 
   useEffect(() => {
     const warmUpAPI = async () => {
@@ -49,7 +43,7 @@ function RootLayoutNav() {
   }, []);
 
   return (
-    <View style={{ flex: 1, backgroundColor: isDark ? "#09111f" : "#f7f8f9" }}>
+    <View style={{ flex: 1, backgroundColor: colors.appChrome }}>
       <StatusBar style={isDark ? "light" : "dark"} />
       <View
         style={{
@@ -58,8 +52,8 @@ function RootLayoutNav() {
           left: 0,
           right: 0,
           height: 260,
-          backgroundColor: isDark ? "rgba(20, 33, 54, 0.45)" : "#eef2f6",
-          opacity: isDark ? 0.6 : 1,
+          backgroundColor: isDark ? "rgba(255,255,255,0.015)" : "rgba(255,255,255,0.04)",
+          opacity: 1,
           pointerEvents: "none",
         }}
       />
@@ -67,8 +61,7 @@ function RootLayoutNav() {
         screenOptions={{
           headerShown: false,
           contentStyle: {
-            backgroundColor: isDark ? "#09111f" : "#f7f8f9",
-            paddingBottom: showFloatingNav ? FLOATING_NAV_SPACE : 0,
+            backgroundColor: colors.appChrome,
           },
         }}
       />

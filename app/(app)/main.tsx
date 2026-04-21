@@ -1,8 +1,6 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Modal,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -10,16 +8,16 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  useWindowDimensions,
 } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { BlurView } from "expo-blur";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AppIcon as Ionicons } from "@/components/AppIcon";
+import { type Href, router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { AppIcon as Ionicons } from "@/components/AppIcon";
+import OmaBottomSheet from "@/components/oma/OmaBottomSheet";
 import { ThemeContext } from "@/context/ThemeContext";
 import type { AppColors } from "@/context/ThemeContext";
 import { useFeedback } from "@/context/FeedbackContext";
-import { omaTypography } from "@/utils/typography";
 import {
   apiCache,
   BACKEND_URL,
@@ -27,82 +25,103 @@ import {
   preloadData,
   wakeUpServer,
 } from "@/utils/apiManager";
+import { omaTypography } from "@/utils/typography";
 
 type OrderRow = {
-  sysTime: string;
-  orderTime: string;
-  user: string;
-  orderComments: string;
-  customerName: string;
-  orderId: string;
-  productName: string;
-  quantity: string;
-  unit: string;
-  rate: string;
   amount: string;
-  source: string;
   approved: string;
-  managerComments: string;
-  dispatched: string;
+  customerName: string;
   dispatchComments: string;
   dispatchTime: string;
+  dispatched: string;
+  managerComments: string;
+  orderComments: string;
+  orderId: string;
+  orderTime: string;
+  productName: string;
+  quantity: string;
+  rate: string;
+  source: string;
+  sysTime: string;
+  unit: string;
+  user: string;
 };
 
 type GroupedOrder = {
-  orderId: string;
-  customerName: string;
-  user: string;
-  source: string;
-  createdAt: Date | null;
-  totalAmount: number;
-  status: "pending" | "approved" | "rejected" | "dispatched";
   approvedItems: number;
+  createdAt: Date | null;
+  customerName: string;
   dispatchedItems: number;
   itemCount: number;
+  orderId: string;
+  source: string;
+  status: "pending" | "approved" | "rejected" | "dispatched";
+  totalAmount: number;
+  user: string;
 };
 
 type ActivityItem = {
-  id: string;
+  description: string;
   icon: keyof typeof Ionicons.glyphMap;
   iconColor: string;
-  title: string;
-  description: string;
+  id: string;
   timeLabel: string;
+  title: string;
 };
 
 type DashboardPayload = {
-  groupedOrders: GroupedOrder[];
-  totalCustomers: number;
-  recentOrders: number;
-  pendingApprovals: number;
-  pendingDispatches: number;
-  rejectedOrders: number;
-  monthValue: number;
-  monthOrders: number;
-  completedOrders: number;
+  approvalOrders: GroupedOrder[];
   averageOrderValue: number;
-  openPipelineValue: number;
+  completedOrders: number;
   currentOrder: GroupedOrder | null;
-  recentActivities: ActivityItem[];
+  groupedOrders: GroupedOrder[];
   lastUpdatedAt: string;
+  monthValue: number;
+  openPipelineValue: number;
+  pendingApprovals: number;
+  pendingDeliveries: number;
+  pendingDispatches: number;
+  processingOrders: number;
+  recentActivities: ActivityItem[];
+  recentOrders: number;
+  rejectedOrders: number;
+  todayValue: number;
+  totalCustomers: number;
 };
 
-type OverlayName = "profile" | "search" | "notifications" | null;
+type OverlayName = "notifications" | "profile" | "search" | null;
 
 type ShortcutItem = {
-  id: string;
-  label: string;
   hint: string;
-  route: string;
   icon: keyof typeof Ionicons.glyphMap;
-  primary?: boolean;
-  managerOnly?: boolean;
+  id: string;
   keywords: string;
+  label: string;
+  managerOnly?: boolean;
+  route: Href;
 };
 
-const monthLabelFormatter = new Intl.DateTimeFormat("en-IN", {
-  month: "long",
-  year: "numeric",
+type NotificationItem = {
+  body: string;
+  color: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  id: string;
+  route: Href;
+  time: string;
+  title: string;
+};
+
+type QuickAction = {
+  icon: keyof typeof Ionicons.glyphMap;
+  id: string;
+  label: string;
+  route: Href;
+};
+
+const todayFormatter = new Intl.DateTimeFormat("en-US", {
+  day: "numeric",
+  month: "short",
+  weekday: "short",
 });
 
 const parseIndianDate = (dateStr: string) => {
@@ -159,16 +178,16 @@ const formatTimeAgo = (date: Date | null) => {
   const minutes = Math.max(1, Math.round(diffMs / 60000));
 
   if (minutes < 60) {
-    return `${minutes} min ago`;
+    return `${minutes}m ago`;
   }
 
   const hours = Math.round(minutes / 60);
   if (hours < 24) {
-    return `${hours} hr ago`;
+    return `${hours}h ago`;
   }
 
   const days = Math.round(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
+  return `${days}d ago`;
 };
 
 const formatShortDateTime = (date: Date | null) => {
@@ -186,20 +205,21 @@ const formatShortDateTime = (date: Date | null) => {
   })}`;
 };
 
-const formatGreeting = () => {
-  const hour = new Date().getHours();
-  if (hour < 12) {
-    return "Good Morning";
-  }
-  if (hour < 17) {
-    return "Good Afternoon";
-  }
-  return "Good Evening";
-};
-
 const toNumber = (amount: string) => {
   const parsed = Number.parseFloat((amount || "0").replace(/,/g, ""));
   return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const isSameDay = (a: Date | null, b: Date) => {
+  if (!a) {
+    return false;
+  }
+
+  return (
+    a.getDate() === b.getDate() &&
+    a.getMonth() === b.getMonth() &&
+    a.getFullYear() === b.getFullYear()
+  );
 };
 
 const deriveOrderStatus = (rows: OrderRow[]) => {
@@ -225,8 +245,6 @@ const buildDashboardPayload = (rows: OrderRow[]) => {
   const groupedOrderMap: Record<string, OrderRow[]> = {};
   const uniqueCustomers = new Set<string>();
   const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   sevenDaysAgo.setHours(0, 0, 0, 0);
@@ -263,6 +281,9 @@ const buildDashboardPayload = (rows: OrderRow[]) => {
     })
     .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
 
+  const recentOrders = groupedOrders.filter(
+    (order) => order.createdAt && order.createdAt >= sevenDaysAgo
+  ).length;
   const pendingApprovals = groupedOrders.filter(
     (order) => order.status === "pending" || order.status === "rejected"
   ).length;
@@ -272,19 +293,26 @@ const buildDashboardPayload = (rows: OrderRow[]) => {
   const rejectedOrders = groupedOrders.filter(
     (order) => order.status === "rejected"
   ).length;
-  const recentOrders = groupedOrders.filter(
-    (order) => order.createdAt && order.createdAt >= sevenDaysAgo
-  ).length;
   const completedOrders = groupedOrders.filter(
     (order) => order.status === "approved" || order.status === "dispatched"
   ).length;
-  const monthOrders = groupedOrders.filter(
-    (order) =>
-      order.createdAt &&
-      order.createdAt.getMonth() === currentMonth &&
-      order.createdAt.getFullYear() === currentYear
-  );
-  const monthValue = monthOrders.reduce((sum, order) => sum + order.totalAmount, 0);
+  const processingOrders = groupedOrders.filter(
+    (order) => order.status === "approved"
+  ).length;
+  const pendingDeliveries = groupedOrders.filter(
+    (order) => order.status !== "dispatched"
+  ).length;
+  const todayValue = groupedOrders
+    .filter((order) => isSameDay(order.createdAt, now))
+    .reduce((sum, order) => sum + order.totalAmount, 0);
+  const monthValue = groupedOrders
+    .filter(
+      (order) =>
+        order.createdAt &&
+        order.createdAt.getMonth() === now.getMonth() &&
+        order.createdAt.getFullYear() === now.getFullYear()
+    )
+    .reduce((sum, order) => sum + order.totalAmount, 0);
   const averageOrderValue =
     groupedOrders.length > 0
       ? groupedOrders.reduce((sum, order) => sum + order.totalAmount, 0) /
@@ -294,27 +322,27 @@ const buildDashboardPayload = (rows: OrderRow[]) => {
     .filter((order) => order.status !== "dispatched")
     .reduce((sum, order) => sum + order.totalAmount, 0);
 
-  const recentActivities: ActivityItem[] = groupedOrders.slice(0, 4).map((order) => {
+  const recentActivities: ActivityItem[] = groupedOrders.slice(0, 5).map((order) => {
     let title = "New order submitted";
     let description = `${order.orderId} for ${order.customerName}`;
     let icon: keyof typeof Ionicons.glyphMap = "document-text-outline";
-    let iconColor = "#0066FF";
+    let iconColor = "#60A5FA";
 
-    if (order.status === "dispatched") {
+    if (order.status === "approved") {
+      title = "Order approved";
+      description = `${order.customerName} is moving to dispatch`;
+      icon = "checkmark-circle-outline";
+      iconColor = "#10B981";
+    } else if (order.status === "rejected") {
+      title = "Order blocked";
+      description = `${order.customerName} requires follow-up`;
+      icon = "alert-circle-outline";
+      iconColor = "#F87171";
+    } else if (order.status === "dispatched") {
       title = "Order dispatched";
       description = `${order.customerName} moved to fulfillment`;
       icon = "paper-plane-outline";
-      iconColor = "#22c55e";
-    } else if (order.status === "approved") {
-      title = "Order approved";
-      description = `${order.customerName} is ready for dispatch`;
-      icon = "checkmark-circle-outline";
-      iconColor = "#22c55e";
-    } else if (order.status === "rejected") {
-      title = "Order blocked";
-      description = `${order.customerName} needs manager follow-up`;
-      icon = "alert-circle-outline";
-      iconColor = "#ef4444";
+      iconColor = "#10B981";
     }
 
     return {
@@ -336,152 +364,391 @@ const buildDashboardPayload = (rows: OrderRow[]) => {
     null;
 
   return {
-    groupedOrders,
-    totalCustomers: uniqueCustomers.size,
-    recentOrders,
-    pendingApprovals,
-    pendingDispatches,
-    rejectedOrders,
-    monthValue,
-    monthOrders: monthOrders.length,
-    completedOrders,
+    approvalOrders: groupedOrders.filter(
+      (order) => order.status === "pending" || order.status === "rejected"
+    ),
     averageOrderValue,
-    openPipelineValue,
+    completedOrders,
     currentOrder,
-    recentActivities,
+    groupedOrders,
     lastUpdatedAt: new Date().toISOString(),
+    monthValue,
+    openPipelineValue,
+    pendingApprovals,
+    pendingDeliveries,
+    pendingDispatches,
+    processingOrders,
+    recentActivities,
+    recentOrders,
+    rejectedOrders,
+    todayValue,
+    totalCustomers: uniqueCustomers.size,
   };
 };
 
-const MetricCard = ({
-  label,
-  value,
-  accentColor,
-  colors,
-}: {
-  label: string;
-  value: string;
-  accentColor: string;
-  colors: AppColors;
-}) => {
-  const styles = StyleSheet.create({
-    card: {
-      width: "48%",
-      backgroundColor: colors.card,
-      borderRadius: 24,
-      padding: 18,
-      marginBottom: 14,
-      borderWidth: 1,
-      borderColor: colors.border,
-      shadowColor: colors.shadow,
-      shadowOffset: { width: 0, height: 10 },
-      shadowOpacity: 1,
-      shadowRadius: 24,
-      elevation: 9,
-    },
-    arrow: {
-      position: "absolute",
-      top: 14,
-      right: 14,
-    },
-    value: {
-      color: colors.text,
-      fontSize: 28,
-      fontFamily: omaTypography.extrabold,
-      letterSpacing: -0.8,
-      marginBottom: 4,
-    },
-    label: {
-      color: colors.textSecondary,
-      fontSize: 12,
-      fontFamily: omaTypography.medium,
-      lineHeight: 16,
-      paddingRight: 18,
-    },
-  });
+const getApprovalMeta = (order: GroupedOrder, colors: AppColors) => {
+  if (order.status === "rejected") {
+    return {
+      amountColor: colors.accentCoral,
+      chipBg: "rgba(248,113,113,0.18)",
+      chipColor: colors.accentCoral,
+      description: "Requires manager follow-up",
+      icon: "alert-circle-outline" as const,
+    };
+  }
 
+  return {
+    amountColor: colors.accentGold,
+    chipBg: "rgba(234,179,8,0.18)",
+    chipColor: colors.accentGold,
+    description: "Waiting approval",
+    icon: "shield-checkmark-outline" as const,
+  };
+};
+
+const getActiveOrderMeta = (status: GroupedOrder["status"], colors: AppColors) => {
+  switch (status) {
+    case "approved":
+      return {
+        bg: "rgba(96,165,250,0.18)",
+        color: colors.accentSky,
+        label: "Processing",
+      };
+    case "dispatched":
+      return {
+        bg: "rgba(16,185,129,0.18)",
+        color: colors.accentGreen,
+        label: "Dispatched",
+      };
+    case "rejected":
+      return {
+        bg: "rgba(248,113,113,0.18)",
+        color: colors.accentCoral,
+        label: "Blocked",
+      };
+    default:
+      return {
+        bg: "rgba(234,179,8,0.18)",
+        color: colors.accentGold,
+        label: "In Review",
+      };
+  }
+};
+
+function SectionHeading({
+  actionLabel,
+  onActionPress,
+  title,
+}: {
+  actionLabel?: string;
+  onActionPress?: () => void;
+  title: string;
+}) {
   return (
-    <View style={styles.card}>
-      <Ionicons
-        color={accentColor}
-        name="arrow-up-outline"
-        size={16}
-        style={styles.arrow}
-      />
-      <Text style={styles.value}>{value}</Text>
-      <Text style={styles.label}>{label}</Text>
+    <View
+      style={{
+        alignItems: "center",
+        flexDirection: "row",
+        justifyContent: "space-between",
+        marginBottom: 16,
+        paddingHorizontal: 2,
+      }}
+    >
+      <View style={{ alignItems: "center", flexDirection: "row", gap: 6 }}>
+        <Text
+          style={{
+            color: "#ffffff",
+            fontFamily: omaTypography.bold,
+            fontSize: 19,
+            letterSpacing: -0.5,
+          }}
+        >
+          {title}
+        </Text>
+        <Ionicons color="rgba(255,255,255,0.4)" name="chevron-forward" size={17} />
+      </View>
+
+      {actionLabel ? (
+        <TouchableOpacity
+          activeOpacity={0.82}
+          onPress={onActionPress}
+          style={{ alignItems: "center", flexDirection: "row", gap: 8 }}
+        >
+          <Text
+            style={{
+              color: "#ffffff",
+              fontFamily: omaTypography.semibold,
+              fontSize: 13,
+            }}
+          >
+            {actionLabel}
+          </Text>
+        </TouchableOpacity>
+      ) : (
+        <Ionicons color="rgba(255,255,255,0.32)" name="ellipsis-horizontal" size={18} />
+      )}
     </View>
   );
-};
+}
 
-const QuickActionButton = ({
-  label,
-  icon,
-  onPress,
-  primary,
+function RecentOrderCard({
   colors,
+  onPress,
+  order,
 }: {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  onPress: () => void;
-  primary?: boolean;
   colors: AppColors;
-}) => {
+  onPress: () => void;
+  order: GroupedOrder;
+}) {
+  const status =
+    order.status === "approved"
+      ? {
+          color: colors.accentGreen,
+          icon: "checkmark-circle-outline" as const,
+          label: "Credit Approved",
+        }
+      : order.status === "rejected"
+      ? {
+          color: colors.accentCoral,
+          icon: "alert-circle-outline" as const,
+          label: "Needs Approval",
+        }
+      : {
+          color: colors.accentSky,
+          icon: "cube-outline" as const,
+          label: "Processing Dispatch",
+        };
+
   const styles = StyleSheet.create({
-    wrapper: {
-      alignItems: "center",
-      width: "23%",
-    },
-    button: {
-      width: 60,
-      height: 60,
+    card: {
+      backgroundColor: colors.appChromeElevated,
       borderRadius: 22,
-      backgroundColor: primary ? "#111111" : colors.card,
       borderWidth: 1,
-      borderColor: primary ? "#111111" : colors.border,
-      justifyContent: "center",
-      alignItems: "center",
-      shadowColor: colors.shadow,
-      shadowOffset: { width: 0, height: 10 },
-      shadowOpacity: 1,
-      shadowRadius: 22,
-      elevation: 8,
-      marginBottom: 10,
+      borderColor: "rgba(255,255,255,0.04)",
+      marginRight: 14,
+      padding: 18,
+      width: 240,
     },
-    label: {
-      color: colors.textSecondary,
+    rowBetween: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: 16,
+    },
+    badge: {
+      backgroundColor: "rgba(255,255,255,0.06)",
+      borderRadius: 8,
+      color: "#c4c5cc",
+      fontFamily: omaTypography.bold,
       fontSize: 12,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    time: {
+      color: "rgba(255,255,255,0.34)",
+      fontFamily: omaTypography.medium,
+      fontSize: 12,
+    },
+    customer: {
+      color: "#ffffff",
+      fontFamily: omaTypography.bold,
+      fontSize: 20,
+      letterSpacing: -0.6,
+      lineHeight: 24,
+      marginBottom: 7,
+    },
+    statusRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 6,
+      marginBottom: 18,
+    },
+    statusText: {
       fontFamily: omaTypography.semibold,
-      textAlign: "center",
+      fontSize: 13,
+    },
+    metrics: {
+      borderTopWidth: 1,
+      borderTopColor: "rgba(255,255,255,0.05)",
+      gap: 10,
+      paddingTop: 14,
+    },
+    metricRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    metricLabel: {
+      color: "rgba(255,255,255,0.55)",
+      fontFamily: omaTypography.medium,
+      fontSize: 14,
+    },
+    metricValue: {
+      color: "#ffffff",
+      fontFamily: omaTypography.bold,
+      fontSize: 14,
     },
   });
 
   return (
-    <TouchableOpacity onPress={onPress} style={styles.wrapper}>
-      <View style={styles.button}>
-        <Ionicons
-          color={primary ? "#ffffff" : colors.text}
-          name={icon}
-          size={22}
-        />
+    <TouchableOpacity activeOpacity={0.92} onPress={onPress} style={styles.card}>
+      <View style={styles.rowBetween}>
+        <Text style={styles.badge}>#ORD-{order.orderId}</Text>
+        <Text style={styles.time}>{formatTimeAgo(order.createdAt)}</Text>
       </View>
-      <Text style={styles.label}>{label}</Text>
+
+      <Text numberOfLines={2} style={styles.customer}>
+        {order.customerName}
+      </Text>
+
+      <View style={styles.statusRow}>
+        <Ionicons color={status.color} name={status.icon} size={14} />
+        <Text style={[styles.statusText, { color: status.color }]}>
+          {status.label}
+        </Text>
+      </View>
+
+      <View style={styles.metrics}>
+        <View style={styles.metricRow}>
+          <Text style={styles.metricLabel}>Total Amount</Text>
+          <Text style={styles.metricValue}>₹{formatIndianCurrency(order.totalAmount)}</Text>
+        </View>
+        <View style={styles.metricRow}>
+          <Text style={styles.metricLabel}>Order Size</Text>
+          <Text style={styles.metricValue}>
+            {order.itemCount} Item{order.itemCount === 1 ? "" : "s"}
+          </Text>
+        </View>
+      </View>
     </TouchableOpacity>
   );
-};
+}
+
+function MetricChip({
+  color,
+  icon,
+  label,
+  value,
+}: {
+  color: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View
+      style={{
+        backgroundColor: "rgba(255,255,255,0.06)",
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.04)",
+        marginRight: 12,
+        padding: 16,
+        width: 160,
+      }}
+    >
+      <View
+        style={{
+          alignItems: "center",
+          backgroundColor: `${color}20`,
+          borderRadius: 14,
+          height: 30,
+          justifyContent: "center",
+          marginBottom: 14,
+          width: 30,
+        }}
+      >
+        <Ionicons color={color} name={icon} size={15} />
+      </View>
+      <Text
+        style={{
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 20,
+          letterSpacing: -0.8,
+          marginBottom: 6,
+        }}
+      >
+        {value}
+      </Text>
+      <Text
+        style={{
+          color: "rgba(255,255,255,0.56)",
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+          lineHeight: 17,
+        }}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function QuickActionChip({
+  action,
+  onPress,
+}: {
+  action: QuickAction;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      activeOpacity={0.88}
+      onPress={onPress}
+      style={{
+        alignItems: "center",
+        backgroundColor: "rgba(255,255,255,0.06)",
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.04)",
+        flexDirection: "row",
+        gap: 10,
+        marginRight: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 11,
+      }}
+    >
+      <View
+        style={{
+          alignItems: "center",
+          backgroundColor: "rgba(255,255,255,0.08)",
+          borderRadius: 12,
+          height: 28,
+          justifyContent: "center",
+          width: 28,
+        }}
+      >
+        <Ionicons color="#ffffff" name={action.icon} size={14} />
+      </View>
+      <Text
+        style={{
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+        }}
+      >
+        {action.label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
 
 export default function MainScreen() {
   const { colors, isDark, toggleTheme } = useContext(ThemeContext);
   const { showFeedback } = useFeedback();
-  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const [lastLogin, setLastLogin] = useState<string | null>(null);
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [lastLogin, setLastLogin] = useState<string | null>(null);
   const [activeOverlay, setActiveOverlay] = useState<OverlayName>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  const displayName = userRole === "Manager" ? "Alex Carter" : "Sales Workspace";
+  const displayRole = userRole === "Manager" ? "Manager" : "User";
+  const todayLabel = todayFormatter.format(new Date()).toUpperCase();
 
   const loadDashboard = useCallback(
     async (forceRefresh = false) => {
@@ -568,97 +835,63 @@ export default function MainScreen() {
     }, [loadDashboard])
   );
 
-  const greeting = useMemo(() => formatGreeting(), []);
-  const monthLabel = useMemo(() => monthLabelFormatter.format(new Date()), []);
-  const shellWidth = Math.min(width - 32, 380);
-
-  const completionRate = useMemo(() => {
-    if (!payload?.groupedOrders.length) {
-      return 0;
-    }
-
-    return Math.round(
-      (payload.completedOrders / payload.groupedOrders.length) * 100
-    );
-  }, [payload]);
-
-  const quickActions = useMemo(() => {
-    const base = [
-      {
-        id: "history",
-        label: "History",
-        icon: "time-outline" as const,
-        route: "/(app)/my-orders",
-        primary: true,
-      },
-      {
-        id: "new",
-        label: "New Order",
-        icon: "document-text-outline" as const,
-        route: "/(app)/new-order",
-      },
-      {
-        id: "ledger",
-        label: userRole === "Manager" ? "Ledger" : "Customers",
-        icon: "wallet-outline" as const,
-        route:
-          userRole === "Manager" ? "/(app)/customer-summary" : "/(app)/customers",
-      },
-      {
-        id: "catalog",
-        label: "Catalog",
-        icon: "scan-outline" as const,
-        route: "/(app)/products",
-      },
-    ];
-
-    return base;
-  }, [userRole]);
-
-  const metricCards = useMemo(() => {
-    if (!payload) {
-      return [];
+  const quickActions = useMemo<QuickAction[]>(() => {
+    if (userRole === "Manager") {
+      return [
+        {
+          id: "new-order",
+          label: "New Order",
+          icon: "document-text-outline",
+          route: "/(app)/new-order",
+        },
+        {
+          id: "process",
+          label: "Dispatch",
+          icon: "clipboard-outline",
+          route: "/(app)/process-orders",
+        },
+        {
+          id: "catalog",
+          label: "Catalog",
+          icon: "cube-outline",
+          route: "/(app)/products",
+        },
+        {
+          id: "ledger",
+          label: "Ledger",
+          icon: "wallet-outline",
+          route: "/(app)/customer-summary",
+        },
+      ];
     }
 
     return [
       {
-        id: "completed",
-        label: "Completed Orders",
-        value: String(payload.completedOrders),
-        accentColor: colors.accentBlue,
+        id: "new-order",
+        label: "New Order",
+        icon: "document-text-outline",
+        route: "/(app)/new-order",
       },
       {
-        id: "approvals",
-        label: "Pending Approvals",
-        value: String(payload.pendingApprovals),
-        accentColor: colors.accentOrange,
-      },
-      {
-        id: "dispatches",
-        label: "Ready for Dispatch",
-        value: String(payload.pendingDispatches),
-        accentColor: colors.accentGreen,
+        id: "history",
+        label: "History",
+        icon: "time-outline",
+        route: "/(app)/my-orders",
       },
       {
         id: "customers",
-        label: "Active Customers",
-        value: String(payload.totalCustomers),
-        accentColor: colors.accentPurple,
+        label: "Customers",
+        icon: "people-outline",
+        route: "/(app)/customers",
       },
       {
-        id: "avg",
-        label: "Avg Order Value",
-        value: `₹${formatIndianCurrency(payload.averageOrderValue)}`,
-        accentColor: colors.accentBlue,
-      },
-      {
-        id: "recent",
-        label: "Orders in 7 Days",
-        value: String(payload.recentOrders),
-        accentColor: colors.accentOrange,
+        id: "catalog",
+        label: "Catalog",
+        icon: "cube-outline",
+        route: "/(app)/products",
       },
     ];
-  }, [colors, payload]);
+  }, [userRole]);
 
   const searchShortcuts = useMemo<ShortcutItem[]>(() => {
     return [
@@ -668,8 +901,7 @@ export default function MainScreen() {
         hint: "Overview, metrics, and activity",
         route: "/(app)/main",
         icon: "home-outline",
-        primary: true,
-        keywords: "home dashboard metrics activity revenue",
+        keywords: "home dashboard overview revenue",
       },
       {
         id: "new-order",
@@ -677,7 +909,7 @@ export default function MainScreen() {
         hint: "Create a fresh sales order",
         route: "/(app)/new-order",
         icon: "document-text-outline",
-        keywords: "new order create sales order",
+        keywords: "new order create draft",
       },
       {
         id: "process",
@@ -685,7 +917,7 @@ export default function MainScreen() {
         hint: "Dispatch and fulfillment queue",
         route: "/(app)/process-orders",
         icon: "clipboard-outline",
-        keywords: "process dispatch fulfillment queue",
+        keywords: "dispatch process fulfillment queue",
       },
       {
         id: "products",
@@ -693,15 +925,15 @@ export default function MainScreen() {
         hint: "Browse product catalog",
         route: "/(app)/products",
         icon: "cube-outline",
-        keywords: "products catalog sku items",
+        keywords: "products catalog sku item",
       },
       {
         id: "customers",
         label: "Customers",
-        hint: "Contacts and order history",
+        hint: "Contacts and account history",
         route: "/(app)/customers",
         icon: "people-outline",
-        keywords: "customers clients ledger history contacts",
+        keywords: "customers clients contacts history",
       },
       {
         id: "orders",
@@ -709,7 +941,7 @@ export default function MainScreen() {
         hint: "Search submitted orders",
         route: "/(app)/my-orders",
         icon: "receipt-outline",
-        keywords: "orders history submitted order status",
+        keywords: "orders history submitted status",
       },
       {
         id: "analytics",
@@ -718,6 +950,7 @@ export default function MainScreen() {
         route: "/(app)/analytics",
         icon: "stats-chart-outline",
         keywords: "analytics stats charts insights",
+        managerOnly: true,
       },
       {
         id: "approvals",
@@ -725,7 +958,7 @@ export default function MainScreen() {
         hint: "Manager review queue",
         route: "/(app)/order-approval",
         icon: "shield-checkmark-outline",
-        keywords: "manager approval pending blocked",
+        keywords: "manager approval blocked pending",
         managerOnly: true,
       },
     ].filter((item) => !item.managerOnly || userRole === "Manager");
@@ -742,845 +975,680 @@ export default function MainScreen() {
     );
   }, [searchQuery, searchShortcuts]);
 
-  const notificationItems = useMemo(() => {
+  const notificationItems = useMemo<NotificationItem[]>(() => {
     if (!payload) {
       return [];
     }
 
-    const items = [];
+    const items: NotificationItem[] = [];
 
-    if (userRole === "Manager" && payload.pendingApprovals > 0) {
+    if (payload.pendingApprovals > 0) {
       items.push({
         id: "approvals",
-        title: "Executive Approvals",
-        body: `${payload.pendingApprovals} orders need your authorization.`,
-        time: "Action needed",
-        icon: "shield-checkmark-outline" as const,
-        color: colors.accentRed,
-        bg: isDark ? "rgba(239,68,68,0.10)" : "#fff1f2",
+        title: "Approvals waiting",
+        body: `${payload.pendingApprovals} orders need attention.`,
+        color: colors.accentGold,
+        icon: "shield-checkmark-outline",
         route: "/(app)/order-approval",
+        time: "Action required",
       });
     }
 
     if (payload.pendingDispatches > 0) {
       items.push({
-        id: "dispatches",
-        title: "Dispatch Queue",
+        id: "dispatch",
+        title: "Dispatch queue",
         body: `${payload.pendingDispatches} approved orders are ready to move.`,
-        time: "Fulfillment",
-        icon: "cube-outline" as const,
-        color: colors.accentBlue,
-        bg: isDark ? "rgba(0,102,255,0.10)" : "#eef5ff",
+        color: colors.accentSky,
+        icon: "cube-outline",
         route: "/(app)/process-orders",
+        time: "Fulfillment",
       });
     }
 
-    if (payload.rejectedOrders > 0) {
+    if (payload.currentOrder) {
       items.push({
-        id: "blocked",
-        title: "Blocked Orders",
-        body: `${payload.rejectedOrders} rejected orders need follow-up.`,
-        time: "Review",
-        icon: "alert-circle-outline" as const,
-        color: colors.accentOrange,
-        bg: isDark ? "rgba(251,146,60,0.10)" : "#fff7ed",
-        route: "/(app)/order-approval",
+        id: "active",
+        title: "Active order",
+        body: `${payload.currentOrder.orderId} is still moving through the workflow.`,
+        color: colors.accentGreen,
+        icon: "time-outline",
+        route: "/(app)/my-orders",
+        time: formatTimeAgo(payload.currentOrder.createdAt),
       });
     }
-
-    items.push({
-      id: "recent",
-      title: "Recent Activity",
-      body: `${payload.recentOrders} orders landed in the last 7 days.`,
-      time: "Live feed",
-      icon: "checkmark-circle-outline" as const,
-      color: colors.accentGreen,
-      bg: isDark ? "rgba(34,197,94,0.10)" : "#ecfdf3",
-      route: "/(app)/my-orders",
-    });
 
     return items;
-  }, [colors, isDark, payload, userRole]);
+  }, [colors.accentGold, colors.accentGreen, colors.accentSky, payload]);
 
-  const profileActions = useMemo(
-    () => [
+  const metricCards = useMemo(() => {
+    if (!payload) {
+      return [];
+    }
+
+    return [
       {
-        id: "theme",
-        label: isDark ? "Switch to Light Mode" : "Switch to Dark Mode",
-        icon: isDark ? "sunny-outline" : "moon-outline",
-        onPress: () => {
-          toggleTheme();
-          setActiveOverlay(null);
-        },
+        id: "customers",
+        label: "Active Customers",
+        value: String(payload.totalCustomers),
+        icon: "people-outline" as const,
+        color: colors.accentSky,
       },
       {
-        id: "history",
-        label: "My Orders",
-        icon: "time-outline",
-        onPress: () => {
-          setActiveOverlay(null);
-          router.push("/(app)/my-orders");
-        },
+        id: "average",
+        label: "Avg Order Value",
+        value: `₹${formatIndianCurrency(payload.averageOrderValue)}`,
+        icon: "cash-outline" as const,
+        color: colors.accentGold,
       },
       {
-        id: "clients",
-        label: "Customers",
-        icon: "people-outline",
-        onPress: () => {
-          setActiveOverlay(null);
-          router.push("/(app)/customers");
-        },
+        id: "pipeline",
+        label: "Open Pipeline",
+        value: `₹${formatIndianCurrency(payload.openPipelineValue)}`,
+        icon: "pulse-outline" as const,
+        color: colors.accentGreen,
       },
       {
-        id: "logout",
-        label: "Sign Out",
-        icon: "log-out-outline",
-        onPress: async () => {
-          setActiveOverlay(null);
-          await AsyncStorage.multiRemove(["userRole", "lastLogin"]);
-          router.replace("/(auth)/login");
-        },
+        id: "recent",
+        label: "Orders in 7 Days",
+        value: String(payload.recentOrders),
+        icon: "time-outline" as const,
+        color: colors.accentCoral,
       },
-    ],
-    [isDark, toggleTheme]
-  );
+    ];
+  }, [colors, payload]);
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: {
+          backgroundColor: colors.appChrome,
           flex: 1,
-          backgroundColor: colors.background,
         },
         scrollContent: {
-          paddingBottom: 32,
+          paddingBottom: 36,
         },
         topGlow: {
           position: "absolute",
           top: 0,
           left: 0,
           right: 0,
-          height: 300,
-          backgroundColor: isDark ? "rgba(0,102,255,0.08)" : "#eef2f6",
+          height: 260,
+          backgroundColor: "rgba(255,255,255,0.02)",
         },
-        headerRow: {
-          flexDirection: "row",
+        header: {
           alignItems: "center",
+          flexDirection: "row",
           justifyContent: "space-between",
-          paddingTop: insets.top + 12,
           paddingHorizontal: 24,
+          paddingTop: insets.top + 12,
           paddingBottom: 8,
         },
         profileButton: {
-          flexDirection: "row",
           alignItems: "center",
+          flexDirection: "row",
           gap: 12,
-          flexShrink: 1,
         },
         avatar: {
-          width: 52,
-          height: 52,
-          borderRadius: 26,
-          borderWidth: 3,
-          borderColor: colors.card,
-          backgroundColor: isDark ? colors.surfaceVariant : "#dcecff",
-          justifyContent: "center",
+          width: 38,
+          height: 38,
+          borderRadius: 19,
+          backgroundColor: "rgba(255,255,255,0.08)",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.08)",
           alignItems: "center",
+          justifyContent: "center",
         },
         avatarText: {
-          color: colors.primary,
-          fontSize: 18,
-          fontFamily: omaTypography.extrabold,
-        },
-        eyebrow: {
-          color: colors.textSecondary,
-          fontSize: 10,
-          letterSpacing: 1.2,
-          textTransform: "uppercase",
+          color: "#ffffff",
           fontFamily: omaTypography.bold,
-          marginBottom: 3,
+          fontSize: 16,
         },
-        headerTitle: {
-          color: colors.text,
-          fontSize: 17,
-          fontFamily: omaTypography.extrabold,
-        },
-        iconActions: {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          marginLeft: 16,
-        },
-        iconButton: {
-          width: 44,
-          height: 44,
-          borderRadius: 22,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.border,
-          alignItems: "center",
-          justifyContent: "center",
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 1,
-          shadowRadius: 20,
-          elevation: 8,
-        },
-        notificationDot: {
-          position: "absolute",
-          top: 11,
-          right: 11,
-          width: 9,
-          height: 9,
-          borderRadius: 4.5,
-          backgroundColor: colors.accentRed,
-          borderWidth: 2,
-          borderColor: colors.card,
-        },
-        heroCard: {
-          marginHorizontal: 24,
-          marginTop: 10,
-          backgroundColor: colors.card,
-          borderRadius: 32,
-          padding: 26,
-          borderWidth: 1,
-          borderColor: colors.border,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 18 },
-          shadowOpacity: 1,
-          shadowRadius: 36,
-          elevation: 12,
-          overflow: "hidden",
-        },
-        heroBlur: {
-          position: "absolute",
-          top: -40,
-          right: -30,
-          width: 190,
-          height: 190,
-          borderRadius: 95,
-          backgroundColor: isDark ? "rgba(0,102,255,0.12)" : "#e9f1ff",
-        },
-        heroTop: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 18,
-        },
-        heroLabel: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          letterSpacing: 1.2,
-          textTransform: "uppercase",
-          fontFamily: omaTypography.bold,
-        },
-        heroChip: {
-          paddingHorizontal: 10,
-          paddingVertical: 6,
-          borderRadius: 10,
-          borderWidth: 1,
-          borderColor: isDark ? "rgba(34,197,94,0.18)" : "#d6f5df",
-          backgroundColor: isDark ? "rgba(34,197,94,0.10)" : "#eefcf2",
-        },
-        heroChipText: {
-          color: colors.accentGreen,
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-        },
-        heroValue: {
-          color: colors.text,
-          fontSize: 40,
-          letterSpacing: -1.8,
-          fontFamily: omaTypography.extrabold,
-        },
-        heroSubtext: {
-          color: colors.textSecondary,
+        roleLabel: {
+          color: "rgba(255,255,255,0.46)",
+          fontFamily: omaTypography.medium,
           fontSize: 13,
-          fontFamily: omaTypography.medium,
-          marginTop: 6,
+          marginBottom: 1,
         },
-        heroDivider: {
-          marginTop: 22,
-          paddingTop: 18,
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
-        },
-        rowBetween: {
-          flexDirection: "row",
+        roleRow: {
           alignItems: "center",
-          justifyContent: "space-between",
+          flexDirection: "row",
+          gap: 6,
         },
-        smallLabel: {
-          color: colors.textSecondary,
-          fontSize: 12,
+        nameText: {
+          color: "#ffffff",
           fontFamily: omaTypography.bold,
+          fontSize: 17,
+          letterSpacing: -0.3,
         },
-        smallValue: {
-          color: colors.text,
-          fontSize: 12,
-          fontFamily: omaTypography.bold,
-        },
-        progressTrack: {
-          marginTop: 10,
-          height: 6,
-          borderRadius: 999,
-          backgroundColor: colors.cardMuted,
+        utilityPillWrap: {
+          borderRadius: 26,
           overflow: "hidden",
         },
-        progressBar: {
-          height: "100%",
-          borderRadius: 999,
-          backgroundColor: "#111111",
+        utilityPillFill: {
+          ...StyleSheet.absoluteFillObject,
         },
-        heroFootnote: {
-          marginTop: 10,
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.medium,
-          textAlign: "right",
+        utilityPillHighlight: {
+          position: "absolute",
+          top: 1,
+          left: 14,
+          right: 14,
+          height: 16,
+          borderRadius: 999,
+          backgroundColor: "rgba(255,255,255,0.08)",
+        },
+        utilityPill: {
+          alignItems: "center",
+          backgroundColor: "rgba(52,52,56,0.56)",
+          borderRadius: 26,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.14)",
+          flexDirection: "row",
+          gap: 18,
+          height: 52,
+          paddingHorizontal: 16,
+        },
+        titleSection: {
+          marginTop: 20,
+          paddingHorizontal: 24,
         },
         section: {
+          marginTop: 24,
           paddingHorizontal: 24,
-          marginTop: 28,
         },
-        sectionTitle: {
-          color: colors.text,
-          fontSize: 18,
-          fontFamily: omaTypography.extrabold,
-          marginBottom: 16,
-        },
-        sectionHeader: {
-          flexDirection: "row",
-          justifyContent: "space-between",
+        searchCard: {
           alignItems: "center",
-          marginBottom: 16,
-        },
-        sectionAction: {
-          color: colors.textSecondary,
-          fontSize: 12,
-          fontFamily: omaTypography.bold,
-        },
-        quickActionsRow: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-        },
-        actionCard: {
-          backgroundColor: colors.card,
-          borderRadius: 24,
-          padding: 18,
+          backgroundColor: colors.appChromeElevated,
+          borderRadius: 22,
           borderWidth: 1,
-          borderColor: colors.border,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 12 },
-          shadowOpacity: 1,
-          shadowRadius: 24,
-          elevation: 8,
-          marginBottom: 12,
-        },
-        actionCardDark: {
-          backgroundColor: "#111111",
-          borderColor: "#111111",
-        },
-        actionRow: {
+          borderColor: "rgba(255,255,255,0.04)",
           flexDirection: "row",
-          alignItems: "center",
-          gap: 14,
+          gap: 12,
+          paddingHorizontal: 16,
+          paddingVertical: 14,
         },
-        actionIcon: {
-          width: 48,
-          height: 48,
-          borderRadius: 24,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: `${colors.accentBlue}14`,
-        },
-        actionIconDark: {
-          backgroundColor: "rgba(255,255,255,0.10)",
-        },
-        actionCardTitle: {
-          color: colors.text,
-          fontSize: 15,
-          fontFamily: omaTypography.extrabold,
-          marginBottom: 2,
-        },
-        actionCardTitleDark: {
-          color: "#ffffff",
-        },
-        actionCardBody: {
-          color: colors.textSecondary,
-          fontSize: 12,
-          lineHeight: 17,
+        searchText: {
+          color: "rgba(255,255,255,0.54)",
+          flex: 1,
           fontFamily: omaTypography.medium,
-          paddingRight: 6,
+          fontSize: 15,
         },
-        actionCardBodyDark: {
-          color: "rgba(255,255,255,0.68)",
+        actionRail: {
+          paddingTop: 16,
+          paddingBottom: 2,
         },
-        actionChevron: {
-          marginLeft: "auto",
-          width: 32,
-          height: 32,
-          borderRadius: 16,
-          backgroundColor: colors.cardMuted,
+        dashboardCard: {
+          backgroundColor: colors.appChromeElevated,
+          borderRadius: 28,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
+          paddingHorizontal: 18,
+          paddingVertical: 20,
+        },
+        dateLabel: {
+          color: colors.accentGold,
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
+          letterSpacing: 1.1,
+          marginBottom: 16,
+          textTransform: "uppercase",
+        },
+        divider: {
+          height: 1,
+          backgroundColor: "rgba(255,255,255,0.1)",
+          marginBottom: 16,
+        },
+        metricRow: {
+          alignItems: "center",
+          flexDirection: "row",
+          justifyContent: "space-between",
+          marginBottom: 18,
+          paddingLeft: 14,
+          position: "relative",
+        },
+        metricBar: {
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 4,
+          borderRadius: 999,
+        },
+        metricLabel: {
+          fontFamily: omaTypography.medium,
+          fontSize: 17,
+          letterSpacing: -0.2,
+        },
+        metricSub: {
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          marginTop: 3,
+        },
+        metricValue: {
+          fontFamily: omaTypography.bold,
+          fontSize: 15,
+        },
+        mutedHeader: {
+          color: "rgba(255,255,255,0.36)",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
+          letterSpacing: 1.1,
+          marginBottom: 18,
+          marginTop: 8,
+          textTransform: "uppercase",
+        },
+        approvalsCard: {
+          backgroundColor: colors.appChromeElevated,
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
+          overflow: "hidden",
+          paddingHorizontal: 4,
+        },
+        approvalRow: {
+          alignItems: "flex-start",
+          borderBottomWidth: 1,
+          borderBottomColor: "rgba(255,255,255,0.08)",
+          flexDirection: "row",
+          gap: 14,
+          paddingHorizontal: 14,
+          paddingVertical: 14,
+        },
+        approvalIconWrap: {
+          width: 28,
+          height: 28,
+          borderRadius: 14,
           alignItems: "center",
           justifyContent: "center",
+          marginTop: 1,
         },
-        actionChevronDark: {
-          backgroundColor: "rgba(255,255,255,0.10)",
-        },
-        metricsGrid: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-        },
-        activeOrderCard: {
-          backgroundColor: colors.card,
-          borderRadius: 32,
-          padding: 22,
-          borderWidth: 1,
-          borderColor: colors.border,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 14 },
-          shadowOpacity: 1,
-          shadowRadius: 28,
-          elevation: 10,
-        },
-        activeTop: {
-          flexDirection: "row",
-          justifyContent: "space-between",
+        approvalTitleRow: {
           alignItems: "flex-start",
-          marginBottom: 22,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          marginBottom: 3,
         },
-        activeEyebrow: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          textTransform: "uppercase",
-          letterSpacing: 1,
+        approvalClient: {
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 17,
+          letterSpacing: -0.3,
+        },
+        approvalAmount: {
           fontFamily: omaTypography.bold,
+          fontSize: 15,
+          marginLeft: 12,
+        },
+        approvalDescription: {
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          letterSpacing: -0.1,
+        },
+        approvalFooterRow: {
+          alignItems: "center",
+          flexDirection: "row",
+          gap: 12,
+          paddingHorizontal: 16,
+          paddingVertical: 16,
+        },
+        approvalFooterText: {
+          color: "rgba(255,255,255,0.36)",
+          fontFamily: omaTypography.semibold,
+          fontSize: 15,
+        },
+        metricRail: {
+          paddingBottom: 2,
+        },
+        orderRail: {
+          paddingBottom: 4,
+        },
+        spotlightCard: {
+          backgroundColor: colors.appChromeElevated,
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
+          padding: 18,
+        },
+        spotlightHeader: {
+          alignItems: "center",
+          flexDirection: "row",
+          justifyContent: "space-between",
+          marginBottom: 18,
+        },
+        spotlightEyebrow: {
+          color: "rgba(255,255,255,0.42)",
+          fontFamily: omaTypography.bold,
+          fontSize: 11,
+          letterSpacing: 0.9,
           marginBottom: 4,
+          textTransform: "uppercase",
         },
-        activeId: {
-          color: colors.text,
-          fontSize: 16,
-          fontFamily: omaTypography.extrabold,
+        spotlightTitle: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 18,
+          letterSpacing: -0.4,
         },
-        activeStatusChip: {
+        spotlightStatus: {
           borderRadius: 14,
           paddingHorizontal: 12,
           paddingVertical: 7,
         },
-        activeStatusText: {
-          color: "#ffffff",
-          fontSize: 12,
+        spotlightStatusText: {
           fontFamily: omaTypography.bold,
+          fontSize: 12,
         },
-        activeMeta: {
+        spotlightMetaRow: {
           flexDirection: "row",
           justifyContent: "space-between",
-          marginBottom: 24,
+          marginBottom: 18,
         },
-        activeMetaLabel: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          marginBottom: 4,
-        },
-        activeMetaValue: {
-          color: colors.text,
-          fontSize: 14,
-          fontFamily: omaTypography.bold,
-        },
-        activeMetaSub: {
-          marginTop: 4,
-          color: colors.textSecondary,
-          fontSize: 11,
+        spotlightMetaLabel: {
+          color: "rgba(255,255,255,0.44)",
           fontFamily: omaTypography.medium,
+          fontSize: 11,
+          marginBottom: 5,
+          textTransform: "uppercase",
         },
-        timelineShell: {
-          position: "relative",
-          paddingTop: 4,
+        spotlightMetaValue: {
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+          maxWidth: 160,
+        },
+        spotlightMetaSub: {
+          color: "rgba(255,255,255,0.52)",
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+          marginTop: 4,
+        },
+        timelineCard: {
+          backgroundColor: "rgba(255,255,255,0.04)",
+          borderRadius: 18,
+          padding: 16,
         },
         timelineTrack: {
           position: "absolute",
-          top: 18,
-          left: 16,
-          right: 16,
+          top: 28,
+          left: 30,
+          right: 30,
           height: 3,
           borderRadius: 999,
-          backgroundColor: colors.cardMuted,
+          backgroundColor: "rgba(255,255,255,0.08)",
         },
         timelineProgress: {
           position: "absolute",
-          top: 18,
-          left: 16,
+          top: 28,
+          left: 30,
           height: 3,
           borderRadius: 999,
-          backgroundColor: "#111111",
+          backgroundColor: "#ffffff",
         },
         timelineRow: {
           flexDirection: "row",
           justifyContent: "space-between",
         },
         timelineItem: {
-          width: "33%",
           alignItems: "center",
+          width: "33%",
         },
         timelineDot: {
-          width: 28,
-          height: 28,
-          borderRadius: 14,
-          backgroundColor: "#111111",
           alignItems: "center",
+          borderRadius: 14,
+          height: 28,
           justifyContent: "center",
+          width: 28,
           zIndex: 1,
         },
-        timelineDotPending: {
-          backgroundColor: colors.card,
-          borderWidth: 4,
-          borderColor: colors.cardMuted,
-        },
         timelineTitle: {
-          marginTop: 12,
-          color: colors.text,
-          fontSize: 10,
-          fontFamily: omaTypography.bold,
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+          marginTop: 11,
         },
         timelineSub: {
-          marginTop: 4,
-          color: colors.textSecondary,
-          fontSize: 10,
-          textAlign: "center",
+          color: "rgba(255,255,255,0.5)",
           fontFamily: omaTypography.medium,
+          fontSize: 10,
+          lineHeight: 14,
+          marginTop: 4,
+          paddingHorizontal: 6,
+          textAlign: "center",
         },
-        activityItem: {
+        activityCard: {
+          backgroundColor: colors.appChromeElevated,
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
+          overflow: "hidden",
+          paddingHorizontal: 4,
+        },
+        activityRow: {
+          alignItems: "center",
+          borderBottomWidth: 1,
+          borderBottomColor: "rgba(255,255,255,0.08)",
           flexDirection: "row",
           justifyContent: "space-between",
-          alignItems: "center",
+          paddingHorizontal: 14,
           paddingVertical: 14,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
         },
         activityLeft: {
-          flexDirection: "row",
           alignItems: "center",
-          gap: 14,
+          flexDirection: "row",
+          gap: 12,
           flex: 1,
           paddingRight: 12,
         },
-        activityIcon: {
-          width: 44,
-          height: 44,
-          borderRadius: 22,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.border,
+        activityIconWrap: {
+          width: 38,
+          height: 38,
+          borderRadius: 19,
+          backgroundColor: "rgba(255,255,255,0.06)",
           alignItems: "center",
           justifyContent: "center",
         },
         activityTitle: {
-          color: colors.text,
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
           fontSize: 14,
-          fontFamily: omaTypography.bold,
           marginBottom: 4,
         },
         activityBody: {
-          color: colors.textSecondary,
-          fontSize: 11,
+          color: "rgba(255,255,255,0.56)",
           fontFamily: omaTypography.medium,
+          fontSize: 12,
+          lineHeight: 17,
         },
         activityTime: {
-          color: colors.textSecondary,
-          fontSize: 11,
+          color: "rgba(255,255,255,0.42)",
           fontFamily: omaTypography.medium,
+          fontSize: 11,
         },
         footerHint: {
-          marginTop: 18,
+          color: "rgba(255,255,255,0.44)",
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+          lineHeight: 18,
+          marginTop: 24,
           paddingHorizontal: 24,
           textAlign: "center",
-          color: colors.textSecondary,
-          fontSize: 12,
-          fontFamily: omaTypography.medium,
         },
         centered: {
+          alignItems: "center",
           flex: 1,
           justifyContent: "center",
-          alignItems: "center",
           paddingHorizontal: 32,
         },
         loadingText: {
-          marginTop: 14,
-          color: colors.textSecondary,
-          fontSize: 14,
+          color: "rgba(255,255,255,0.56)",
           fontFamily: omaTypography.medium,
+          fontSize: 14,
+          lineHeight: 20,
+          marginTop: 14,
           textAlign: "center",
         },
-        overlayBackdrop: {
-          flex: 1,
-          backgroundColor: "rgba(9,17,31,0.34)",
+        sheetHero: {
+          backgroundColor: "rgba(255,255,255,0.06)",
+          borderRadius: 22,
+          marginBottom: 18,
+          padding: 18,
         },
-        profileModalCard: {
-          position: "absolute",
-          top: insets.top + 82,
-          left: 24,
-          width: Math.min(width - 48, 270),
-          backgroundColor: colors.card,
-          borderRadius: 26,
-          padding: 10,
-          borderWidth: 1,
-          borderColor: colors.border,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 18 },
-          shadowOpacity: 1,
-          shadowRadius: 32,
-          elevation: 16,
-        },
-        profileHeader: {
-          paddingHorizontal: 12,
-          paddingVertical: 12,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-          marginBottom: 6,
-        },
-        profileName: {
-          color: colors.text,
-          fontSize: 15,
-          fontFamily: omaTypography.extrabold,
-          marginBottom: 3,
-        },
-        profileEmail: {
-          color: colors.textSecondary,
-          fontSize: 12,
-          fontFamily: omaTypography.medium,
-        },
-        roleChip: {
-          marginTop: 10,
-          alignSelf: "flex-start",
-          paddingHorizontal: 10,
-          paddingVertical: 5,
-          borderRadius: 10,
-          backgroundColor: isDark ? "rgba(0,102,255,0.10)" : "#eef5ff",
-          borderWidth: 1,
-          borderColor: isDark ? "rgba(0,102,255,0.20)" : "#dbe8ff",
-        },
-        roleChipText: {
-          color: colors.primary,
-          fontSize: 10,
-          textTransform: "uppercase",
-          letterSpacing: 0.8,
+        sheetHeroTitle: {
+          color: "#ffffff",
           fontFamily: omaTypography.bold,
+          fontSize: 17,
+          marginBottom: 4,
         },
-        overlayAction: {
-          height: 48,
-          borderRadius: 14,
-          flexDirection: "row",
+        sheetHeroBody: {
+          color: "rgba(255,255,255,0.6)",
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 18,
+        },
+        actionRow: {
           alignItems: "center",
-          paddingHorizontal: 12,
+          backgroundColor: "rgba(255,255,255,0.06)",
+          borderRadius: 18,
+          flexDirection: "row",
           gap: 12,
+          marginBottom: 10,
+          paddingHorizontal: 14,
+          paddingVertical: 14,
         },
-        overlayActionText: {
-          color: colors.text,
-          fontSize: 13,
-          fontFamily: omaTypography.bold,
-        },
-        searchModalCard: {
-          position: "absolute",
-          top: insets.top + 12,
-          alignSelf: "center",
-          width: shellWidth,
-          maxHeight: "76%",
-          backgroundColor: colors.card,
-          borderRadius: 28,
-          borderWidth: 1,
-          borderColor: colors.border,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 24 },
-          shadowOpacity: 1,
-          shadowRadius: 40,
-          elevation: 18,
-          overflow: "hidden",
-        },
-        searchInputRow: {
-          flexDirection: "row",
-          alignItems: "center",
-          paddingHorizontal: 16,
-          paddingVertical: 12,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        },
-        searchInput: {
+        actionLabel: {
+          color: "#ffffff",
           flex: 1,
-          color: colors.text,
-          fontSize: 16,
-          fontFamily: omaTypography.bold,
-          paddingHorizontal: 12,
-          paddingVertical: 12,
-        },
-        searchSection: {
-          padding: 14,
-        },
-        searchSectionTitle: {
-          color: colors.textSecondary,
-          fontSize: 10,
-          letterSpacing: 1.1,
-          textTransform: "uppercase",
-          fontFamily: omaTypography.bold,
-          marginBottom: 10,
-        },
-        searchShortcutGrid: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-        },
-        searchShortcut: {
-          width: "48%",
-          borderRadius: 16,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
-          padding: 14,
-          marginBottom: 10,
-        },
-        searchShortcutDark: {
-          backgroundColor: "#111111",
-          borderColor: "#111111",
-        },
-        searchShortcutIcon: {
-          width: 28,
-          height: 28,
-          borderRadius: 10,
-          justifyContent: "center",
-          alignItems: "center",
-          backgroundColor: isDark ? colors.surfaceVariant : "#eef2f6",
-          marginBottom: 10,
-        },
-        searchShortcutLabel: {
-          color: colors.text,
-          fontSize: 13,
-          fontFamily: omaTypography.bold,
-          marginBottom: 3,
-        },
-        searchShortcutHint: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.medium,
-          lineHeight: 15,
-        },
-        searchResultItem: {
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderRadius: 16,
-          paddingHorizontal: 12,
-          paddingVertical: 12,
-          marginBottom: 8,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
-        },
-        searchResultLeft: {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 12,
-          flex: 1,
-          paddingRight: 10,
-        },
-        searchResultIcon: {
-          width: 40,
-          height: 40,
-          borderRadius: 14,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: isDark ? colors.surfaceVariant : "#eef2f6",
-        },
-        searchResultTitle: {
-          color: colors.text,
-          fontSize: 13,
-          fontFamily: omaTypography.bold,
-          marginBottom: 2,
-        },
-        searchResultHint: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.medium,
-        },
-        notificationsModalCard: {
-          position: "absolute",
-          top: insets.top + 72,
-          right: 24,
-          width: Math.min(width - 48, 320),
-          backgroundColor: colors.card,
-          borderRadius: 28,
-          borderWidth: 1,
-          borderColor: colors.border,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 18 },
-          shadowOpacity: 1,
-          shadowRadius: 32,
-          elevation: 16,
-          overflow: "hidden",
-        },
-        notificationsHeader: {
-          paddingHorizontal: 18,
-          paddingTop: 16,
-          paddingBottom: 12,
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-        },
-        notificationsTitle: {
-          color: colors.text,
-          fontSize: 16,
-          fontFamily: omaTypography.extrabold,
-        },
-        notificationsAction: {
-          color: colors.primary,
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-        },
-        notificationsBody: {
-          paddingHorizontal: 10,
-          paddingBottom: 12,
-          gap: 6,
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
         },
         notificationCard: {
-          borderRadius: 20,
-          padding: 14,
-        },
-        notificationRow: {
+          backgroundColor: "rgba(255,255,255,0.06)",
+          borderRadius: 18,
           flexDirection: "row",
           gap: 12,
-          alignItems: "center",
+          marginBottom: 12,
+          padding: 14,
         },
-        notificationIcon: {
+        notificationIconWrap: {
           width: 36,
           height: 36,
           borderRadius: 18,
-          backgroundColor: colors.card,
           alignItems: "center",
           justifyContent: "center",
         },
         notificationTitle: {
-          color: colors.text,
-          fontSize: 12,
-          fontFamily: omaTypography.bold,
-          marginBottom: 2,
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+          marginBottom: 3,
         },
         notificationBody: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          lineHeight: 15,
+          color: "rgba(255,255,255,0.6)",
           fontFamily: omaTypography.medium,
+          fontSize: 12,
+          lineHeight: 17,
+          marginBottom: 8,
         },
         notificationTime: {
-          color: colors.textSecondary,
-          fontSize: 10,
-          marginTop: 6,
-          fontFamily: omaTypography.bold,
+          color: "rgba(255,255,255,0.4)",
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+          letterSpacing: 0.8,
           textTransform: "uppercase",
-          letterSpacing: 0.6,
+        },
+        searchInputCard: {
+          alignItems: "center",
+          backgroundColor: "rgba(255,255,255,0.06)",
+          borderRadius: 18,
+          flexDirection: "row",
+          gap: 12,
+          marginBottom: 18,
+          paddingHorizontal: 16,
+          paddingVertical: 14,
+        },
+        searchInput: {
+          color: "#ffffff",
+          flex: 1,
+          fontFamily: omaTypography.semibold,
+          fontSize: 15,
+          paddingVertical: 0,
+        },
+        sheetLabel: {
+          color: "rgba(255,255,255,0.46)",
+          fontFamily: omaTypography.bold,
+          fontSize: 11,
+          letterSpacing: 1,
+          marginBottom: 12,
+          textTransform: "uppercase",
+        },
+        searchGrid: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "space-between",
+        },
+        searchCardResult: {
+          backgroundColor: "rgba(255,255,255,0.06)",
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
+          marginBottom: 12,
+          minHeight: 120,
+          padding: 14,
+          width: "48%",
+        },
+        searchCardIconWrap: {
+          alignItems: "center",
+          backgroundColor: "rgba(255,255,255,0.08)",
+          borderRadius: 12,
+          height: 28,
+          justifyContent: "center",
+          marginBottom: 12,
+          width: 28,
+        },
+        searchCardTitle: {
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+          marginBottom: 5,
+        },
+        searchCardHint: {
+          color: "rgba(255,255,255,0.56)",
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+          lineHeight: 17,
+        },
+        searchRowResult: {
+          alignItems: "center",
+          backgroundColor: "rgba(255,255,255,0.06)",
+          borderRadius: 18,
+          flexDirection: "row",
+          gap: 12,
+          marginBottom: 10,
+          paddingHorizontal: 14,
+          paddingVertical: 14,
+        },
+        searchRowIcon: {
+          alignItems: "center",
+          backgroundColor: "rgba(255,255,255,0.08)",
+          borderRadius: 14,
+          height: 34,
+          justifyContent: "center",
+          width: 34,
+        },
+        searchRowTitle: {
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+          marginBottom: 3,
+        },
+        searchRowHint: {
+          color: "rgba(255,255,255,0.56)",
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+          lineHeight: 16,
         },
       }),
-    [colors, insets.top, isDark, shellWidth, width]
+    [colors, insets.top]
   );
 
   if (loading && !payload) {
@@ -1588,9 +1656,9 @@ export default function MainScreen() {
       <View style={styles.container}>
         <View style={styles.topGlow} />
         <View style={styles.centered}>
-          <ActivityIndicator color={colors.primary} size="large" />
+          <ActivityIndicator color="#ffffff" size="large" />
           <Text style={styles.loadingText}>
-            Loading the new OMA dashboard...
+            Loading the latest dashboard design...
           </Text>
         </View>
       </View>
@@ -1602,11 +1670,7 @@ export default function MainScreen() {
       <View style={styles.container}>
         <View style={styles.topGlow} />
         <View style={styles.centered}>
-          <Ionicons
-            color={colors.textSecondary}
-            name="cloud-offline-outline"
-            size={44}
-          />
+          <Ionicons color="rgba(255,255,255,0.42)" name="cloud-offline-outline" size={44} />
           <Text style={styles.loadingText}>
             Dashboard data is unavailable right now.
           </Text>
@@ -1615,32 +1679,16 @@ export default function MainScreen() {
     );
   }
 
+  const approvalPreview = payload.approvalOrders.slice(0, 2);
+  const activeOrderMeta = payload.currentOrder
+    ? getActiveOrderMeta(payload.currentOrder.status, colors)
+    : null;
   const activeOrderProgress =
     payload.currentOrder?.status === "dispatched"
       ? 1
       : payload.currentOrder?.status === "approved"
       ? 0.66
       : 0.33;
-
-  const activeOrderStatusColor =
-    payload.currentOrder?.status === "dispatched"
-      ? colors.accentGreen
-      : payload.currentOrder?.status === "approved"
-      ? colors.accentBlue
-      : payload.currentOrder?.status === "rejected"
-      ? colors.accentRed
-      : colors.accentOrange;
-
-  const activeOrderStatusLabel =
-    payload.currentOrder?.status === "dispatched"
-      ? "Dispatched"
-      : payload.currentOrder?.status === "approved"
-      ? "Processing"
-      : payload.currentOrder?.status === "rejected"
-      ? "Blocked"
-      : "In Review";
-
-  const unreadNotificationCount = notificationItems.length;
 
   return (
     <View style={styles.container}>
@@ -1650,262 +1698,372 @@ export default function MainScreen() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
+            colors={["#ffffff"]}
             onRefresh={() => loadDashboard(true)}
-            tintColor={colors.primary}
-            colors={[colors.primary]}
+            refreshing={refreshing}
+            tintColor="#ffffff"
           />
         }
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.headerRow}>
+        <View style={styles.header}>
           <TouchableOpacity
-            onPress={() =>
-              setActiveOverlay((current) =>
-                current === "profile" ? null : "profile"
-              )
-            }
+            activeOpacity={0.86}
+            onPress={() => setActiveOverlay("profile")}
             style={styles.profileButton}
           >
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
-                {(userRole || "O").slice(0, 1).toUpperCase()}
+                {displayName.slice(0, 1).toUpperCase()}
               </Text>
             </View>
-
             <View>
-              <Text style={styles.eyebrow}>{greeting}</Text>
-              <Text style={styles.headerTitle}>
-                {userRole === "Manager" ? "Manager Dashboard" : "Sales Workspace"}
-              </Text>
+              <View style={styles.roleRow}>
+                <Text style={styles.roleLabel}>{displayRole}</Text>
+                <Ionicons
+                  color="rgba(255,255,255,0.48)"
+                  name="chevron-down"
+                  size={14}
+                />
+              </View>
+              <Text style={styles.nameText}>{displayName}</Text>
             </View>
           </TouchableOpacity>
 
-          <View style={styles.iconActions}>
-            <TouchableOpacity
-              onPress={() =>
-                setActiveOverlay((current) =>
-                  current === "search" ? null : "search"
-                )
-              }
-              style={styles.iconButton}
-            >
-              <Ionicons color={colors.text} name="search-outline" size={18} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() =>
-                setActiveOverlay((current) =>
-                  current === "notifications" ? null : "notifications"
-                )
-              }
-              style={styles.iconButton}
-            >
-              <Ionicons
-                color={colors.text}
-                name="notifications-outline"
-                size={18}
-              />
-              {unreadNotificationCount > 0 && <View style={styles.notificationDot} />}
-            </TouchableOpacity>
+          <View style={styles.utilityPillWrap}>
+            <BlurView
+              intensity={74}
+              style={styles.utilityPillFill}
+              tint={isDark ? "dark" : "light"}
+            />
+            <View pointerEvents="none" style={styles.utilityPillHighlight} />
+            <View style={styles.utilityPill}>
+              {userRole === "Manager" ? (
+                <TouchableOpacity
+                  activeOpacity={0.86}
+                  onPress={() => router.push("/(app)/analytics")}
+                >
+                  <Ionicons
+                    color="rgba(255,255,255,0.75)"
+                    name="stats-chart-outline"
+                    size={18}
+                  />
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                activeOpacity={0.86}
+                onPress={() => setActiveOverlay("notifications")}
+              >
+                <Ionicons
+                  color="rgba(255,255,255,0.82)"
+                  name="notifications-outline"
+                  size={18}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
-        <View style={styles.heroCard}>
-          <View style={styles.heroBlur} />
-          <View style={styles.heroTop}>
-            <Text style={styles.heroLabel}>{monthLabel}</Text>
-            <View style={styles.heroChip}>
-              <Text style={styles.heroChipText}>{completionRate}% complete</Text>
-            </View>
-          </View>
-
-          <Text style={styles.heroValue}>
-            ₹{formatIndianCurrency(payload.monthValue)}
-          </Text>
-          <Text style={styles.heroSubtext}>Monthly booked revenue</Text>
-
-          <View style={styles.heroDivider}>
-            <View style={styles.rowBetween}>
-              <Text style={styles.smallLabel}>Open pipeline</Text>
-              <Text style={styles.smallValue}>{completionRate}%</Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressBar,
-                  { width: `${Math.max(8, completionRate)}%` },
-                ]}
-              />
-            </View>
-            <Text style={styles.heroFootnote}>
-              ₹{formatIndianCurrency(payload.openPipelineValue)} still in active
-              pipeline
-            </Text>
-          </View>
+        <View style={styles.titleSection}>
+          <SectionHeading title="Dashboard" />
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.quickActionsRow}>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => setActiveOverlay("search")}
+            style={styles.searchCard}
+          >
+            <Ionicons color={colors.accentGold} name="search-outline" size={18} />
+            <Text style={styles.searchText}>
+              Search screens, actions, orders, and customers...
+            </Text>
+            <Ionicons
+              color="rgba(255,255,255,0.36)"
+              name="chevron-forward"
+              size={16}
+            />
+          </TouchableOpacity>
+
+          <ScrollView
+            contentContainerStyle={styles.actionRail}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+          >
             {quickActions.map((action) => (
-              <QuickActionButton
+              <QuickActionChip
+                action={action}
                 key={action.id}
-                colors={colors}
-                icon={action.icon}
-                label={action.label}
                 onPress={() => router.push(action.route)}
-                primary={action.primary}
               />
             ))}
+          </ScrollView>
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.dashboardCard}>
+            <Text style={styles.dateLabel}>{todayLabel}</Text>
+            <View style={styles.divider} />
+
+            <View style={styles.metricRow}>
+              <View
+                style={[
+                  styles.metricBar,
+                  { backgroundColor: colors.accentGold },
+                ]}
+              />
+              <Text style={[styles.metricLabel, { color: colors.accentGold }]}>
+                Today&apos;s Revenue
+              </Text>
+              <Text style={[styles.metricValue, { color: colors.accentGold }]}>
+                ₹{formatIndianCurrency(payload.todayValue)}
+              </Text>
+            </View>
+
+            <Text style={styles.mutedHeader}>Active Pipeline</Text>
+
+            <View style={styles.metricRow}>
+              <View
+                style={[
+                  styles.metricBar,
+                  { backgroundColor: colors.accentSky },
+                ]}
+              />
+              <View>
+                <Text style={[styles.metricLabel, { color: colors.accentSky }]}>
+                  Orders Processing
+                </Text>
+                <Text style={[styles.metricSub, { color: "rgba(96,165,250,0.72)" }]}>
+                  Warehouse fulfillment
+                </Text>
+              </View>
+              <Text style={[styles.metricValue, { color: colors.accentSky }]}>
+                {payload.processingOrders}
+              </Text>
+            </View>
+
+            <View style={[styles.metricRow, { marginBottom: 0 }]}>
+              <View
+                style={[
+                  styles.metricBar,
+                  { backgroundColor: colors.accentCoral },
+                ]}
+              />
+              <Text style={[styles.metricLabel, { color: colors.accentCoral }]}>
+                Pending Deliveries
+              </Text>
+              <Text style={[styles.metricValue, { color: colors.accentCoral }]}>
+                {payload.pendingDeliveries}
+              </Text>
+            </View>
           </View>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Action Hub</Text>
-
-          <TouchableOpacity
-            onPress={() => router.push("/(app)/process-orders")}
-            style={styles.actionCard}
-          >
-            <View style={styles.actionRow}>
-              <View style={styles.actionIcon}>
-                <Ionicons
-                  color={colors.accentBlue}
-                  name="clipboard-outline"
-                  size={20}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.actionCardTitle}>Pending sign-offs</Text>
-                <Text style={styles.actionCardBody}>
-                  {payload.pendingDispatches} approved orders are waiting for dispatch.
-                </Text>
-              </View>
-              <View style={styles.actionChevron}>
-                <Ionicons
-                  color={colors.textSecondary}
-                  name="chevron-forward"
-                  size={16}
-                />
-              </View>
-            </View>
-          </TouchableOpacity>
-
-          {userRole === "Manager" && (
-            <TouchableOpacity
-              onPress={() => router.push("/(app)/order-approval")}
-              style={[styles.actionCard, styles.actionCardDark]}
-            >
-              <View style={styles.actionRow}>
-                <View style={[styles.actionIcon, styles.actionIconDark]}>
+          <SectionHeading title="Approvals" />
+          <View style={styles.approvalsCard}>
+            {approvalPreview.length > 0 ? (
+              approvalPreview.map((order, index) => {
+                const meta = getApprovalMeta(order, colors);
+                return (
+                  <TouchableOpacity
+                    activeOpacity={0.88}
+                    key={order.orderId}
+                    onPress={() => router.push("/(app)/order-approval")}
+                    style={[
+                      styles.approvalRow,
+                      index === approvalPreview.length - 1 &&
+                        payload.approvalOrders.length <= 2 && {
+                          borderBottomWidth: 0,
+                        },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.approvalIconWrap,
+                        { backgroundColor: meta.chipBg },
+                      ]}
+                    >
+                      <Ionicons color={meta.chipColor} name={meta.icon} size={15} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.approvalTitleRow}>
+                        <Text style={styles.approvalClient}>{order.customerName}</Text>
+                        <Text
+                          style={[
+                            styles.approvalAmount,
+                            { color: meta.amountColor },
+                          ]}
+                        >
+                          ₹{formatIndianCurrency(order.totalAmount)}
+                        </Text>
+                      </View>
+                      <Text
+                        style={[
+                          styles.approvalDescription,
+                          { color: meta.amountColor },
+                        ]}
+                      >
+                        {meta.description}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            ) : (
+              <View style={[styles.approvalRow, { borderBottomWidth: 0 }]}>
+                <View
+                  style={[
+                    styles.approvalIconWrap,
+                    { backgroundColor: "rgba(16,185,129,0.18)" },
+                  ]}
+                >
                   <Ionicons
-                    color={colors.accentRed}
-                    name="shield-checkmark-outline"
-                    size={20}
+                    color={colors.accentGreen}
+                    name="checkmark-circle-outline"
+                    size={15}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
+                  <Text style={styles.approvalClient}>No approvals pending</Text>
                   <Text
-                    style={[styles.actionCardTitle, styles.actionCardTitleDark]}
+                    style={[
+                      styles.approvalDescription,
+                      { color: "rgba(255,255,255,0.48)" },
+                    ]}
                   >
-                    Executive approvals
+                    The manager queue is currently clear.
                   </Text>
-                  <Text
-                    style={[styles.actionCardBody, styles.actionCardBodyDark]}
-                  >
-                    {payload.pendingApprovals} orders need manager review right now.
-                  </Text>
-                </View>
-                <View
-                  style={[styles.actionChevron, styles.actionChevronDark]}
-                >
-                  <Ionicons color="#ffffff" name="chevron-forward" size={16} />
                 </View>
               </View>
+            )}
+
+            <TouchableOpacity
+              activeOpacity={0.88}
+              onPress={() => router.push("/(app)/order-approval")}
+              style={styles.approvalFooterRow}
+            >
+              <Ionicons
+                color="rgba(255,255,255,0.36)"
+                name="chevron-forward"
+                size={18}
+              />
+              <Text style={styles.approvalFooterText}>
+                {payload.pendingApprovals > 0
+                  ? `View ${payload.pendingApprovals} more pending`
+                  : "Queue is clear"}
+              </Text>
             </TouchableOpacity>
-          )}
+          </View>
         </View>
 
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Key Metrics</Text>
-            <Text style={styles.sectionAction}>Live snapshot</Text>
-          </View>
-
-          <View style={styles.metricsGrid}>
+          <SectionHeading actionLabel="Live" title="Key Metrics" />
+          <ScrollView
+            contentContainerStyle={styles.metricRail}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+          >
             {metricCards.map((metric) => (
-              <MetricCard
+              <MetricChip
+                color={metric.color}
+                icon={metric.icon}
                 key={metric.id}
-                accentColor={metric.accentColor}
-                colors={colors}
                 label={metric.label}
                 value={metric.value}
               />
             ))}
-          </View>
+          </ScrollView>
         </View>
 
-        {payload.currentOrder && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Active Order</Text>
-              <TouchableOpacity onPress={() => router.push("/(app)/my-orders")}>
-                <Text style={styles.sectionAction}>See all</Text>
-              </TouchableOpacity>
-            </View>
+        <View style={styles.section}>
+          <SectionHeading
+            actionLabel="Recent"
+            onActionPress={() => router.push("/(app)/my-orders")}
+            title="My Orders"
+          />
 
-            <View style={styles.activeOrderCard}>
-              <View style={styles.activeTop}>
+          <ScrollView
+            contentContainerStyle={styles.orderRail}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+          >
+            {payload.groupedOrders.slice(0, 6).map((order) => (
+              <RecentOrderCard
+                colors={colors}
+                key={order.orderId}
+                onPress={() => router.push("/(app)/my-orders")}
+                order={order}
+              />
+            ))}
+          </ScrollView>
+        </View>
+
+        {payload.currentOrder && activeOrderMeta ? (
+          <View style={styles.section}>
+            <SectionHeading
+              actionLabel="See all"
+              onActionPress={() => router.push("/(app)/my-orders")}
+              title="Active Order"
+            />
+
+            <View style={styles.spotlightCard}>
+              <View style={styles.spotlightHeader}>
                 <View>
-                  <Text style={styles.activeEyebrow}>Order ID</Text>
-                  <Text style={styles.activeId}>{payload.currentOrder.orderId}</Text>
+                  <Text style={styles.spotlightEyebrow}>Order ID</Text>
+                  <Text style={styles.spotlightTitle}>
+                    {payload.currentOrder.orderId}
+                  </Text>
                 </View>
 
                 <View
                   style={[
-                    styles.activeStatusChip,
-                    { backgroundColor: activeOrderStatusColor },
+                    styles.spotlightStatus,
+                    { backgroundColor: activeOrderMeta.bg },
                   ]}
                 >
-                  <Text style={styles.activeStatusText}>
-                    {activeOrderStatusLabel}
+                  <Text
+                    style={[
+                      styles.spotlightStatusText,
+                      { color: activeOrderMeta.color },
+                    ]}
+                  >
+                    {activeOrderMeta.label}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.activeMeta}>
+              <View style={styles.spotlightMetaRow}>
                 <View>
-                  <Text style={styles.activeMetaLabel}>Customer</Text>
-                  <Text style={styles.activeMetaValue}>
+                  <Text style={styles.spotlightMetaLabel}>Customer</Text>
+                  <Text style={styles.spotlightMetaValue}>
                     {payload.currentOrder.customerName}
                   </Text>
-                  <Text style={styles.activeMetaSub}>
+                  <Text style={styles.spotlightMetaSub}>
                     ₹{formatIndianCurrency(payload.currentOrder.totalAmount)}
                   </Text>
                 </View>
 
                 <View style={{ alignItems: "flex-end" }}>
-                  <Text style={styles.activeMetaLabel}>Updated</Text>
-                  <Text style={styles.activeMetaValue}>
+                  <Text style={styles.spotlightMetaLabel}>Updated</Text>
+                  <Text style={styles.spotlightMetaValue}>
                     {formatTimeAgo(payload.currentOrder.createdAt)}
                   </Text>
-                  <Text style={styles.activeMetaSub}>
+                  <Text style={styles.spotlightMetaSub}>
                     {payload.currentOrder.dispatchedItems}/
                     {payload.currentOrder.itemCount} items shipped
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.timelineShell}>
+              <View style={styles.timelineCard}>
                 <View style={styles.timelineTrack} />
                 <View
                   style={[
                     styles.timelineProgress,
-                    { width: `${Math.max(20, activeOrderProgress * 100 - 7)}%` },
+                    { width: `${Math.max(18, activeOrderProgress * 100 - 8)}%` },
                   ]}
                 />
-
                 <View style={styles.timelineRow}>
                   {[
                     {
@@ -1913,7 +2071,7 @@ export default function MainScreen() {
                       label: "Drafted",
                       active: true,
                       sub: formatShortDateTime(payload.currentOrder.createdAt),
-                      color: "#111111",
+                      color: "#ffffff",
                     },
                     {
                       id: "approved",
@@ -1927,8 +2085,8 @@ export default function MainScreen() {
                           : `${payload.currentOrder.approvedItems} line items`,
                       color:
                         payload.currentOrder.status === "pending"
-                          ? colors.accentOrange
-                          : "#111111",
+                          ? colors.accentGold
+                          : "#ffffff",
                     },
                     {
                       id: "shipped",
@@ -1945,19 +2103,24 @@ export default function MainScreen() {
                       <View
                         style={[
                           styles.timelineDot,
-                          !step.active && styles.timelineDotPending,
-                          step.active && { backgroundColor: step.color },
+                          {
+                            backgroundColor: step.active
+                              ? step.color
+                              : "rgba(255,255,255,0.06)",
+                            borderWidth: step.active ? 0 : 1,
+                            borderColor: "rgba(255,255,255,0.12)",
+                          },
                         ]}
                       >
                         {step.active ? (
-                          <Ionicons color="#ffffff" name="checkmark" size={14} />
+                          <Ionicons color="#111111" name="checkmark" size={13} />
                         ) : (
                           <View
                             style={{
                               width: 6,
                               height: 6,
                               borderRadius: 3,
-                              backgroundColor: colors.textPlaceholder,
+                              backgroundColor: "rgba(255,255,255,0.44)",
                             }}
                           />
                         )}
@@ -1970,44 +2133,43 @@ export default function MainScreen() {
               </View>
             </View>
           </View>
-        )}
+        ) : null}
 
         <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Activities</Text>
-            <TouchableOpacity onPress={() => router.push("/(app)/my-orders")}>
-              <Text style={styles.sectionAction}>See all</Text>
-            </TouchableOpacity>
-          </View>
+          <SectionHeading
+            actionLabel="See all"
+            onActionPress={() => router.push("/(app)/my-orders")}
+            title="Recent Activity"
+          />
 
-          {payload.recentActivities.map((activity, index) => (
-            <View
-              key={activity.id}
-              style={[
-                styles.activityItem,
-                index === payload.recentActivities.length - 1 && {
-                  borderBottomWidth: 0,
-                },
-              ]}
-            >
-              <View style={styles.activityLeft}>
-                <View style={styles.activityIcon}>
-                  <Ionicons
-                    color={activity.iconColor}
-                    name={activity.icon}
-                    size={18}
-                  />
+          <View style={styles.activityCard}>
+            {payload.recentActivities.map((activity, index) => (
+              <View
+                key={activity.id}
+                style={[
+                  styles.activityRow,
+                  index === payload.recentActivities.length - 1 && {
+                    borderBottomWidth: 0,
+                  },
+                ]}
+              >
+                <View style={styles.activityLeft}>
+                  <View style={styles.activityIconWrap}>
+                    <Ionicons
+                      color={activity.iconColor}
+                      name={activity.icon}
+                      size={16}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.activityTitle}>{activity.title}</Text>
+                    <Text style={styles.activityBody}>{activity.description}</Text>
+                  </View>
                 </View>
-
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.activityTitle}>{activity.title}</Text>
-                  <Text style={styles.activityBody}>{activity.description}</Text>
-                </View>
+                <Text style={styles.activityTime}>{activity.timeLabel}</Text>
               </View>
-
-              <Text style={styles.activityTime}>{activity.timeLabel}</Text>
-            </View>
-          ))}
+            ))}
+          </View>
         </View>
 
         <Text style={styles.footerHint}>
@@ -2016,204 +2178,227 @@ export default function MainScreen() {
         </Text>
       </ScrollView>
 
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setActiveOverlay(null)}
-        transparent
-        visible={activeOverlay === "profile"}
-      >
-        <Pressable
-          onPress={() => setActiveOverlay(null)}
-          style={styles.overlayBackdrop}
-        >
-          <Pressable style={styles.profileModalCard}>
-            <View style={styles.profileHeader}>
-              <Text style={styles.profileName}>{userRole} Workspace</Text>
-              <Text style={styles.profileEmail}>oma.local.session</Text>
-              <View style={styles.roleChip}>
-                <Text style={styles.roleChipText}>
-                  {userRole === "Manager" ? "Senior Manager" : "Sales User"}
-                </Text>
-              </View>
-            </View>
-
-            {profileActions.map((action) => (
-              <TouchableOpacity
-                key={action.id}
-                onPress={action.onPress}
-                style={styles.overlayAction}
-              >
-                <Ionicons color={colors.textSecondary} name={action.icon} size={18} />
-                <Text style={styles.overlayActionText}>{action.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setActiveOverlay(null)}
-        transparent
+      <OmaBottomSheet
+        maxHeight="72%"
+        onClose={() => {
+          setActiveOverlay(null);
+          setSearchQuery("");
+        }}
+        subtitle="Find screens, flows, and actions without leaving the home context."
+        title="Search Workspace"
         visible={activeOverlay === "search"}
       >
-        <Pressable
-          onPress={() => setActiveOverlay(null)}
-          style={styles.overlayBackdrop}
-        >
-          <Pressable style={styles.searchModalCard}>
-            <View style={styles.searchInputRow}>
-              <Ionicons color={colors.primary} name="search-outline" size={20} />
-              <TextInput
-                autoFocus
-                onChangeText={setSearchQuery}
-                placeholder="Search screens, flows, or actions..."
-                placeholderTextColor={colors.textSecondary}
-                style={styles.searchInput}
-                value={searchQuery}
+        <View style={styles.searchInputCard}>
+          <Ionicons color={colors.accentGold} name="search-outline" size={18} />
+          <TextInput
+            autoFocus
+            onChangeText={setSearchQuery}
+            placeholder="Search screens, orders, customers..."
+            placeholderTextColor="rgba(255,255,255,0.42)"
+            style={styles.searchInput}
+            value={searchQuery}
+          />
+          {searchQuery ? (
+            <TouchableOpacity
+              activeOpacity={0.82}
+              onPress={() => setSearchQuery("")}
+            >
+              <Ionicons
+                color="rgba(255,255,255,0.42)"
+                name="close-circle-outline"
+                size={18}
               />
-              <TouchableOpacity onPress={() => setActiveOverlay(null)}>
-                <Ionicons
-                  color={colors.textSecondary}
-                  name="close-circle-outline"
-                  size={20}
-                />
-              </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
+          ) : null}
+        </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {!searchQuery.trim() ? (
-                <View style={styles.searchSection}>
-                  <Text style={styles.searchSectionTitle}>Quick Actions</Text>
-                  <View style={styles.searchShortcutGrid}>
-                    {searchShortcuts.slice(0, 4).map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        onPress={() => {
-                          setActiveOverlay(null);
-                          router.push(item.route);
-                        }}
-                        style={[
-                          styles.searchShortcut,
-                          item.primary && styles.searchShortcutDark,
-                        ]}
-                      >
-                        <View style={styles.searchShortcutIcon}>
-                          <Ionicons
-                            color={item.primary ? "#111111" : colors.text}
-                            name={item.icon}
-                            size={18}
-                          />
-                        </View>
-                        <Text
-                          style={[
-                            styles.searchShortcutLabel,
-                            item.primary && { color: "#ffffff" },
-                          ]}
-                        >
-                          {item.label}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.searchShortcutHint,
-                            item.primary && { color: "rgba(255,255,255,0.72)" },
-                          ]}
-                        >
-                          {item.hint}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.searchSection}>
-                  <Text style={styles.searchSectionTitle}>Results</Text>
-                  {filteredSearchShortcuts.map((item) => (
-                    <TouchableOpacity
-                      key={item.id}
-                      onPress={() => {
-                        setActiveOverlay(null);
-                        setSearchQuery("");
-                        router.push(item.route);
-                      }}
-                      style={styles.searchResultItem}
-                    >
-                      <View style={styles.searchResultLeft}>
-                        <View style={styles.searchResultIcon}>
-                          <Ionicons color={colors.text} name={item.icon} size={18} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.searchResultTitle}>{item.label}</Text>
-                          <Text style={styles.searchResultHint}>{item.hint}</Text>
-                        </View>
-                      </View>
-                      <Ionicons
-                        color={colors.textSecondary}
-                        name="chevron-forward"
-                        size={16}
-                      />
-                    </TouchableOpacity>
-                  ))}
-                  {filteredSearchShortcuts.length === 0 && (
-                    <View style={{ paddingVertical: 24 }}>
-                      <Text style={styles.loadingText}>
-                        No matches for "{searchQuery}".
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              )}
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setActiveOverlay(null)}
-        transparent
-        visible={activeOverlay === "notifications"}
-      >
-        <Pressable
-          onPress={() => setActiveOverlay(null)}
-          style={styles.overlayBackdrop}
-        >
-          <Pressable style={styles.notificationsModalCard}>
-            <View style={styles.notificationsHeader}>
-              <Text style={styles.notificationsTitle}>Notifications</Text>
-              <TouchableOpacity onPress={() => setActiveOverlay(null)}>
-                <Text style={styles.notificationsAction}>Close</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.notificationsBody}>
-              {notificationItems.map((item) => (
+        {!searchQuery.trim() ? (
+          <>
+            <Text style={styles.sheetLabel}>Quick Actions</Text>
+            <View style={styles.searchGrid}>
+              {searchShortcuts.slice(0, 6).map((item) => (
                 <TouchableOpacity
+                  activeOpacity={0.88}
                   key={item.id}
                   onPress={() => {
                     setActiveOverlay(null);
                     router.push(item.route);
                   }}
-                  style={[styles.notificationCard, { backgroundColor: item.bg }]}
+                  style={styles.searchCardResult}
                 >
-                  <View style={styles.notificationRow}>
-                    <View style={styles.notificationIcon}>
-                      <Ionicons color={item.color} name={item.icon} size={16} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.notificationTitle}>{item.title}</Text>
-                      <Text style={styles.notificationBody}>{item.body}</Text>
-                      <Text style={styles.notificationTime}>{item.time}</Text>
-                    </View>
+                  <View style={styles.searchCardIconWrap}>
+                    <Ionicons color="#ffffff" name={item.icon} size={15} />
                   </View>
+                  <Text style={styles.searchCardTitle}>{item.label}</Text>
+                  <Text style={styles.searchCardHint}>{item.hint}</Text>
                 </TouchableOpacity>
               ))}
             </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+          </>
+        ) : (
+          <>
+            <Text style={styles.sheetLabel}>Results</Text>
+            {filteredSearchShortcuts.map((item) => (
+              <TouchableOpacity
+                activeOpacity={0.88}
+                key={item.id}
+                onPress={() => {
+                  setActiveOverlay(null);
+                  setSearchQuery("");
+                  router.push(item.route);
+                }}
+                style={styles.searchRowResult}
+              >
+                <View style={styles.searchRowIcon}>
+                  <Ionicons color="#ffffff" name={item.icon} size={15} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.searchRowTitle}>{item.label}</Text>
+                  <Text style={styles.searchRowHint}>{item.hint}</Text>
+                </View>
+                <Ionicons
+                  color="rgba(255,255,255,0.34)"
+                  name="chevron-forward"
+                  size={16}
+                />
+              </TouchableOpacity>
+            ))}
+            {filteredSearchShortcuts.length === 0 ? (
+              <View style={styles.sheetHero}>
+                <Text style={styles.sheetHeroTitle}>No matches found</Text>
+                <Text style={styles.sheetHeroBody}>
+                  Try searching for orders, customers, approvals, analytics, or
+                  dispatch.
+                </Text>
+              </View>
+            ) : null}
+          </>
+        )}
+      </OmaBottomSheet>
+
+      <OmaBottomSheet
+        maxHeight="56%"
+        onClose={() => setActiveOverlay(null)}
+        subtitle="Latest queue pressure and dashboard events."
+        title="Notifications"
+        visible={activeOverlay === "notifications"}
+      >
+        {notificationItems.length > 0 ? (
+          notificationItems.map((item) => (
+            <TouchableOpacity
+              activeOpacity={0.86}
+              key={item.id}
+              onPress={() => {
+                setActiveOverlay(null);
+                router.push(item.route);
+              }}
+              style={styles.notificationCard}
+            >
+              <View
+                style={[
+                  styles.notificationIconWrap,
+                  { backgroundColor: `${item.color}20` },
+                ]}
+              >
+                <Ionicons color={item.color} name={item.icon} size={16} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.notificationTitle}>{item.title}</Text>
+                <Text style={styles.notificationBody}>{item.body}</Text>
+                <Text style={styles.notificationTime}>{item.time}</Text>
+              </View>
+            </TouchableOpacity>
+          ))
+        ) : (
+          <View style={styles.sheetHero}>
+            <Text style={styles.sheetHeroTitle}>No notifications yet</Text>
+            <Text style={styles.sheetHeroBody}>
+              This feed will show new approvals, dispatch pressure, and recent order
+              events.
+            </Text>
+          </View>
+        )}
+      </OmaBottomSheet>
+
+      <OmaBottomSheet
+        maxHeight="58%"
+        onClose={() => setActiveOverlay(null)}
+        subtitle="Workspace controls and quick exits."
+        title="Workspace"
+        visible={activeOverlay === "profile"}
+      >
+        <View style={styles.sheetHero}>
+          <Text style={styles.sheetHeroTitle}>{displayName}</Text>
+          <Text style={styles.sheetHeroBody}>
+            {displayRole} session using the latest mobile dashboard shell.
+          </Text>
+        </View>
+
+        {[
+          {
+            id: "analytics",
+            label: "Open analytics",
+            icon: "stats-chart-outline" as const,
+            hidden: userRole !== "Manager",
+            onPress: () => {
+              setActiveOverlay(null);
+              router.push("/(app)/analytics");
+            },
+          },
+          {
+            id: "customers",
+            label: "Open clients",
+            icon: "people-outline" as const,
+            hidden: false,
+            onPress: () => {
+              setActiveOverlay(null);
+              router.push("/(app)/customers");
+            },
+          },
+          {
+            id: "theme",
+            label: isDark ? "Switch to light mode" : "Switch to dark mode",
+            icon: isDark ? "sunny-outline" : "moon-outline",
+            hidden: false,
+            onPress: () => {
+              toggleTheme();
+              setActiveOverlay(null);
+            },
+          },
+          {
+            id: "logout",
+            label: "Sign out",
+            icon: "log-out-outline" as const,
+            hidden: false,
+            onPress: async () => {
+              setActiveOverlay(null);
+              await AsyncStorage.multiRemove([
+                "userRole",
+                "username",
+                "lastLogin",
+              ]);
+              router.replace("/(auth)/login");
+            },
+          },
+        ]
+          .filter((action) => !action.hidden)
+          .map((action) => (
+            <TouchableOpacity
+              activeOpacity={0.86}
+              key={action.id}
+              onPress={action.onPress}
+              style={styles.actionRow}
+            >
+              <Ionicons color="#ffffff" name={action.icon} size={16} />
+              <Text style={styles.actionLabel}>{action.label}</Text>
+              <Ionicons
+                color="rgba(255,255,255,0.34)"
+                name="chevron-forward"
+                size={16}
+              />
+            </TouchableOpacity>
+          ))}
+      </OmaBottomSheet>
     </View>
   );
 }
-
-

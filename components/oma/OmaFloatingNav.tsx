@@ -1,5 +1,6 @@
 import React, { useContext, useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { Href, useRouter, useSegments } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppIcon as Ionicons } from "@/components/AppIcon";
@@ -7,83 +8,70 @@ import { ThemeContext } from "@/context/ThemeContext";
 import { omaTypography } from "@/utils/typography";
 
 type NavItem = {
-  icon: keyof typeof Ionicons.glyphMap;
   activeIcon: keyof typeof Ionicons.glyphMap;
+  icon: keyof typeof Ionicons.glyphMap;
   label: string;
   route: Href;
-  segment: string;
+  segments: string[];
 };
 
 const navItems: NavItem[] = [
   {
-    icon: "home-outline",
-    activeIcon: "home",
+    icon: "albums-outline",
+    activeIcon: "albums-outline",
     label: "Home",
     route: "/(app)/main",
-    segment: "main",
-  },
-  {
-    icon: "clipboard-outline",
-    activeIcon: "clipboard",
-    label: "Process",
-    route: "/(app)/process-orders",
-    segment: "process-orders",
+    segments: ["main"],
   },
   {
     icon: "cube-outline",
     activeIcon: "cube",
-    label: "Catalog",
-    route: "/(app)/products",
-    segment: "products",
-  },
-  {
-    icon: "add",
-    activeIcon: "add",
-    label: "New",
-    route: "/(app)/new-order",
-    segment: "new-order",
+    label: "Orders",
+    route: "/(app)/my-orders",
+    segments: ["my-orders", "process-orders", "order-details", "products"],
   },
   {
     icon: "people-outline",
     activeIcon: "people",
     label: "Clients",
     route: "/(app)/customers",
-    segment: "customers",
+    segments: ["customers", "customer-summary"],
   },
   {
-    icon: "stats-chart-outline",
-    activeIcon: "stats-chart",
-    label: "Stats",
-    route: "/(app)/analytics",
-    segment: "analytics",
+    icon: "cash-outline",
+    activeIcon: "cash-outline",
+    label: "Approvals",
+    route: "/(app)/order-approval",
+    segments: ["order-approval"],
   },
 ];
 
 const floatingNavRoutes = new Set([
   "main",
-  "process-orders",
-  "products",
-  "new-order",
-  "customers",
   "my-orders",
-  "analytics",
+  "process-orders",
   "order-approval",
   "customer-summary",
+  "customers",
+  "products",
 ]);
 
-export const FLOATING_NAV_SPACE = 120;
+export const FLOATING_NAV_SPACE = 188;
 
 export default function OmaFloatingNav() {
   const router = useRouter();
   const segments = useSegments();
   const insets = useSafeAreaInsets();
-  const { theme, colors } = useContext(ThemeContext);
-  const isDark = theme === "dark";
-  const group = segments[0];
+  const { isDark } = useContext(ThemeContext);
   const leaf = segments[segments.length - 1];
+  const group = segments[0];
 
   const showFloatingNav =
     group === "(app)" && typeof leaf === "string" && floatingNavRoutes.has(leaf);
+
+  const mutedText = isDark
+    ? "rgba(255,255,255,0.58)"
+    : "rgba(255,255,255,0.66)";
 
   const styles = useMemo(
     () =>
@@ -92,61 +80,86 @@ export default function OmaFloatingNav() {
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: Math.max(insets.bottom, 12),
+          bottom: Math.max(insets.bottom, 22),
           alignItems: "center",
-          paddingHorizontal: 16,
+          paddingHorizontal: 20,
           pointerEvents: "box-none",
         },
-        shell: {
+        row: {
           width: "100%",
-          maxWidth: 420,
-          borderRadius: 30,
-          paddingHorizontal: 10,
-          paddingVertical: 9,
+          maxWidth: 374,
+          flexDirection: "row",
+          alignItems: "flex-end",
+          gap: 10,
+        },
+        shell: {
+          flex: 1,
+          borderRadius: 32,
+          overflow: "hidden",
+        },
+        shellBlur: {
+          ...StyleSheet.absoluteFillObject,
+        },
+        shellHighlight: {
+          position: "absolute",
+          top: 1,
+          left: 16,
+          right: 16,
+          height: 18,
+          borderRadius: 999,
+          backgroundColor: "rgba(255,255,255,0.08)",
+        },
+        shellCard: {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
-          backgroundColor: colors.navBg,
+          paddingHorizontal: 8,
+          paddingVertical: 8,
+          borderRadius: 32,
           borderWidth: 1,
-          borderColor: colors.border,
-          shadowColor: isDark ? "#000000" : colors.shadow,
+          borderColor: "rgba(255,255,255,0.14)",
+          backgroundColor: "rgba(52,52,56,0.58)",
+          shadowColor: "#000000",
           shadowOffset: { width: 0, height: 14 },
-          shadowOpacity: isDark ? 0.35 : 1,
-          shadowRadius: isDark ? 24 : 30,
-          elevation: 18,
-        },
-        activeItem: {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          borderRadius: 22,
-          paddingHorizontal: 13,
-          paddingVertical: 11,
-          backgroundColor: colors.navActive,
-        },
-        activeIconBubble: {
-          width: 22,
-          height: 22,
-          borderRadius: 8,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: isDark ? colors.background : "#ffffff",
-        },
-        activeLabel: {
-          color: isDark ? colors.background : "#ffffff",
-          fontSize: 12,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 0.2,
+          shadowOpacity: 0.18,
+          shadowRadius: 24,
+          elevation: 14,
         },
         itemButton: {
-          width: 40,
-          height: 40,
-          borderRadius: 16,
+          minWidth: 64,
+          height: 56,
+          borderRadius: 24,
           alignItems: "center",
           justifyContent: "center",
+          paddingHorizontal: 10,
+        },
+        itemButtonActive: {
+          backgroundColor: "rgba(255,255,255,0.14)",
+        },
+        itemLabel: {
+          marginTop: 3,
+          color: mutedText,
+          fontSize: 10,
+          fontFamily: omaTypography.bold,
+        },
+        itemLabelActive: {
+          color: "#ffffff",
+        },
+        ctaButton: {
+          width: 72,
+          height: 72,
+          borderRadius: 36,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: "#ffffff",
+          shadowColor: "#ffffff",
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: 0.16,
+          shadowRadius: 22,
+          elevation: 16,
         },
       }),
-    [colors, insets.bottom, isDark]
+    [insets.bottom, mutedText]
   );
 
   if (!showFloatingNav) {
@@ -155,40 +168,60 @@ export default function OmaFloatingNav() {
 
   return (
     <View style={styles.wrapper}>
-      <View style={styles.shell}>
-        {navItems.map((item) => {
-          const isActive = item.segment === leaf;
-          const iconName = isActive ? item.activeIcon : item.icon;
+      <View style={styles.row}>
+        <View style={styles.shell}>
+          <BlurView
+            intensity={78}
+            style={styles.shellBlur}
+            tint={isDark ? "dark" : "light"}
+          />
+          <View pointerEvents="none" style={styles.shellHighlight} />
 
-          if (isActive) {
-            return (
-              <View key={item.segment} style={styles.activeItem}>
-                <View style={styles.activeIconBubble}>
+          <View style={styles.shellCard}>
+            {navItems.map((item) => {
+              const isActive = item.segments.includes(String(leaf));
+              const iconName = isActive ? item.activeIcon : item.icon;
+
+              return (
+                <Pressable
+                  key={item.label}
+                  android_ripple={{
+                    color: "rgba(255,255,255,0.08)",
+                    borderless: false,
+                  }}
+                  onPress={() => router.push(item.route)}
+                  style={[
+                    styles.itemButton,
+                    isActive && styles.itemButtonActive,
+                  ]}
+                >
                   <Ionicons
-                    color={isDark ? colors.text : "#111111"}
+                    color={isActive ? "#ffffff" : mutedText}
                     name={iconName}
-                    size={13}
+                    size={20}
                   />
-                </View>
-                <Text style={styles.activeLabel}>{item.label}</Text>
-              </View>
-            );
-          }
+                  <Text
+                    style={[
+                      styles.itemLabel,
+                      isActive && styles.itemLabelActive,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
 
-          return (
-            <Pressable
-              key={item.segment}
-              android_ripple={{ color: "rgba(0,102,255,0.12)", borderless: true }}
-              onPress={() => router.push(item.route)}
-              style={styles.itemButton}
-            >
-              <Ionicons color={colors.textSecondary} name={iconName} size={20} />
-            </Pressable>
-          );
-        })}
+        <Pressable
+          android_ripple={{ color: "rgba(17,17,17,0.08)", borderless: true }}
+          onPress={() => router.push("/(app)/new-order")}
+          style={styles.ctaButton}
+        >
+          <Ionicons color="#111111" name="add" size={30} />
+        </Pressable>
       </View>
     </View>
   );
 }
-
-
