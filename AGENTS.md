@@ -69,6 +69,30 @@ There is no general `build` script in `package.json`. Do not invent one. If the 
 - Prefer `useFeedback()` for user-facing success and error feedback instead of raw alerts when practical.
 - Keep changes responsive across phone, tablet, and web. Existing code uses `responsive.js`, `Dimensions`, and `Platform` guards.
 
+## Field-Sales Clone Workflow
+The current design migration target is the React/Tailwind app at `D:\dev\OMA\field-sales-pro`. For exact-clone work, treat `D:\dev\OMA\field-sales-pro\src\pages` and the live Vite routes such as `http://localhost:3001/orders/992` as the visual source of truth.
+
+- Do not recreate clone screens from screenshots alone. Read the source React component and Tailwind classes first, inspect the live page at the target viewport, then translate into Expo/React Native.
+- Use computed browser styles when parity is disputed: font family, weight, size, line-height, letter spacing, padding, gap, radius, borders, colors, shadows, and bounding boxes.
+- Use `390 x 844` as the primary visual parity viewport for the mobile web target unless the user gives a different viewport.
+- Copy all source states and variants, not only the first visible screenshot. For example, `OrderDetails` includes the normal order details view, the worker/dispatch pick-list view, and the finalize-dispatch bottom sheet.
+- Preserve OMA functionality while replacing the visual layer. Dispatch and approval screens must keep live data, cache clearing, `AsyncStorage` updates, `buildDispatchSheetUpdates`, `batchUpdateSheetRanges`, and shared API helpers unless the task explicitly changes the workflow.
+- Use fallback demo copy only when the field-sales source has hardcoded content that the OMA sheets do not yet provide, such as aisle locations.
+
+Tailwind-to-React Native translation rules for this clone:
+- `font-sans` in `field-sales-pro` is Inter from `src/index.css` with weights 400, 500, 600, and 700. Use `omaTypography.regular`, `medium`, `semibold`, and `bold`; do not use extra-bold weights unless the source component uses them.
+- Translate Tailwind tracking and leading explicitly. `tracking-tight` is about `-0.025em` (for example, 18px becomes about `-0.45`, 15px becomes about `-0.375`).
+- Preserve exact spacing and shape tokens: classes like `p-6`, `px-5`, `pt-6`, `pb-40`, `gap-4`, `rounded-[24px]`, `bg-[#1C1C1E]`, `bg-[#242426]`, and `border-white/[0.04]` should become equivalent numeric React Native styles.
+- For clone screens, import matching `lucide-react-native` icons directly when the source uses lucide icons. Avoid routing through `AppIcon` if it changes the glyph, stroke, or metaphor.
+- Translate Tailwind motion such as `animate-ping` with React Native `Animated` and `Easing`, then verify it visually.
+
+Clone verification checklist:
+- Capture or inspect the field-sales source route and the Expo target route at `390 x 844`.
+- Seed `localStorage.selectedOrder` when testing `/order-details` on web so the screen opens with the intended order fixture.
+- Run the smallest relevant checks for the changed files: usually `npm run lint`, `git diff --check`, and a targeted TypeScript scan for the edited screen.
+- When testing dispatch UI, avoid accidental real sheet writes unless the user explicitly asks for an end-to-end write test.
+- Do not keep old OMA hero, tab, card, or icon styling on screens that are being migrated to the field-sales design system.
+
 ## Data And API Rules
 - Central backend constant: `app/utils/apiManager.ts` exports `BACKEND_URL`.
 - Prefer shared API utilities such as `fetchWithRetry`, `wakeUpServer`, `preloadData`, `apiCache`, and `webFetchWithRetry`.

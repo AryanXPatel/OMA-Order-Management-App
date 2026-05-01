@@ -1,4 +1,6 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
 import {
   ActivityIndicator,
   Modal,
@@ -13,29 +15,40 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { router } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  Activity as ActivityIcon,
+  AlertTriangle,
+  BadgeDollarSign,
+  Box,
+  CheckCircle2,
+  ChevronLeft,
+  CreditCard,
+  History,
+  MoreHorizontal,
+  ShieldAlert,
+  X,
+} from "lucide-react-native";
+import LoadingIndicator from "@/components/LoadingIndicator";
+import { FLOATING_NAV_SPACE } from "@/components/oma/OmaFloatingNav";
 import { ThemeContext } from "@/context/ThemeContext";
 import { useFeedback } from "@/context/FeedbackContext";
-import { omaTypography } from "@/utils/typography";
 import {
   BACKEND_URL,
   apiCache,
   batchUpdateSheetRanges,
   fetchWithRetry,
 } from "@/utils/apiManager";
-import { formatCompactOrderId } from "@/utils/orderDisplay";
-import LoadingIndicator from "@/components/LoadingIndicator";
 import {
   calculateLedgerStats,
   fetchCustomerLedger,
 } from "@/utils/ledgerUtils";
+import { formatCompactOrderId } from "@/utils/orderDisplay";
 import {
   buildApprovalSheetUpdates,
   buildRejectionSheetUpdates,
 } from "@/utils/orderSheetSerializer";
+import { omaTypography } from "@/utils/typography";
 
 type ApprovalItem = {
   productName: string;
@@ -71,8 +84,41 @@ type LedgerEntry = {
   [key: string]: unknown;
 };
 
-type ReviewFilter = "all" | "pending" | "recheck";
-type SortOption = "date" | "amount" | "customer" | "source";
+type ReviewFilter = "all" | "recheck";
+
+type SheetOrderRow = {
+  sysTime: string;
+  orderTime: string;
+  user: string;
+  orderComments: string;
+  customerName: string;
+  orderId: string;
+  productName: string;
+  quantity: string;
+  unit: string;
+  rate: string;
+  amount: string;
+  source: string;
+  approvalStatus: string;
+  managerComments: string;
+  dispatchStatus: string;
+  dispatchComments: string;
+  dispatchTime: string;
+  rowIndex: number;
+};
+
+const CARD = "#1C1C1E";
+const CARD_MUTED = "#242426";
+const SCREEN = "#121212";
+const TEXT = "#ffffff";
+const TEXT_SECONDARY = "#a1a1aa";
+const TEXT_MUTED = "#71717a";
+const BORDER = "rgba(255,255,255,0.04)";
+const BORDER_STRONG = "rgba(255,255,255,0.06)";
+const RED = "#F87171";
+const AMBER = "#EAB308";
+const BLUE = "#60A5FA";
+const GREEN = "#10B981";
 
 const parseIndianDate = (dateStr: string) => {
   if (!dateStr) {
@@ -102,7 +148,6 @@ const parseIndianDate = (dateStr: string) => {
   if (meridiem === "PM" && hours < 12) {
     hours += 12;
   }
-
   if (meridiem === "AM" && hours === 12) {
     hours = 0;
   }
@@ -117,9 +162,11 @@ const formatDateChip = (dateStr: string) => {
     return "Unknown";
   }
 
-  return `${String(parsed.getDate()).padStart(2, "0")}/${String(
-    parsed.getMonth() + 1
-  ).padStart(2, "0")}/${parsed.getFullYear()}`;
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(parsed);
 };
 
 const formatIndianNumber = (value: number | string | null | undefined) => {
@@ -139,6 +186,11 @@ const formatIndianNumber = (value: number | string | null | undefined) => {
   });
 };
 
+const parseAmount = (value: number | string | null | undefined) => {
+  const parsed = Number.parseFloat(String(value ?? "0").replace(/,/g, ""));
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
 const splitOrderId = (orderId: string) => {
   if (!orderId) {
     return ["", 0] as const;
@@ -149,7 +201,7 @@ const splitOrderId = (orderId: string) => {
 };
 
 export default function OrderApprovalScreen() {
-  const { colors, isDark } = useContext(ThemeContext);
+  const { colors } = useContext(ThemeContext);
   const { showFeedback } = useFeedback();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -163,13 +215,12 @@ export default function OrderApprovalScreen() {
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
-  const sortBy: SortOption = "date";
-  const sortDirection: "asc" | "desc" = "desc";
-  const searchQuery = "";
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [approvalComments, setApprovalComments] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
+
+  const contentWidth = Math.min(width - 40, 374);
 
   const runSheetUpdates = useCallback(
     async (updates: { range: string; values: string[][] }[]) => {
@@ -197,8 +248,6 @@ export default function OrderApprovalScreen() {
     },
     []
   );
-
-  const contentWidth = Math.min(width - 24, 560);
 
   const closeDetail = useCallback(() => {
     setDetailVisible(false);
@@ -234,8 +283,8 @@ export default function OrderApprovalScreen() {
         1500
       );
 
-      const rows = response.data?.values || [];
-      const groupedOrders = rows
+      const rows = (response.data?.values || []) as string[][];
+      const sheetRows: SheetOrderRow[] = rows
         .map((row: string[], index: number) => ({
           sysTime: row[0] || "",
           orderTime: row[1] || "",
@@ -256,10 +305,15 @@ export default function OrderApprovalScreen() {
           dispatchTime: row[16] || "",
           rowIndex: index + 2,
         }))
-        .filter(
-          (row) => row.approvalStatus === "" || row.approvalStatus === "R"
-        )
-        .reduce<Record<string, ApprovalOrder>>((acc, row) => {
+        .filter((row) => {
+          return (
+            row.orderId &&
+            (row.approvalStatus === "" || row.approvalStatus === "R")
+          );
+        });
+
+      const groupedOrders = sheetRows.reduce<Record<string, ApprovalOrder>>(
+        (acc, row) => {
           if (!acc[row.orderId]) {
             acc[row.orderId] = {
               orderId: row.orderId,
@@ -287,12 +341,11 @@ export default function OrderApprovalScreen() {
             rowIndex: row.rowIndex,
           });
 
-          acc[row.orderId].totalAmount += Number.parseFloat(
-            (row.amount || "0").replace(/,/g, "")
-          ) || 0;
-
+          acc[row.orderId].totalAmount += parseAmount(row.amount);
           return acc;
-        }, {});
+        },
+        {}
+      );
 
       const nextOrders = Object.values(groupedOrders);
       apiCache.set("pendingApprovalOrders", {
@@ -399,21 +452,19 @@ export default function OrderApprovalScreen() {
 
       try {
         setApprovalLoading(true);
-        const actionedAt = new Date();
-        const updatedAtIso = actionedAt.toISOString();
-
+        const updatedAtIso = new Date().toISOString();
         let successCount = 0;
         let failureCount = 0;
 
         const results = await Promise.allSettled(
           selectedOrder.items.map(async (item) => {
-            const updates = buildApprovalSheetUpdates({
-              rowIndex: item.rowIndex,
-              comments: comments || "",
-              updatedAtIso,
-            });
-            await runSheetUpdates(updates);
-
+            await runSheetUpdates(
+              buildApprovalSheetUpdates({
+                rowIndex: item.rowIndex,
+                comments: comments || "",
+                updatedAtIso,
+              })
+            );
             return true;
           })
         );
@@ -473,21 +524,19 @@ export default function OrderApprovalScreen() {
 
     try {
       setApprovalLoading(true);
-      const actionedAt = new Date();
-      const updatedAtIso = actionedAt.toISOString();
-
+      const updatedAtIso = new Date().toISOString();
       let successCount = 0;
       let failureCount = 0;
 
       const results = await Promise.allSettled(
         selectedOrder.items.map(async (item) => {
-          const updates = buildRejectionSheetUpdates({
-            rowIndex: item.rowIndex,
-            rejectionReason: rejectionReason || "No reason provided",
-            updatedAtIso,
-          });
-          await runSheetUpdates(updates);
-
+          await runSheetUpdates(
+            buildRejectionSheetUpdates({
+              rowIndex: item.rowIndex,
+              rejectionReason: rejectionReason || "No reason provided",
+              updatedAtIso,
+            })
+          );
           return true;
         })
       );
@@ -574,62 +623,17 @@ export default function OrderApprovalScreen() {
     }
   }, [ledgerData, selectedOrder]);
 
-  const filteredOrders = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-
-    return orders.filter((order) => {
-      const matchesFilter =
-        reviewFilter === "all"
-          ? true
-          : reviewFilter === "recheck"
-          ? order.approvalStatus === "R"
-          : order.approvalStatus !== "R";
-
-      if (!matchesFilter) {
-        return false;
-      }
-
-      if (!query) {
-        return true;
-      }
-
-      return (
-        order.orderId.toLowerCase().includes(query) ||
-        order.customerName.toLowerCase().includes(query) ||
-        order.user.toLowerCase().includes(query) ||
-        order.source.toLowerCase().includes(query) ||
-        order.items.some((item) =>
-          item.productName.toLowerCase().includes(query)
-        )
-      );
-    });
-  }, [orders, reviewFilter, searchQuery]);
-
   const sortedOrders = useMemo(() => {
-    return [...filteredOrders].sort((a, b) => {
-      const [aFY, aNum] = splitOrderId(a.orderId);
-      const [bFY, bNum] = splitOrderId(b.orderId);
-      let comparison = 0;
-
-      switch (sortBy) {
-        case "date":
-          comparison =
-            aFY !== bFY ? bFY.localeCompare(aFY) : bNum - aNum;
-          break;
-        case "amount":
-          comparison = b.totalAmount - a.totalAmount;
-          break;
-        case "customer":
-          comparison = a.customerName.localeCompare(b.customerName);
-          break;
-        case "source":
-          comparison = a.source.localeCompare(b.source);
-          break;
-      }
-
-      return sortDirection === "asc" ? comparison : -comparison;
-    });
-  }, [filteredOrders, sortBy, sortDirection]);
+    return orders
+      .filter((order) =>
+        reviewFilter === "recheck" ? order.approvalStatus === "R" : true
+      )
+      .sort((a, b) => {
+        const [aFY, aNum] = splitOrderId(a.orderId);
+        const [bFY, bNum] = splitOrderId(b.orderId);
+        return aFY !== bFY ? bFY.localeCompare(aFY) : bNum - aNum;
+      });
+  }, [orders, reviewFilter]);
 
   const summary = useMemo(() => {
     return orders.reduce(
@@ -639,7 +643,6 @@ export default function OrderApprovalScreen() {
         } else {
           acc.pendingCount += 1;
         }
-
         acc.totalValue += order.totalAmount;
         return acc;
       },
@@ -647,853 +650,27 @@ export default function OrderApprovalScreen() {
     );
   }, [orders]);
 
-  const styles = useMemo(
-    () =>
-      StyleSheet.create({
-        screen: {
-          flex: 1,
-          backgroundColor: colors.appChrome,
-        },
-        topGlow: {
-          display: "none",
-        },
-        scrollContent: {
-          paddingTop: insets.top + 8,
-          paddingBottom: 84,
-        },
-        shell: {
-          width: Math.min(contentWidth, 414),
-          alignSelf: "center",
-          paddingHorizontal: 20,
-        },
-        approvalsPageHeader: {
-          marginTop: 8,
-          marginBottom: 24,
-        },
-        approvalsPageTitle: {
-          color: "#ffffff",
-          fontFamily: omaTypography.bold,
-          fontSize: 28,
-          letterSpacing: -0.8,
-          lineHeight: 34,
-        },
-        headerRow: {
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 20,
-        },
-        circleButton: {
-          width: 44,
-          height: 44,
-          borderRadius: 22,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.border,
-          alignItems: "center",
-          justifyContent: "center",
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 1,
-          shadowRadius: 20,
-          elevation: 7,
-        },
-        headerCopy: {
-          flex: 1,
-          marginLeft: 14,
-        },
-        eyebrow: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.6,
-          textTransform: "uppercase",
-          marginBottom: 4,
-        },
-        headerTitle: {
-          color: colors.text,
-          fontSize: 28,
-          fontFamily: omaTypography.extrabold,
-          letterSpacing: -0.8,
-        },
-        headerSubtitle: {
-          color: colors.textSecondary,
-          fontSize: 13,
-          fontFamily: omaTypography.medium,
-          marginTop: 4,
-        },
-        summaryCard: {
-          backgroundColor: colors.card,
-          borderRadius: 28,
-          borderWidth: 1,
-          borderColor: colors.border,
-          padding: 22,
-          marginBottom: 18,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 14 },
-          shadowOpacity: 1,
-          shadowRadius: 28,
-          elevation: 9,
-          overflow: "hidden",
-        },
-        summaryAccent: {
-          position: "absolute",
-          width: 180,
-          height: 180,
-          borderRadius: 90,
-          right: -50,
-          top: -70,
-          backgroundColor: isDark ? "rgba(0,102,255,0.14)" : "#eaf1ff",
-        },
-        summaryLabel: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.4,
-          textTransform: "uppercase",
-          marginBottom: 8,
-        },
-        summaryValue: {
-          color: colors.text,
-          fontSize: 32,
-          fontFamily: omaTypography.extrabold,
-          letterSpacing: -1,
-        },
-        summaryFoot: {
-          flexDirection: "row",
-          marginTop: 18,
-          gap: 10,
-        },
-        metricPill: {
-          flex: 1,
-          borderRadius: 18,
-          paddingVertical: 12,
-          paddingHorizontal: 14,
-        },
-        metricLabel: {
-          fontSize: 10,
-          fontFamily: omaTypography.bold,
-          textTransform: "uppercase",
-          letterSpacing: 1.2,
-          marginBottom: 5,
-        },
-        metricValue: {
-          fontSize: 18,
-          fontFamily: omaTypography.extrabold,
-          letterSpacing: -0.4,
-        },
-        searchWrap: {
-          backgroundColor: colors.card,
-          borderRadius: 999,
-          borderWidth: 1,
-          borderColor: colors.border,
-          flexDirection: "row",
-          alignItems: "center",
-          paddingHorizontal: 16,
-          minHeight: 56,
-          marginBottom: 14,
-        },
-        searchInput: {
-          flex: 1,
-          color: colors.text,
-          marginLeft: 12,
-          fontSize: 14,
-          fontFamily: omaTypography.medium,
-        },
-        filterRow: {
-          flexDirection: "row",
-          gap: 8,
-          marginBottom: 0,
-        },
-        segmentShell: {
-          flexDirection: "row",
-          gap: 8,
-          paddingBottom: 16,
-          marginBottom: 8,
-          flex: 1,
-        },
-        segmentButton: {
-          borderRadius: 999,
-          paddingHorizontal: 16,
-          paddingVertical: 8,
-          backgroundColor: colors.appChromeElevated,
-        },
-        segmentButtonActive: {
-          backgroundColor: "#ffffff",
-        },
-        segmentText: {
-          color: "#a1a1aa",
-          fontSize: 14,
-          fontFamily: omaTypography.semibold,
-          letterSpacing: -0.3,
-        },
-        segmentTextActive: {
-          color: "#000000",
-        },
-        segmentCount: {
-          display: "none",
-        },
-        approvalListHeader: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: 16,
-        },
-        approvalListLeft: {
-          flexDirection: "row",
-          gap: 12,
-          flex: 1,
-          paddingRight: 12,
-        },
-        approvalListIcon: {
-          width: 36,
-          height: 36,
-          borderRadius: 18,
-          alignItems: "center",
-          justifyContent: "center",
-        },
-        approvalListTitle: {
-          color: "#ffffff",
-          fontFamily: omaTypography.bold,
-          fontSize: 18,
-          letterSpacing: -0.4,
-          lineHeight: 22,
-        },
-        approvalListMeta: {
-          color: "#a1a1aa",
-          fontFamily: omaTypography.medium,
-          fontSize: 14,
-          letterSpacing: -0.3,
-          marginTop: 2,
-        },
-        approvalListAmount: {
-          color: "#ffffff",
-          fontFamily: omaTypography.bold,
-          fontSize: 17,
-          letterSpacing: -0.4,
-          lineHeight: 22,
-          textAlign: "right",
-        },
-        approvalReasonBox: {
-          backgroundColor: colors.appChromeMuted,
-          borderRadius: 16,
-          borderWidth: 1,
-          marginBottom: 8,
-          padding: 14,
-        },
-        approvalReasonLabel: {
-          fontFamily: omaTypography.bold,
-          fontSize: 13,
-          letterSpacing: 0.65,
-          marginBottom: 4,
-          textTransform: "uppercase",
-        },
-        approvalReasonText: {
-          color: "#d4d4d8",
-          fontFamily: omaTypography.regular,
-          fontSize: 14,
-          letterSpacing: -0.3,
-          lineHeight: 18,
-        },
-        approvalReviewHint: {
-          color: "#71717a",
-          fontFamily: omaTypography.bold,
-          fontSize: 13,
-          letterSpacing: -0.3,
-          paddingTop: 8,
-          textAlign: "center",
-        },
-        sortRow: {
-          flexDirection: "row",
-          gap: 8,
-          marginBottom: 18,
-        },
-        sortButton: {
-          paddingVertical: 11,
-          paddingHorizontal: 14,
-          borderRadius: 16,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.border,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-        },
-        sortButtonActive: {
-          backgroundColor: isDark ? colors.surfaceVariant : "#eef5ff",
-          borderColor: colors.primary,
-        },
-        sortButtonText: {
-          color: colors.textSecondary,
-          fontSize: 12,
-          fontFamily: omaTypography.bold,
-        },
-        sortButtonTextActive: {
-          color: colors.primary,
-        },
-        sectionLabel: {
-          color: colors.textSecondary,
-          fontSize: 12,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.2,
-          textTransform: "uppercase",
-          marginBottom: 12,
-          marginLeft: 4,
-        },
-        emptyCard: {
-          backgroundColor: colors.card,
-          borderRadius: 28,
-          borderWidth: 1,
-          borderStyle: "dashed",
-          borderColor: colors.border,
-          alignItems: "center",
-          justifyContent: "center",
-          paddingVertical: 42,
-          paddingHorizontal: 24,
-        },
-        emptyTitle: {
-          marginTop: 14,
-          color: colors.text,
-          fontSize: 16,
-          fontFamily: omaTypography.extrabold,
-        },
-        emptyBody: {
-          marginTop: 6,
-          color: colors.textSecondary,
-          fontSize: 13,
-          fontFamily: omaTypography.medium,
-          textAlign: "center",
-          lineHeight: 20,
-        },
-        orderCard: {
-          backgroundColor: colors.appChromeElevated,
-          borderRadius: 24,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
-          marginBottom: 16,
-          padding: 20,
-        },
-        orderBanner: {
-          paddingHorizontal: 18,
-          paddingVertical: 12,
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-        },
-        orderBannerLeft: {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          flex: 1,
-        },
-        orderBannerLabel: {
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.2,
-          textTransform: "uppercase",
-        },
-        orderBannerDate: {
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          color: colors.textSecondary,
-        },
-        orderBody: {
-          paddingHorizontal: 18,
-          paddingVertical: 18,
-        },
-        orderHeader: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 14,
-        },
-        repBadge: {
-          width: 48,
-          height: 48,
-          borderRadius: 24,
-          alignItems: "center",
-          justifyContent: "center",
-          backgroundColor: isDark ? colors.surfaceVariant : "#edf4ff",
-          borderWidth: 1,
-          borderColor: colors.border,
-        },
-        repBadgeText: {
-          color: colors.primary,
-          fontSize: 16,
-          fontFamily: omaTypography.extrabold,
-        },
-        orderIdentity: {
-          flex: 1,
-        },
-        customerName: {
-          color: colors.text,
-          fontSize: 16,
-          fontFamily: omaTypography.extrabold,
-          lineHeight: 22,
-        },
-        orderId: {
-          color: colors.textSecondary,
-          fontSize: 12,
-          fontFamily: omaTypography.semibold,
-          marginTop: 3,
-        },
-        orderAmount: {
-          color: colors.text,
-          fontSize: 20,
-          fontFamily: omaTypography.extrabold,
-          letterSpacing: -0.5,
-          textAlign: "right",
-        },
-        orderAge: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          marginTop: 6,
-        },
-        metaRow: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: 8,
-          marginTop: 16,
-        },
-        metaChip: {
-          borderRadius: 12,
-          paddingHorizontal: 10,
-          paddingVertical: 8,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-        },
-        metaChipText: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-        },
-        notePreview: {
-          marginTop: 16,
-          borderRadius: 18,
-          padding: 14,
-          backgroundColor: isDark ? "rgba(251,146,60,0.12)" : "#fff7ed",
-          borderWidth: 1,
-          borderColor: isDark ? "rgba(251,146,60,0.25)" : "#fed7aa",
-        },
-        notePreviewLabel: {
-          color: colors.accentOrange,
-          fontSize: 10,
-          fontFamily: omaTypography.bold,
-          textTransform: "uppercase",
-          letterSpacing: 1.1,
-          marginBottom: 6,
-        },
-        notePreviewText: {
-          color: colors.text,
-          fontSize: 13,
-          fontFamily: omaTypography.semibold,
-          lineHeight: 19,
-        },
-        detailScreen: {
-          flex: 1,
-          backgroundColor: colors.background,
-        },
-        detailHeader: {
-          paddingHorizontal: 18,
-          paddingBottom: 18,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-          backgroundColor: colors.card,
-        },
-        detailHeaderCenter: {
-          flex: 1,
-          alignItems: "center",
-          paddingHorizontal: 12,
-        },
-        detailHeaderEyebrow: {
-          color: colors.textSecondary,
-          fontSize: 10,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.5,
-          textTransform: "uppercase",
-          marginBottom: 4,
-        },
-        detailHeaderTitle: {
-          color: colors.text,
-          fontSize: 16,
-          fontFamily: omaTypography.extrabold,
-          letterSpacing: -0.3,
-          textAlign: "center",
-        },
-        detailContent: {
-          paddingTop: 18,
-        },
-        infoGrid: {
-          flexDirection: "row",
-          gap: 10,
-          marginBottom: 18,
-        },
-        infoCard: {
-          flex: 1,
-          borderRadius: 24,
-          padding: 18,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.border,
-        },
-        infoLabel: {
-          color: colors.textSecondary,
-          fontSize: 10,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.2,
-          textTransform: "uppercase",
-          marginBottom: 8,
-        },
-        infoValue: {
-          color: colors.text,
-          fontSize: 15,
-          fontFamily: omaTypography.extrabold,
-          lineHeight: 21,
-        },
-        infoMeta: {
-          color: colors.textSecondary,
-          fontSize: 12,
-          fontFamily: omaTypography.semibold,
-          marginTop: 4,
-        },
-        detailNoteCard: {
-          borderRadius: 26,
-          padding: 20,
-          marginBottom: 18,
-          backgroundColor: isDark ? "rgba(251,146,60,0.12)" : "#fff7ed",
-          borderWidth: 1,
-          borderColor: isDark ? "rgba(251,146,60,0.25)" : "#fed7aa",
-        },
-        detailNoteValue: {
-          color: colors.text,
-          fontSize: 15,
-          fontFamily: omaTypography.bold,
-          lineHeight: 23,
-        },
-        managerNoteCard: {
-          borderRadius: 22,
-          padding: 18,
-          marginBottom: 18,
-          backgroundColor: isDark ? "rgba(248,113,113,0.12)" : "#fff1f2",
-          borderWidth: 1,
-          borderColor: isDark ? "rgba(248,113,113,0.22)" : "#fecdd3",
-        },
-        ledgerCard: {
-          backgroundColor: "#111111",
-          borderRadius: 30,
-          padding: 22,
-          marginBottom: 18,
-          overflow: "hidden",
-        },
-        ledgerBlur: {
-          position: "absolute",
-          top: -70,
-          right: -50,
-          width: 180,
-          height: 180,
-          borderRadius: 90,
-          backgroundColor: customerStats.hasCredit
-            ? "rgba(0,102,255,0.24)"
-            : "rgba(251,146,60,0.22)",
-        },
-        ledgerHeader: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 20,
-        },
-        ledgerTitle: {
-          color: "rgba(255,255,255,0.65)",
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.5,
-          textTransform: "uppercase",
-        },
-        ledgerCategory: {
-          color: "#ffffff",
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.2,
-        },
-        ledgerBalanceLabel: {
-          color: "rgba(255,255,255,0.55)",
-          fontSize: 10,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.2,
-          textTransform: "uppercase",
-        },
-        ledgerBalanceValue: {
-          color: "#ffffff",
-          fontSize: 34,
-          fontFamily: omaTypography.extrabold,
-          letterSpacing: -1.2,
-          marginTop: 8,
-        },
-        ledgerBalanceSuffix: {
-          fontSize: 17,
-          fontFamily: omaTypography.bold,
-        },
-        ledgerDivider: {
-          height: 1,
-          backgroundColor: "rgba(255,255,255,0.1)",
-          marginVertical: 18,
-        },
-        ledgerStatsRow: {
-          flexDirection: "row",
-          gap: 16,
-        },
-        ledgerStat: {
-          flex: 1,
-        },
-        ledgerStatLabel: {
-          color: "rgba(255,255,255,0.48)",
-          fontSize: 10,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.2,
-          textTransform: "uppercase",
-          marginBottom: 6,
-        },
-        ledgerStatValue: {
-          color: "#ffffff",
-          fontSize: 16,
-          fontFamily: omaTypography.extrabold,
-        },
-        sectionCard: {
-          backgroundColor: colors.card,
-          borderRadius: 28,
-          borderWidth: 1,
-          borderColor: colors.border,
-          padding: 18,
-          marginBottom: 18,
-        },
-        sectionTitle: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.4,
-          textTransform: "uppercase",
-          marginBottom: 12,
-        },
-        ledgerRow: {
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          paddingVertical: 10,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        },
-        ledgerRowDate: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          width: 88,
-        },
-        ledgerRowBody: {
-          flex: 1,
-          marginHorizontal: 12,
-        },
-        ledgerRowTitle: {
-          color: colors.text,
-          fontSize: 13,
-          fontFamily: omaTypography.bold,
-        },
-        ledgerRowMeta: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.medium,
-          marginTop: 3,
-        },
-        ledgerAmount: {
-          fontSize: 12,
-          fontFamily: omaTypography.extrabold,
-          textAlign: "right",
-        },
-        productRow: {
-          borderRadius: 20,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
-          padding: 14,
-          marginBottom: 10,
-        },
-        productTitle: {
-          color: colors.text,
-          fontSize: 14,
-          fontFamily: omaTypography.extrabold,
-          lineHeight: 20,
-        },
-        productMeta: {
-          color: colors.textSecondary,
-          fontSize: 12,
-          fontFamily: omaTypography.semibold,
-          marginTop: 6,
-        },
-        productAmount: {
-          color: colors.text,
-          fontSize: 14,
-          fontFamily: omaTypography.extrabold,
-          marginTop: 8,
-        },
-        totalBar: {
-          marginTop: 8,
-          borderRadius: 22,
-          paddingHorizontal: 16,
-          paddingVertical: 16,
-          backgroundColor: isDark ? "rgba(34,197,94,0.12)" : "#ecfdf5",
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          borderWidth: 1,
-          borderColor: isDark ? "rgba(74,222,128,0.2)" : "#bbf7d0",
-        },
-        totalLabel: {
-          color: isDark ? colors.accentGreen : "#166534",
-          fontSize: 11,
-          fontFamily: omaTypography.bold,
-          letterSpacing: 1.2,
-          textTransform: "uppercase",
-        },
-        totalValue: {
-          color: isDark ? colors.accentGreen : "#16a34a",
-          fontSize: 22,
-          fontFamily: omaTypography.extrabold,
-        },
-        dock: {
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: isDark ? "rgba(9,17,31,0.96)" : "rgba(255,255,255,0.96)",
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
-          paddingHorizontal: 18,
-          paddingTop: 16,
-          flexDirection: "row",
-          gap: 12,
-        },
-        actionButton: {
-          borderRadius: 20,
-          minHeight: 56,
-          alignItems: "center",
-          justifyContent: "center",
-          paddingHorizontal: 16,
-          flexDirection: "row",
-          gap: 8,
-        },
-        secondaryAction: {
-          flex: 1,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.border,
-        },
-        primaryAction: {
-          flex: 1.7,
-          backgroundColor: colors.navActive,
-        },
-        secondaryActionText: {
-          color: colors.text,
-          fontSize: 14,
-          fontFamily: omaTypography.extrabold,
-        },
-        primaryActionText: {
-          color: isDark ? colors.background : "#ffffff",
-          fontSize: 14,
-          fontFamily: omaTypography.extrabold,
-        },
-        sheetBackdrop: {
-          flex: 1,
-          backgroundColor: "rgba(0,0,0,0.48)",
-          justifyContent: "center",
-          paddingHorizontal: 20,
-        },
-        sheetCard: {
-          backgroundColor: colors.card,
-          borderRadius: 28,
-          borderWidth: 1,
-          borderColor: colors.border,
-          padding: 22,
-        },
-        sheetTitle: {
-          color: colors.text,
-          fontSize: 18,
-          fontFamily: omaTypography.extrabold,
-          marginBottom: 8,
-        },
-        sheetBody: {
-          color: colors.textSecondary,
-          fontSize: 13,
-          fontFamily: omaTypography.medium,
-          lineHeight: 20,
-          marginBottom: 18,
-        },
-        commentInput: {
-          minHeight: 110,
-          borderRadius: 22,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
-          paddingHorizontal: 16,
-          paddingTop: 16,
-          color: colors.text,
-          fontSize: 14,
-          fontFamily: omaTypography.medium,
-          textAlignVertical: "top",
-        },
-        sheetActions: {
-          flexDirection: "row",
-          gap: 10,
-          marginTop: 18,
-        },
-        sheetActionButton: {
-          flex: 1,
-          minHeight: 52,
-          borderRadius: 18,
-          alignItems: "center",
-          justifyContent: "center",
-        },
-        sheetActionSecondary: {
-          backgroundColor: colors.cardMuted,
-        },
-        sheetActionPrimary: {
-          backgroundColor: colors.navActive,
-        },
-        sheetActionSecondaryText: {
-          color: colors.text,
-          fontSize: 14,
-          fontFamily: omaTypography.extrabold,
-        },
-        sheetActionPrimaryText: {
-          color: isDark ? colors.background : "#ffffff",
-          fontSize: 14,
-          fontFamily: omaTypography.extrabold,
-        },
-      }),
-    [colors, contentWidth, customerStats.hasCredit, insets.top, isDark]
-  );
-
-  const balanceAmount = Math.abs(
-    (customerStats.totalCreditRaw || 0) - (customerStats.totalDebitRaw || 0)
-  );
-  const balanceSuffix = customerStats.hasCredit ? "CR" : "DR";
+  const balanceRaw =
+    (customerStats.totalDebitRaw || 0) - (customerStats.totalCreditRaw || 0);
+  const currentExposure = Math.max(0, balanceRaw);
+  const selectedTotal = selectedOrder?.totalAmount || 0;
+  const projectedExposure = currentExposure + selectedTotal;
+  const compactSelectedId = selectedOrder
+    ? formatCompactOrderId(selectedOrder.orderId)
+    : "";
 
   return (
     <View style={styles.screen}>
-      <StatusBar
-        barStyle={isDark ? "light-content" : "dark-content"}
-        backgroundColor="transparent"
-        translucent
-      />
-      <View style={styles.topGlow} />
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
 
       {loading ? (
         <LoadingIndicator message="Loading approvals..." showTips={true} />
       ) : (
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingTop: insets.top + 8, paddingBottom: FLOATING_NAV_SPACE },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -1504,171 +681,132 @@ export default function OrderApprovalScreen() {
           }
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.shell}>
-            <View style={styles.approvalsPageHeader}>
-              <Text style={styles.approvalsPageTitle}>Approvals</Text>
-            </View>
+          <View style={[styles.shell, { width: contentWidth }]}>
+            <Text style={styles.pageTitle}>Approvals</Text>
 
-            <View style={styles.filterRow}>
-              <View style={styles.segmentShell}>
-                {[
-                  {
-                    key: "all" as const,
-                    label: `Action Required (${summary.pendingCount + summary.recheckCount})`,
-                  },
-                  {
-                    key: "recheck" as const,
-                    label: "History",
-                  },
-                ].map((item) => {
-                  const active = reviewFilter === item.key;
-                  return (
-                    <TouchableOpacity
-                      key={item.key}
-                      onPress={() => setReviewFilter(item.key)}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterRail}
+            >
+              {[
+                {
+                  key: "all" as const,
+                  label: `Action Required (${summary.pendingCount + summary.recheckCount})`,
+                },
+                { key: "recheck" as const, label: "History" },
+              ].map((item) => {
+                const active = reviewFilter === item.key;
+                return (
+                  <TouchableOpacity
+                    key={item.key}
+                    activeOpacity={0.86}
+                    onPress={() => setReviewFilter(item.key)}
+                    style={[styles.filterChip, active && styles.filterChipActive]}
+                  >
+                    <Text
                       style={[
-                        styles.segmentButton,
-                        active && styles.segmentButtonActive,
+                        styles.filterChipText,
+                        active && styles.filterChipTextActive,
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.segmentText,
-                          active && styles.segmentTextActive,
-                        ]}
-                      >
-                        {item.label}
+                      {item.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {sortedOrders.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <CheckCircle2 color={TEXT_MUTED} size={48} strokeWidth={2.3} />
+                <Text style={styles.emptyTitle}>No approvals pending</Text>
+                <Text style={styles.emptyBody}>
+                  Everything in this queue is cleared. Pull to refresh if you expect
+                  new orders.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.cardStack}>
+                {sortedOrders.map((order) => {
+                  const isRecheck = order.approvalStatus === "R";
+                  const hasNote = Boolean(order.orderComments?.trim());
+                  const tone = isRecheck ? RED : hasNote ? AMBER : BLUE;
+                  const reasonTitle = isRecheck
+                    ? "Risk Override Needed"
+                    : hasNote
+                    ? "Manager Follow-Up"
+                    : "Manager Review";
+
+                  return (
+                    <TouchableOpacity
+                      key={order.orderId}
+                      activeOpacity={0.9}
+                      onPress={() => openOrder(order)}
+                      style={styles.approvalCard}
+                    >
+                      <View style={styles.approvalHeader}>
+                        <View style={styles.approvalIdentity}>
+                          <View style={[styles.approvalIcon, { backgroundColor: `${tone}22` }]}>
+                            <BadgeDollarSign color={tone} size={18} strokeWidth={2.5} />
+                          </View>
+                          <View style={styles.approvalNameBlock}>
+                            <Text numberOfLines={2} style={styles.approvalName}>
+                              {order.customerName}
+                            </Text>
+                            <Text numberOfLines={1} style={styles.approvalId}>
+                              Order #{formatCompactOrderId(order.orderId)}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.approvalAmount}>
+                          ₹{formatIndianNumber(order.totalAmount)}
+                        </Text>
+                      </View>
+
+                      <View style={[styles.reasonBox, { borderColor: `${tone}33` }]}>
+                        <Text style={[styles.reasonTitle, { color: tone }]}>
+                          {reasonTitle}
+                        </Text>
+                        <Text numberOfLines={3} style={styles.reasonBody}>
+                          {order.orderComments ||
+                            `${order.items.length} line${
+                              order.items.length === 1 ? "" : "s"
+                            } from ${
+                              order.user || "field sales"
+                            } requires manager approval before dispatch.`}
+                        </Text>
+                      </View>
+
+                      <Text style={styles.reviewHint}>
+                        Tap to review ledger & approve
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
-            </View>
-
-            {sortedOrders.length === 0 ? (
-              <View style={styles.emptyCard}>
-                <Ionicons
-                  color={colors.textPlaceholder}
-                  name="checkmark-circle-outline"
-                  size={56}
-                />
-                <Text style={styles.emptyTitle}>No approvals pending</Text>
-                <Text style={styles.emptyBody}>
-                  Everything in this queue is cleared. Pull to refresh if you
-                  expect new orders.
-                </Text>
-              </View>
-            ) : (
-              sortedOrders.map((order) => {
-                const isRecheck = order.approvalStatus === "R";
-                const hasNote = Boolean(order.orderComments?.trim());
-                const bannerColor = isRecheck
-                  ? colors.accentRed
-                  : hasNote
-                  ? colors.accentOrange
-                  : colors.primary;
-
-                return (
-                  <TouchableOpacity
-                    key={order.orderId}
-                    activeOpacity={0.92}
-                    onPress={() => openOrder(order)}
-                    style={styles.orderCard}
-                  >
-                    <View style={styles.approvalListHeader}>
-                      <View style={styles.approvalListLeft}>
-                        <View
-                          style={[
-                            styles.approvalListIcon,
-                            { backgroundColor: `${bannerColor}33` },
-                          ]}
-                        >
-                          <Ionicons
-                            color={bannerColor}
-                            name="cash-outline"
-                            size={18}
-                            strokeWidth={2.5}
-                          />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text
-                            ellipsizeMode="tail"
-                            numberOfLines={1}
-                            style={styles.approvalListTitle}
-                          >
-                            {order.customerName}
-                          </Text>
-                          <Text
-                            ellipsizeMode="tail"
-                            numberOfLines={1}
-                            style={styles.approvalListMeta}
-                          >
-                            Order {formatCompactOrderId(order.orderId)}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={styles.approvalListAmount}>
-                        ₹{formatIndianNumber(order.totalAmount)}
-                      </Text>
-                    </View>
-
-                    <View
-                      style={[
-                        styles.approvalReasonBox,
-                        { borderColor: `${bannerColor}33` },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.approvalReasonLabel,
-                          { color: bannerColor },
-                        ]}
-                      >
-                        {isRecheck
-                          ? "Risk Override Needed"
-                          : hasNote
-                          ? "Discount Approval"
-                          : "Manager Review"}
-                      </Text>
-                      <Text numberOfLines={3} style={styles.approvalReasonText}>
-                        {order.orderComments ||
-                          `${order.items.length} line${order.items.length === 1 ? "" : "s"} from ${order.user || "field sales"} requires manager approval before dispatch.`}
-                      </Text>
-                    </View>
-
-                    <Text style={styles.approvalReviewHint}>
-                      Tap to review ledger & approve
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })
             )}
           </View>
         </ScrollView>
       )}
 
-      <Modal
-        animationType="slide"
-        visible={detailVisible}
-        onRequestClose={closeDetail}
-      >
+      <Modal animationType="slide" visible={detailVisible} onRequestClose={closeDetail}>
         <View style={styles.detailScreen}>
-          <View style={styles.topGlow} />
-          <View style={[styles.detailHeader, { paddingTop: insets.top + 10 }]}>
-            <TouchableOpacity onPress={closeDetail} style={styles.circleButton}>
-              <Ionicons color={colors.text} name="arrow-back" size={20} />
-            </TouchableOpacity>
+          <StatusBar barStyle="light-content" />
 
-            <View style={styles.detailHeaderCenter}>
-              <Text style={styles.detailHeaderEyebrow}>
-                Authorization Review
-              </Text>
-              <Text numberOfLines={1} style={styles.detailHeaderTitle}>
-                {selectedOrder?.orderId || "Order"}
+          <View style={[styles.detailHeader, { paddingTop: insets.top + 14 }]}>
+            <TouchableOpacity onPress={closeDetail} style={styles.headerButton}>
+              <ChevronLeft color={TEXT} size={21} strokeWidth={2} />
+            </TouchableOpacity>
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerTitle}>Review Approval</Text>
+              <Text numberOfLines={1} style={styles.headerSubtitle}>
+                Order #{compactSelectedId || "Pending"}
               </Text>
             </View>
-
-            <View style={{ width: 44 }} />
+            <View style={styles.headerButtonGhost}>
+              <MoreHorizontal color={TEXT} size={21} strokeWidth={2} />
+            </View>
           </View>
 
           {selectedOrder ? (
@@ -1676,97 +814,124 @@ export default function OrderApprovalScreen() {
               <ScrollView
                 contentContainerStyle={[
                   styles.detailContent,
-                  styles.shell,
-                  { paddingBottom: insets.bottom + 120 },
+                  { width: contentWidth, paddingBottom: insets.bottom + 124 },
                 ]}
                 showsVerticalScrollIndicator={false}
               >
-                <View style={styles.infoGrid}>
-                  <View style={styles.infoCard}>
-                    <Text style={styles.infoLabel}>Client</Text>
-                    <Text style={styles.infoValue}>
-                      {selectedOrder.customerName}
+                <View style={styles.exceptionBanner}>
+                  <View style={styles.exceptionHeader}>
+                    <ShieldAlert color={RED} size={20} strokeWidth={2.5} />
+                    <Text style={styles.exceptionTitle}>
+                      {selectedOrder.approvalStatus === "R"
+                        ? "Risk Override Needed"
+                        : selectedOrder.orderComments
+                        ? "Manager Follow-Up"
+                        : "Approval Required"}
                     </Text>
                   </View>
+                  <Text style={styles.exceptionBody}>
+                    {selectedOrder.orderComments ||
+                      `Review ${selectedOrder.customerName}'s ledger and order value before moving this order to dispatch.`}
+                  </Text>
+                </View>
 
-                  <View style={styles.infoCard}>
-                    <Text style={styles.infoLabel}>Submitted</Text>
-                    <Text style={styles.infoValue}>
-                      {formatDateChip(selectedOrder.date)}
-                    </Text>
-                    <Text style={styles.infoMeta}>Rep: {selectedOrder.user}</Text>
+                <View style={styles.profileCard}>
+                  <View style={styles.profileAccent} />
+                  <Text style={styles.profileEyebrow}>Live Approval Profile</Text>
+                  <Text numberOfLines={2} style={styles.profileId}>
+                    #{compactSelectedId}
+                  </Text>
+                  <Text numberOfLines={2} style={styles.profileCustomer}>
+                    {selectedOrder.customerName}
+                  </Text>
+                  <Text style={styles.profileAmount}>
+                    ₹{formatIndianNumber(selectedOrder.totalAmount)}
+                  </Text>
+                  <Text style={styles.profileMeta}>
+                    {selectedOrder.items.length} line item
+                    {selectedOrder.items.length === 1 ? "" : "s"} awaiting manager action.
+                  </Text>
+
+                  <View style={styles.profileChips}>
+                    <View style={styles.profileChip}>
+                      <History color={TEXT_SECONDARY} size={14} strokeWidth={2.2} />
+                      <Text style={styles.profileChipText}>
+                        {formatDateChip(selectedOrder.date)}
+                      </Text>
+                    </View>
+                    <View style={styles.profileChip}>
+                      <CreditCard color={TEXT_SECONDARY} size={14} strokeWidth={2.2} />
+                      <Text style={styles.profileChipText}>
+                        {selectedOrder.source || "OMA"}
+                      </Text>
+                    </View>
                   </View>
                 </View>
 
-                {selectedOrder.orderComments ? (
-                  <View style={styles.detailNoteCard}>
-                    <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>
-                      Field Note
-                    </Text>
-                    <Text style={styles.detailNoteValue}>
-                      "{selectedOrder.orderComments}"
-                    </Text>
-                  </View>
-                ) : null}
-
-                {selectedOrder.managerComments ? (
-                  <View style={styles.managerNoteCard}>
-                    <Text style={[styles.sectionTitle, { marginBottom: 8 }]}>
-                      Previous Manager Note
-                    </Text>
-                    <Text style={styles.detailNoteValue}>
-                      {selectedOrder.managerComments}
-                    </Text>
-                  </View>
-                ) : null}
+                <View style={styles.sectionHeader}>
+                  <CreditCard color={TEXT_SECONDARY} size={20} strokeWidth={2.2} />
+                  <Text style={styles.sectionHeading}>Customer Ledger</Text>
+                </View>
 
                 <View style={styles.ledgerCard}>
-                  <View style={styles.ledgerBlur} />
-                  <View style={styles.ledgerHeader}>
-                    <Text style={styles.ledgerTitle}>Ledger Summary</Text>
-                    <Text style={styles.ledgerCategory}>
-                      {selectedOrder.source || "OMA"}
-                    </Text>
-                  </View>
-
                   {ledgerLoading ? (
-                    <View style={{ paddingVertical: 28 }}>
-                      <ActivityIndicator color="#ffffff" size="small" />
+                    <View style={styles.loadingBlock}>
+                      <ActivityIndicator color={TEXT} size="small" />
                     </View>
                   ) : (
                     <>
-                      <Text style={styles.ledgerBalanceLabel}>
-                        Current Balance
-                      </Text>
-                      <Text style={styles.ledgerBalanceValue}>
-                        ₹{formatIndianNumber(balanceAmount)}{" "}
-                        <Text
+                      <View style={styles.ledgerTopRow}>
+                        <Text style={styles.ledgerLabel}>Current Exposure</Text>
+                        <Text style={styles.ledgerPercent}>
+                          {customerStats.hasCredit ? "Credit" : "Debit"}
+                        </Text>
+                      </View>
+                      <View style={styles.exposureTrack}>
+                        <View
                           style={[
-                            styles.ledgerBalanceSuffix,
+                            styles.exposureFill,
                             {
-                              color: customerStats.hasCredit
-                                ? colors.primary
-                                : colors.accentOrange,
+                              width: `${Math.min(
+                                100,
+                                Math.max(
+                                  12,
+                                  selectedTotal > 0
+                                    ? (currentExposure /
+                                        (projectedExposure || selectedTotal)) *
+                                        100
+                                    : 12
+                                )
+                              )}%`,
                             },
                           ]}
-                        >
-                          {balanceSuffix}
-                        </Text>
-                      </Text>
-
-                      <View style={styles.ledgerDivider} />
-
-                      <View style={styles.ledgerStatsRow}>
-                        <View style={styles.ledgerStat}>
-                          <Text style={styles.ledgerStatLabel}>Total Credits</Text>
-                          <Text style={styles.ledgerStatValue}>
+                        />
+                      </View>
+                      <View style={styles.ledgerRows}>
+                        <View style={styles.ledgerMetricRow}>
+                          <Text style={styles.ledgerMetricLabel}>Total Credits</Text>
+                          <Text style={styles.ledgerMetricValue}>
                             ₹{customerStats.totalCredit}
                           </Text>
                         </View>
-                        <View style={styles.ledgerStat}>
-                          <Text style={styles.ledgerStatLabel}>Total Debits</Text>
-                          <Text style={styles.ledgerStatValue}>
+                        <View style={styles.ledgerMetricRow}>
+                          <Text style={styles.ledgerMetricLabel}>Total Debits</Text>
+                          <Text style={[styles.ledgerMetricValue, { color: RED }]}>
                             ₹{customerStats.totalDebit}
+                          </Text>
+                        </View>
+                        <View style={styles.ledgerMetricRowWarning}>
+                          <View style={styles.metricLabelIcon}>
+                            <AlertTriangle color={AMBER} size={16} strokeWidth={2.2} />
+                            <Text style={styles.ledgerMetricLabel}>Requested Order</Text>
+                          </View>
+                          <Text style={[styles.ledgerMetricValue, { color: AMBER }]}>
+                            + ₹{formatIndianNumber(selectedOrder.totalAmount)}
+                          </Text>
+                        </View>
+                        <View style={styles.ledgerMetricRowFinal}>
+                          <Text style={styles.projectedLabel}>Projected Exposure</Text>
+                          <Text style={styles.projectedValue}>
+                            ₹{formatIndianNumber(projectedExposure)}
                           </Text>
                         </View>
                       </View>
@@ -1775,75 +940,95 @@ export default function OrderApprovalScreen() {
                 </View>
 
                 {ledgerData.length > 0 ? (
-                  <View style={styles.sectionCard}>
-                    <Text style={styles.sectionTitle}>Recent ledger activity</Text>
-                    {ledgerData.slice(0, 5).map((entry, index) => {
-                      const amount = formatIndianNumber(entry.Amount as string);
-                      const isDebit = entry.DC === "D";
-                      return (
-                        <View
-                          key={`${String(entry.Date)}-${index}`}
-                          style={[
-                            styles.ledgerRow,
-                            index === Math.min(ledgerData.length, 5) - 1 && {
-                              borderBottomWidth: 0,
-                            },
-                          ]}
-                        >
-                          <Text style={styles.ledgerRowDate}>
-                            {String(entry.Date || "")}
-                          </Text>
-                          <View style={styles.ledgerRowBody}>
-                            <Text numberOfLines={1} style={styles.ledgerRowTitle}>
-                              {String(entry.Description || "").replace(
-                                "Default ",
-                                ""
-                              )}
-                            </Text>
-                            <Text style={styles.ledgerRowMeta}>
-                              {String(entry.Company_Year || "Company Year N/A")}
-                            </Text>
-                          </View>
-                          <Text
-                            style={[
-                              styles.ledgerAmount,
-                              {
-                                color: isDebit
-                                  ? colors.accentRed
-                                  : colors.accentGreen,
-                              },
-                            ]}
+                  <>
+                    <View style={styles.sectionHeader}>
+                      <ActivityIcon color={TEXT_SECONDARY} size={20} strokeWidth={2.2} />
+                      <Text style={styles.sectionHeading}>Recent Transactions</Text>
+                    </View>
+                    <View style={styles.transactionsCard}>
+                      {ledgerData.slice(0, 3).map((entry, index) => {
+                        const isDebit = entry.DC === "D";
+                        const txColor = isDebit ? RED : GREEN;
+                        return (
+                          <View
+                            key={`${String(entry.Date)}-${index}`}
+                            style={styles.transactionRow}
                           >
-                            ₹{amount} {isDebit ? "DR" : "CR"}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                  </View>
+                            <View style={styles.transactionLeft}>
+                              <View
+                                style={[
+                                  styles.transactionIcon,
+                                  { backgroundColor: `${txColor}18` },
+                                ]}
+                              >
+                                <ActivityIcon
+                                  color={txColor}
+                                  size={18}
+                                  strokeWidth={2.5}
+                                />
+                              </View>
+                              <View style={styles.transactionCopy}>
+                                <Text numberOfLines={1} style={styles.transactionTitle}>
+                                  {String(entry.Description || "Ledger Entry").replace(
+                                    "Default ",
+                                    ""
+                                  )}
+                                </Text>
+                                <Text style={styles.transactionMeta}>
+                                  {String(entry.Date || "Date N/A")}
+                                </Text>
+                              </View>
+                            </View>
+                            <View style={styles.transactionAmountBlock}>
+                              <Text style={styles.transactionAmount}>
+                                ₹{formatIndianNumber(entry.Amount)}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.transactionStatus,
+                                  {
+                                    color: txColor,
+                                    backgroundColor: `${txColor}18`,
+                                  },
+                                ]}
+                              >
+                                {isDebit ? "Debit" : "Credit"}
+                              </Text>
+                            </View>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </>
                 ) : null}
 
-                <View style={styles.sectionCard}>
-                  <Text style={styles.sectionTitle}>
-                    Line Items ({selectedOrder.items.length})
-                  </Text>
+                <View style={styles.sectionHeader}>
+                  <Box color={TEXT_SECONDARY} size={20} strokeWidth={2.2} />
+                  <Text style={styles.sectionHeading}>Pending Order Line Items</Text>
+                </View>
 
+                <View style={styles.itemsCard}>
                   {selectedOrder.items.map((item) => (
-                    <View
-                      key={`${selectedOrder.orderId}-${item.rowIndex}`}
-                      style={styles.productRow}
-                    >
-                      <Text style={styles.productTitle}>{item.productName}</Text>
-                      <Text style={styles.productMeta}>
-                        {item.quantity} {item.unit} • @ ₹{item.rate}
-                      </Text>
-                      <Text style={styles.productAmount}>
+                    <View key={`${selectedOrder.orderId}-${item.rowIndex}`} style={styles.itemRow}>
+                      <View style={styles.qtyBox}>
+                        <Text style={styles.qtyText}>{item.quantity}x</Text>
+                      </View>
+                      <View style={styles.itemCopy}>
+                        <Text numberOfLines={2} style={styles.itemName}>
+                          {item.productName}
+                        </Text>
+                        <Text style={styles.itemMeta}>
+                          ₹{formatIndianNumber(item.rate)} / {item.unit || "unit"}
+                        </Text>
+                      </View>
+                      <Text style={styles.itemAmount}>
                         ₹{formatIndianNumber(item.amount)}
                       </Text>
                     </View>
                   ))}
 
-                  <View style={styles.totalBar}>
-                    <Text style={styles.totalLabel}>Gross Total</Text>
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>Total Purchase</Text>
                     <Text style={styles.totalValue}>
                       ₹{formatIndianNumber(selectedOrder.totalAmount)}
                     </Text>
@@ -1851,40 +1036,24 @@ export default function OrderApprovalScreen() {
                 </View>
               </ScrollView>
 
-              <View style={[styles.dock, { paddingBottom: insets.bottom + 12 }]}>
+              <View style={[styles.actionDock, { paddingBottom: insets.bottom + 12 }]}>
                 <TouchableOpacity
                   disabled={approvalLoading}
                   onPress={() => handleApproval(false)}
-                  style={[
-                    styles.actionButton,
-                    styles.secondaryAction,
-                    approvalLoading && { opacity: 0.7 },
-                  ]}
+                  style={[styles.declineButton, approvalLoading && styles.disabledAction]}
                 >
-                  <Text style={styles.secondaryActionText}>
-                    {approvalLoading ? "Processing..." : "Reject"}
+                  <Text style={styles.declineButtonText}>
+                    {approvalLoading ? "Processing..." : "Decline"}
                   </Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   disabled={approvalLoading}
                   onPress={() => setShowApproveModal(true)}
-                  style={[
-                    styles.actionButton,
-                    styles.primaryAction,
-                    approvalLoading && { opacity: 0.7 },
-                  ]}
+                  style={[styles.approveButton, approvalLoading && styles.disabledAction]}
                 >
-                  <Text style={styles.primaryActionText}>
-                    {approvalLoading ? "Processing..." : "Authorize Order"}
+                  <Text style={styles.approveButtonText}>
+                    {approvalLoading ? "Processing..." : "Override & Approve"}
                   </Text>
-                  {!approvalLoading ? (
-                    <Ionicons
-                      color={isDark ? colors.background : "#ffffff"}
-                      name="checkmark-circle-outline"
-                      size={18}
-                    />
-                  ) : null}
                 </TouchableOpacity>
               </View>
             </>
@@ -1898,54 +1067,39 @@ export default function OrderApprovalScreen() {
         visible={showApproveModal}
         onRequestClose={() => setShowApproveModal(false)}
       >
-        <Pressable
-          style={styles.sheetBackdrop}
-          onPress={() => setShowApproveModal(false)}
-        >
+        <Pressable style={styles.sheetBackdrop} onPress={() => setShowApproveModal(false)}>
           <Pressable style={styles.sheetCard}>
-            <Text style={styles.sheetTitle}>Approval Comments</Text>
-            <Text style={styles.sheetBody}>
-              Add optional context for dispatch or finance before authorizing.
-            </Text>
-
+            <TouchableOpacity
+              onPress={() => setShowApproveModal(false)}
+              style={styles.sheetClose}
+            >
+              <X color={TEXT_MUTED} size={20} strokeWidth={2.2} />
+            </TouchableOpacity>
+            <Text style={styles.sheetTitle}>Approve Order</Text>
+            <Text style={styles.sheetKicker}>MANAGER NOTE</Text>
             <TextInput
               multiline
               numberOfLines={4}
-              placeholder="Enter approval comments (optional)"
-              placeholderTextColor={colors.textPlaceholder}
+              placeholder="e.g., Approved after ledger review..."
+              placeholderTextColor={TEXT_MUTED}
               style={styles.commentInput}
               value={approvalComments}
               onChangeText={setApprovalComments}
             />
-
-            <View style={styles.sheetActions}>
-              <TouchableOpacity
-                onPress={() => setShowApproveModal(false)}
-                style={[
-                  styles.sheetActionButton,
-                  styles.sheetActionSecondary,
-                ]}
-              >
-                <Text style={styles.sheetActionSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                disabled={approvalLoading}
-                onPress={async () => {
-                  setShowApproveModal(false);
-                  await handleApproval(true, approvalComments);
-                  setApprovalComments("");
-                }}
-                style={[
-                  styles.sheetActionButton,
-                  styles.sheetActionPrimary,
-                  approvalLoading && { opacity: 0.7 },
-                ]}
-              >
-                <Text style={styles.sheetActionPrimaryText}>
-                  {approvalLoading ? "Saving..." : "Confirm Approval"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              disabled={approvalLoading}
+              onPress={async () => {
+                setShowApproveModal(false);
+                await handleApproval(true, approvalComments);
+                setApprovalComments("");
+              }}
+              style={[styles.sheetPrimaryButton, approvalLoading && styles.disabledAction]}
+            >
+              <Text style={styles.sheetPrimaryText}>
+                {approvalLoading ? "Saving..." : "Confirm Approval"}
+              </Text>
+              <CheckCircle2 color="#121212" size={18} strokeWidth={2.4} />
+            </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1956,51 +1110,34 @@ export default function OrderApprovalScreen() {
         visible={showRejectModal}
         onRequestClose={() => setShowRejectModal(false)}
       >
-        <Pressable
-          style={styles.sheetBackdrop}
-          onPress={() => setShowRejectModal(false)}
-        >
+        <Pressable style={styles.sheetBackdrop} onPress={() => setShowRejectModal(false)}>
           <Pressable style={styles.sheetCard}>
-            <Text style={styles.sheetTitle}>Rejection Reason</Text>
-            <Text style={styles.sheetBody}>
-              Capture the manager reason so the sales team knows what to fix.
-            </Text>
-
+            <TouchableOpacity
+              onPress={() => setShowRejectModal(false)}
+              style={styles.sheetClose}
+            >
+              <X color={TEXT_MUTED} size={20} strokeWidth={2.2} />
+            </TouchableOpacity>
+            <Text style={styles.sheetTitle}>Decline Approval</Text>
+            <Text style={styles.sheetKicker}>REJECTION REASON</Text>
             <TextInput
               multiline
               numberOfLines={4}
-              placeholder="Enter reason for rejection"
-              placeholderTextColor={colors.textPlaceholder}
+              placeholder="Tell the sales team what must be corrected..."
+              placeholderTextColor={TEXT_MUTED}
               style={styles.commentInput}
               value={rejectionReason}
               onChangeText={setRejectionReason}
             />
-
-            <View style={styles.sheetActions}>
-              <TouchableOpacity
-                onPress={() => setShowRejectModal(false)}
-                style={[
-                  styles.sheetActionButton,
-                  styles.sheetActionSecondary,
-                ]}
-              >
-                <Text style={styles.sheetActionSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                disabled={approvalLoading}
-                onPress={confirmRejection}
-                style={[
-                  styles.sheetActionButton,
-                  styles.sheetActionPrimary,
-                  { backgroundColor: colors.accentRed },
-                  approvalLoading && { opacity: 0.7 },
-                ]}
-              >
-                <Text style={styles.sheetActionPrimaryText}>
-                  {approvalLoading ? "Saving..." : "Confirm Rejection"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              disabled={approvalLoading}
+              onPress={confirmRejection}
+              style={[styles.sheetDangerButton, approvalLoading && styles.disabledAction]}
+            >
+              <Text style={styles.sheetDangerText}>
+                {approvalLoading ? "Saving..." : "Confirm Decline"}
+              </Text>
+            </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>
@@ -2008,4 +1145,715 @@ export default function OrderApprovalScreen() {
   );
 }
 
-
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: SCREEN,
+  },
+  listContent: {
+    flexGrow: 1,
+  },
+  shell: {
+    alignSelf: "center",
+  },
+  pageTitle: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 28,
+    lineHeight: 34,
+    letterSpacing: -0.8,
+    marginBottom: 18,
+  },
+  filterRail: {
+    paddingBottom: 16,
+    gap: 8,
+  },
+  filterChip: {
+    borderRadius: 999,
+    backgroundColor: CARD,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  filterChipActive: {
+    backgroundColor: TEXT,
+  },
+  filterChipText: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.semibold,
+    fontSize: 14,
+    letterSpacing: -0.35,
+  },
+  filterChipTextActive: {
+    color: "#000000",
+  },
+  cardStack: {
+    gap: 16,
+  },
+  approvalCard: {
+    backgroundColor: CARD,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 20,
+  },
+  approvalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 16,
+  },
+  approvalIdentity: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 12,
+    paddingRight: 12,
+  },
+  approvalIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  approvalNameBlock: {
+    flex: 1,
+  },
+  approvalName: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 18,
+    lineHeight: 22,
+    letterSpacing: -0.45,
+  },
+  approvalId: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.medium,
+    fontSize: 14,
+    lineHeight: 20,
+    letterSpacing: -0.35,
+    marginTop: 2,
+  },
+  approvalAmount: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 17,
+    lineHeight: 22,
+    letterSpacing: -0.425,
+    textAlign: "right",
+  },
+  reasonBox: {
+    backgroundColor: CARD_MUTED,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 8,
+  },
+  reasonTitle: {
+    fontFamily: omaTypography.bold,
+    fontSize: 13,
+    letterSpacing: 0.65,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  reasonBody: {
+    color: "#d4d4d8",
+    fontFamily: omaTypography.medium,
+    fontSize: 14,
+    lineHeight: 19,
+    letterSpacing: -0.35,
+  },
+  reviewHint: {
+    color: TEXT_MUTED,
+    fontFamily: omaTypography.bold,
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: -0.325,
+    textAlign: "center",
+    paddingTop: 8,
+  },
+  emptyCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD,
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 46,
+  },
+  emptyTitle: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 18,
+    letterSpacing: -0.45,
+    marginTop: 16,
+  },
+  emptyBody: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.medium,
+    fontSize: 14,
+    lineHeight: 20,
+    letterSpacing: -0.35,
+    textAlign: "center",
+    marginTop: 8,
+  },
+  detailScreen: {
+    flex: 1,
+    backgroundColor: SCREEN,
+  },
+  detailHeader: {
+    paddingHorizontal: 20,
+    paddingBottom: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER_STRONG,
+    backgroundColor: CARD,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: CARD_MUTED,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerButtonGhost: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+  headerTitle: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 18,
+    lineHeight: 22,
+    letterSpacing: -0.45,
+  },
+  headerSubtitle: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: -0.325,
+    marginTop: 4,
+  },
+  detailContent: {
+    alignSelf: "center",
+    paddingTop: 26,
+  },
+  exceptionBanner: {
+    backgroundColor: "rgba(248,113,113,0.10)",
+    borderColor: "rgba(248,113,113,0.20)",
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 24,
+  },
+  exceptionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  exceptionTitle: {
+    color: RED,
+    fontFamily: omaTypography.bold,
+    fontSize: 15,
+    lineHeight: 21,
+    letterSpacing: 0.75,
+    textTransform: "uppercase",
+  },
+  exceptionBody: {
+    color: "rgba(248,113,113,0.92)",
+    fontFamily: omaTypography.medium,
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: -0.375,
+  },
+  profileCard: {
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD,
+    padding: 22,
+    overflow: "hidden",
+    marginBottom: 26,
+  },
+  profileAccent: {
+    position: "absolute",
+    right: -58,
+    top: -72,
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    backgroundColor: "rgba(234,179,8,0.18)",
+  },
+  profileEyebrow: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.bold,
+    fontSize: 11,
+    lineHeight: 15,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  profileId: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 28,
+    lineHeight: 32,
+    letterSpacing: -0.8,
+  },
+  profileCustomer: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 20,
+    lineHeight: 26,
+    letterSpacing: -0.5,
+    marginTop: 26,
+  },
+  profileAmount: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 36,
+    lineHeight: 43,
+    letterSpacing: -1,
+    marginTop: 14,
+  },
+  profileMeta: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.medium,
+    fontSize: 13,
+    lineHeight: 19,
+    letterSpacing: -0.325,
+    marginTop: 4,
+  },
+  profileChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 22,
+  },
+  profileChip: {
+    borderRadius: 999,
+    backgroundColor: CARD_MUTED,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  profileChipText: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.bold,
+    fontSize: 12,
+    letterSpacing: -0.3,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 14,
+  },
+  sectionHeading: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 18,
+    lineHeight: 27,
+    letterSpacing: -0.45,
+  },
+  ledgerCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD,
+    padding: 24,
+    marginBottom: 28,
+  },
+  loadingBlock: {
+    paddingVertical: 28,
+  },
+  ledgerTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  ledgerLabel: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.medium,
+    fontSize: 13,
+    letterSpacing: -0.325,
+  },
+  ledgerPercent: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 13,
+    letterSpacing: -0.325,
+  },
+  exposureTrack: {
+    height: 12,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    overflow: "hidden",
+    marginBottom: 20,
+  },
+  exposureFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: RED,
+  },
+  ledgerRows: {
+    gap: 12,
+  },
+  ledgerMetricRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  ledgerMetricRowWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderTopWidth: 1,
+    borderTopColor: BORDER_STRONG,
+    paddingTop: 14,
+    marginTop: 2,
+  },
+  ledgerMetricRowFinal: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 6,
+  },
+  metricLabelIcon: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  ledgerMetricLabel: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.medium,
+    fontSize: 15,
+    letterSpacing: -0.375,
+  },
+  ledgerMetricValue: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 15,
+    letterSpacing: -0.375,
+    textAlign: "right",
+  },
+  projectedLabel: {
+    color: "#e4e4e7",
+    fontFamily: omaTypography.bold,
+    fontSize: 16,
+    letterSpacing: -0.4,
+  },
+  projectedValue: {
+    color: RED,
+    fontFamily: omaTypography.bold,
+    fontSize: 16,
+    letterSpacing: -0.4,
+    textAlign: "right",
+  },
+  transactionsCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD,
+    padding: 8,
+    marginBottom: 28,
+    gap: 4,
+  },
+  transactionRow: {
+    borderRadius: 20,
+    backgroundColor: CARD_MUTED,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.02)",
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  transactionLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingRight: 10,
+  },
+  transactionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: BORDER,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  transactionCopy: {
+    flex: 1,
+  },
+  transactionTitle: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 16,
+    lineHeight: 21,
+    letterSpacing: -0.4,
+  },
+  transactionMeta: {
+    color: TEXT_MUTED,
+    fontFamily: omaTypography.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: -0.325,
+    marginTop: 2,
+  },
+  transactionAmountBlock: {
+    alignItems: "flex-end",
+  },
+  transactionAmount: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: -0.375,
+  },
+  transactionStatus: {
+    borderRadius: 6,
+    overflow: "hidden",
+    fontFamily: omaTypography.bold,
+    fontSize: 12,
+    lineHeight: 17,
+    letterSpacing: -0.3,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginTop: 4,
+  },
+  itemsCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: CARD,
+    padding: 18,
+    marginBottom: 24,
+  },
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingVertical: 12,
+  },
+  qtyBox: {
+    minWidth: 36,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: CARD_MUTED,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  qtyText: {
+    color: "#d4d4d8",
+    fontFamily: omaTypography.bold,
+    fontSize: 13,
+    letterSpacing: -0.325,
+  },
+  itemCopy: {
+    flex: 1,
+  },
+  itemName: {
+    color: TEXT,
+    fontFamily: omaTypography.semibold,
+    fontSize: 15,
+    lineHeight: 22,
+    letterSpacing: -0.375,
+  },
+  itemMeta: {
+    color: TEXT_MUTED,
+    fontFamily: omaTypography.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: -0.325,
+    marginTop: 2,
+  },
+  itemAmount: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 15,
+    lineHeight: 22,
+    letterSpacing: -0.375,
+    textAlign: "right",
+  },
+  totalRow: {
+    borderTopWidth: 1,
+    borderTopColor: BORDER_STRONG,
+    backgroundColor: CARD_MUTED,
+    marginHorizontal: -18,
+    marginBottom: -18,
+    marginTop: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  totalLabel: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.bold,
+    fontSize: 15,
+    letterSpacing: -0.375,
+  },
+  totalValue: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 22,
+    lineHeight: 33,
+    letterSpacing: -0.55,
+  },
+  actionDock: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopWidth: 1,
+    borderTopColor: BORDER_STRONG,
+    backgroundColor: SCREEN,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    flexDirection: "row",
+    gap: 12,
+  },
+  declineButton: {
+    flex: 1,
+    minHeight: 56,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  declineButtonText: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 16,
+    letterSpacing: -0.4,
+  },
+  approveButton: {
+    flex: 1.35,
+    minHeight: 56,
+    borderRadius: 20,
+    backgroundColor: GREEN,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+  },
+  approveButtonText: {
+    color: "#08130f",
+    fontFamily: omaTypography.bold,
+    fontSize: 16,
+    letterSpacing: -0.4,
+    textAlign: "center",
+  },
+  disabledAction: {
+    opacity: 0.7,
+  },
+  sheetBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.62)",
+  },
+  sheetCard: {
+    backgroundColor: CARD,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    borderWidth: 1,
+    borderColor: BORDER_STRONG,
+    paddingHorizontal: 30,
+    paddingTop: 28,
+    paddingBottom: 30,
+  },
+  sheetClose: {
+    position: "absolute",
+    top: 24,
+    right: 22,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: CARD_MUTED,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetTitle: {
+    color: TEXT,
+    fontFamily: omaTypography.bold,
+    fontSize: 22,
+    lineHeight: 28,
+    letterSpacing: -0.55,
+    marginBottom: 26,
+    paddingRight: 42,
+  },
+  sheetKicker: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.bold,
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: 1.3,
+    textTransform: "uppercase",
+    marginBottom: 10,
+  },
+  commentInput: {
+    minHeight: 98,
+    borderRadius: 14,
+    backgroundColor: "#111111",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.03)",
+    color: TEXT,
+    fontFamily: omaTypography.medium,
+    fontSize: 16,
+    lineHeight: 24,
+    letterSpacing: -0.4,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+    textAlignVertical: "top",
+  },
+  sheetPrimaryButton: {
+    minHeight: 58,
+    borderRadius: 28,
+    backgroundColor: GREEN,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 30,
+  },
+  sheetPrimaryText: {
+    color: "#08130f",
+    fontFamily: omaTypography.bold,
+    fontSize: 16,
+    letterSpacing: -0.4,
+  },
+  sheetDangerButton: {
+    minHeight: 58,
+    borderRadius: 28,
+    backgroundColor: RED,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 30,
+  },
+  sheetDangerText: {
+    color: "#1a0b0b",
+    fontFamily: omaTypography.bold,
+    fontSize: 16,
+    letterSpacing: -0.4,
+  },
+});

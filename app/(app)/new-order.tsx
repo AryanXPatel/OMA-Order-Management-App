@@ -569,7 +569,10 @@ const NewSalesOrderScreen = () => {
     setCustomerSearchQuery(query);
 
     if (!query.trim()) {
-      setFilteredCustomers([]);
+      const fallbackLetter =
+        selectedLetter || customerName.trim().charAt(0).toUpperCase() || "A";
+      setSelectedLetter(fallbackLetter);
+      fetchCustomers(fallbackLetter);
       return;
     }
 
@@ -639,16 +642,44 @@ const NewSalesOrderScreen = () => {
   };
 
   // Filter products by letter
-  const filterProductsByLetter = (letter) => {
-    setSelectedProductLetter(letter);
-    setProductSearchQuery("");
+  const filterProductsByLetter = useCallback(
+    (letter) => {
+      setSelectedProductLetter(letter);
+      setProductSearchQuery("");
 
-    const filtered = productList.filter((product) =>
-      product["Product NAME"].trim().toUpperCase().startsWith(letter)
-    );
+      const filtered = productList.filter((product) =>
+        product["Product NAME"].trim().toUpperCase().startsWith(letter)
+      );
 
-    setFilteredProducts(filtered);
-  };
+      setFilteredProducts(filtered);
+    },
+    [productList]
+  );
+
+  useEffect(() => {
+    if (step === 1 && !customerSearchQuery.trim() && !selectedLetter) {
+      const initialLetter = customerName.trim().charAt(0).toUpperCase() || "A";
+      setSelectedLetter(initialLetter);
+      fetchCustomers(initialLetter);
+    }
+  }, [step, customerName, customerSearchQuery, selectedLetter]);
+
+  useEffect(() => {
+    if (
+      step === 2 &&
+      !productSearchQuery.trim() &&
+      !selectedProductLetter &&
+      productList.length > 0
+    ) {
+      filterProductsByLetter("A");
+    }
+  }, [
+    filterProductsByLetter,
+    productList.length,
+    productSearchQuery,
+    selectedProductLetter,
+    step,
+  ]);
 
   // Handle product selection
   const handleProductSelect = (product) => {
@@ -904,29 +935,6 @@ const NewSalesOrderScreen = () => {
         .map((part) => part.charAt(0).toUpperCase())
         .join("")
     : "NA";
-  const currentTitle =
-    step === 1 ? "New Order" : step === 2 ? "Build Order" : "Review & Submit";
-  const currentSubtitle =
-    step === 1
-      ? "Choose the customer account before building the line items."
-      : step === 2
-      ? customerName || "Add products from the live OMA catalog."
-      : "Check fulfillment details and confirm the dispatch-ready draft.";
-
-  const openCustomerPicker = () => {
-    setCustomerModalVisible(true);
-
-    if (customerSearchQuery.trim()) {
-      searchCustomers(customerSearchQuery);
-      return;
-    }
-
-    const nextLetter =
-      selectedLetter || customerName.trim().charAt(0).toUpperCase() || "A";
-    setSelectedLetter(nextLetter);
-    fetchCustomers(nextLetter);
-  };
-
   const openProductPicker = () => {
     setProductModalVisible(true);
 
@@ -967,7 +975,7 @@ const NewSalesOrderScreen = () => {
       StyleSheet.create({
         container: {
           flex: 1,
-          backgroundColor: colors.background,
+          backgroundColor: colors.appChrome,
         },
         topGlow: {
           position: "absolute",
@@ -976,23 +984,23 @@ const NewSalesOrderScreen = () => {
           right: 0,
           height: 280,
           backgroundColor: isDark
-            ? "rgba(0,102,255,0.14)"
-            : "rgba(15, 23, 42, 0.05)",
+            ? "rgba(255,255,255,0.018)"
+            : "rgba(255,255,255,0.04)",
         },
         contentContainer: {
-          paddingHorizontal: 16,
-          paddingBottom: 172,
+          paddingHorizontal: 20,
+          paddingBottom: 188,
         },
         headerShell: {
           paddingTop: headerTopPadding,
-          paddingBottom: 8,
+          paddingBottom: 4,
         },
         headerRow: {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
           gap: 14,
-          marginBottom: 18,
+          marginBottom: 12,
         },
         iconButton: {
           width: 44,
@@ -1000,14 +1008,36 @@ const NewSalesOrderScreen = () => {
           borderRadius: 22,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: colors.card,
+          backgroundColor: "rgba(52,52,56,0.56)",
           borderWidth: 1,
-          borderColor: colors.border,
-          shadowColor: colors.shadow,
+          borderColor: "rgba(255,255,255,0.14)",
+          shadowColor: "#000000",
           shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 1,
-          shadowRadius: 22,
+          shadowOpacity: 0.18,
+          shadowRadius: 18,
           elevation: 8,
+        },
+        headerSpacer: {
+          width: 44,
+          height: 44,
+        },
+        headerProgressRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+        },
+        headerProgressDot: {
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          backgroundColor: "rgba(255,255,255,0.18)",
+        },
+        headerProgressDotActive: {
+          width: 18,
+          backgroundColor: "#ffffff",
+        },
+        headerProgressDotComplete: {
+          backgroundColor: colors.accentGreen,
         },
         headerCopy: {
           flex: 1,
@@ -1057,7 +1087,7 @@ const NewSalesOrderScreen = () => {
           fontSize: 12,
         },
         progressShell: {
-          marginBottom: 18,
+          display: "none",
         },
         progressRow: {
           flexDirection: "row",
@@ -1098,18 +1128,116 @@ const NewSalesOrderScreen = () => {
         progressMetaActiveText: {
           color: colors.text,
         },
+        stepPageTitle: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 24,
+          letterSpacing: -0.8,
+          marginBottom: 20,
+        },
+        referenceSearchShell: {
+          position: "relative",
+          flexDirection: "row",
+          alignItems: "center",
+          borderRadius: 18,
+          borderWidth: 1.5,
+          borderColor: "rgba(246,198,76,0.75)",
+          backgroundColor: "rgba(28,28,30,0.86)",
+          paddingHorizontal: 14,
+          paddingVertical: 14,
+          marginBottom: 18,
+        },
+        referenceSearchInput: {
+          flex: 1,
+          color: "#ffffff",
+          fontFamily: omaTypography.medium,
+          fontSize: 15,
+          paddingVertical: 0,
+          paddingLeft: 10,
+        },
+        referenceSectionLabel: {
+          color: "rgba(255,255,255,0.42)",
+          fontFamily: omaTypography.bold,
+          fontSize: 11,
+          letterSpacing: 1.1,
+          textTransform: "uppercase",
+          marginBottom: 12,
+          paddingHorizontal: 2,
+        },
+        referenceClientList: {
+          gap: 12,
+        },
+        referenceClientCard: {
+          backgroundColor: colors.appChromeElevated,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.03)",
+          paddingHorizontal: 14,
+          paddingVertical: 15,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        },
+        referenceClientBody: {
+          flex: 1,
+        },
+        referenceClientTitle: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 17,
+          letterSpacing: -0.3,
+          marginBottom: 4,
+        },
+        referenceClientMeta: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+        },
+        referenceClientTag: {
+          alignSelf: "center",
+          backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "#f1f3f7",
+          borderRadius: 10,
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+        },
+        referenceClientTagText: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 11,
+        },
+        referenceEmptyCard: {
+          borderRadius: 18,
+          backgroundColor: colors.appChromeElevated,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.03)",
+          paddingHorizontal: 16,
+          paddingVertical: 18,
+        },
+        referenceEmptyTitle: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 16,
+          marginBottom: 6,
+        },
+        referenceEmptyBody: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 19,
+        },
         heroCard: {
-          backgroundColor: colors.card,
+          backgroundColor: colors.appChromeElevated,
           borderRadius: 30,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.05)",
           padding: 22,
           marginBottom: 20,
           overflow: "hidden",
-          shadowColor: colors.shadow,
+          shadowColor: "#000000",
           shadowOffset: { width: 0, height: 18 },
-          shadowOpacity: 1,
-          shadowRadius: 30,
+          shadowOpacity: 0.18,
+          shadowRadius: 24,
           elevation: 9,
         },
         heroGlow: {
@@ -1120,7 +1248,7 @@ const NewSalesOrderScreen = () => {
           height: 150,
           borderRadius: 75,
           backgroundColor: isDark
-            ? "rgba(192,132,252,0.18)"
+            ? "rgba(255,255,255,0.03)"
             : "rgba(17,17,17,0.05)",
         },
         heroEyebrow: {
@@ -1157,7 +1285,7 @@ const NewSalesOrderScreen = () => {
           minWidth: isWideLayout ? "31%" : "47%",
           borderRadius: 20,
           padding: 14,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
         },
         heroStatLabel: {
           color: colors.textSecondary,
@@ -1198,17 +1326,17 @@ const NewSalesOrderScreen = () => {
         pickerCard: {
           borderRadius: 26,
           borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
+          borderColor: "rgba(255,255,255,0.05)",
+          backgroundColor: colors.appChromeElevated,
           padding: 18,
           flexDirection: "row",
           alignItems: "center",
           gap: 14,
           marginBottom: 14,
-          shadowColor: colors.shadow,
+          shadowColor: "#000000",
           shadowOffset: { width: 0, height: 12 },
-          shadowOpacity: 1,
-          shadowRadius: 24,
+          shadowOpacity: 0.16,
+          shadowRadius: 18,
           elevation: 8,
         },
         pickerIconWrap: {
@@ -1217,7 +1345,7 @@ const NewSalesOrderScreen = () => {
           borderRadius: 23,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
         },
         pickerCopy: {
           flex: 1,
@@ -1248,10 +1376,10 @@ const NewSalesOrderScreen = () => {
           marginTop: 5,
         },
         customerSpotlight: {
-          backgroundColor: colors.card,
+          backgroundColor: colors.appChromeElevated,
           borderRadius: 28,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.05)",
           padding: 18,
           marginBottom: 14,
         },
@@ -1289,7 +1417,7 @@ const NewSalesOrderScreen = () => {
           paddingHorizontal: 12,
           paddingVertical: 7,
           borderRadius: 999,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
         },
         statusChipText: {
           color: colors.text,
@@ -1299,7 +1427,7 @@ const NewSalesOrderScreen = () => {
         helperCard: {
           borderRadius: 24,
           padding: 18,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
         },
         helperTitle: {
           color: colors.text,
@@ -1322,7 +1450,7 @@ const NewSalesOrderScreen = () => {
           flex: 1,
           borderRadius: 18,
           padding: 12,
-          backgroundColor: colors.card,
+          backgroundColor: colors.appChromeElevated,
         },
         helperMetricValue: {
           color: colors.text,
@@ -1336,16 +1464,16 @@ const NewSalesOrderScreen = () => {
           fontSize: 11,
         },
         composerCard: {
-          backgroundColor: colors.card,
+          backgroundColor: colors.appChromeElevated,
           borderRadius: 28,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.05)",
           padding: 18,
           marginBottom: 14,
-          shadowColor: colors.shadow,
+          shadowColor: "#000000",
           shadowOffset: { width: 0, height: 14 },
-          shadowOpacity: 1,
-          shadowRadius: 28,
+          shadowOpacity: 0.16,
+          shadowRadius: 20,
           elevation: 8,
         },
         fieldLabel: {
@@ -1362,7 +1490,7 @@ const NewSalesOrderScreen = () => {
           justifyContent: "space-between",
           padding: 16,
           borderRadius: 22,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
           marginBottom: 14,
         },
         productPreviewMeta: {
@@ -1399,7 +1527,7 @@ const NewSalesOrderScreen = () => {
           borderRadius: 16,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
           borderWidth: 1,
           borderColor: colors.border,
         },
@@ -1412,7 +1540,7 @@ const NewSalesOrderScreen = () => {
           borderRadius: 18,
           borderWidth: 1,
           borderColor: quantityError ? colors.error : colors.border,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
           paddingHorizontal: 16,
           paddingVertical: 4,
         },
@@ -1461,9 +1589,9 @@ const NewSalesOrderScreen = () => {
           paddingHorizontal: 12,
           paddingVertical: 7,
           borderRadius: 999,
-          backgroundColor: colors.card,
+          backgroundColor: colors.appChromeElevated,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.05)",
         },
         listHeaderPillText: {
           color: colors.text,
@@ -1471,10 +1599,10 @@ const NewSalesOrderScreen = () => {
           fontSize: 11,
         },
         emptyStateCard: {
-          backgroundColor: colors.card,
+          backgroundColor: colors.appChromeElevated,
           borderRadius: 28,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.05)",
           paddingVertical: 36,
           paddingHorizontal: 22,
           alignItems: "center",
@@ -1486,7 +1614,7 @@ const NewSalesOrderScreen = () => {
           borderRadius: 35,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
           marginBottom: 16,
         },
         emptyStateTitle: {
@@ -1503,16 +1631,16 @@ const NewSalesOrderScreen = () => {
           textAlign: "center",
         },
         lineItemCard: {
-          backgroundColor: colors.card,
+          backgroundColor: colors.appChromeElevated,
           borderRadius: 24,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.05)",
           padding: 16,
           marginBottom: 12,
-          shadowColor: colors.shadow,
+          shadowColor: "#000000",
           shadowOffset: { width: 0, height: 12 },
-          shadowOpacity: 1,
-          shadowRadius: 24,
+          shadowOpacity: 0.15,
+          shadowRadius: 18,
           elevation: 7,
         },
         lineItemTopRow: {
@@ -1553,7 +1681,7 @@ const NewSalesOrderScreen = () => {
           borderRadius: 17,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
         },
         lineItemBottomRow: {
           flexDirection: "row",
@@ -1567,16 +1695,16 @@ const NewSalesOrderScreen = () => {
           fontSize: 16,
         },
         reviewCard: {
-          backgroundColor: colors.card,
+          backgroundColor: colors.appChromeElevated,
           borderRadius: 28,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.05)",
           padding: 18,
           marginBottom: 14,
-          shadowColor: colors.shadow,
+          shadowColor: "#000000",
           shadowOffset: { width: 0, height: 14 },
-          shadowOpacity: 1,
-          shadowRadius: 28,
+          shadowOpacity: 0.16,
+          shadowRadius: 20,
           elevation: 8,
         },
         reviewCardHeader: {
@@ -1801,20 +1929,18 @@ const NewSalesOrderScreen = () => {
           paddingHorizontal: 16,
           paddingTop: 12,
           paddingBottom: 18,
-          backgroundColor: isDark
-            ? "rgba(9,17,31,0.96)"
-            : "rgba(247,248,249,0.94)",
+          backgroundColor: "transparent",
         },
         bottomBarCard: {
           borderRadius: 28,
           padding: 12,
-          backgroundColor: isDark ? colors.surface : "#111111",
+          backgroundColor: "rgba(52,52,56,0.58)",
           borderWidth: 1,
-          borderColor: isDark ? colors.border : "#111111",
-          shadowColor: colors.shadow,
+          borderColor: "rgba(255,255,255,0.14)",
+          shadowColor: "#000000",
           shadowOffset: { width: 0, height: 16 },
-          shadowOpacity: 1,
-          shadowRadius: 30,
+          shadowOpacity: 0.18,
+          shadowRadius: 24,
           elevation: 10,
         },
         bottomBarInline: {
@@ -1877,14 +2003,16 @@ const NewSalesOrderScreen = () => {
         },
         modalOverlay: {
           flex: 1,
-          backgroundColor: "rgba(6, 11, 20, 0.55)",
+          backgroundColor: "rgba(0, 0, 0, 0.72)",
           justifyContent: "flex-end",
         },
         modalSheet: {
           maxHeight: "88%",
           borderTopLeftRadius: 30,
           borderTopRightRadius: 30,
-          backgroundColor: colors.card,
+          backgroundColor: colors.appChromeElevated,
+          borderTopWidth: 1,
+          borderColor: "rgba(255,255,255,0.08)",
           paddingTop: 16,
         },
         modalHeader: {
@@ -2501,98 +2629,107 @@ const NewSalesOrderScreen = () => {
 
   const renderCustomerStep = () => (
     <>
-      <View style={styles.sectionBlock}>
-        <Text style={styles.sectionEyebrow}>Step 1</Text>
-        <Text style={styles.sectionHeading}>Select customer</Text>
-        <Text style={styles.sectionBody}>
-          Lock the client account first, then build the order against the live
-          OMA product list.
-        </Text>
-      </View>
+      <Text style={styles.stepPageTitle}>Select Client</Text>
 
-      <TouchableOpacity
-        activeOpacity={0.9}
-        onPress={openCustomerPicker}
-        style={styles.pickerCard}
-      >
-        <View style={styles.pickerIconWrap}>
-          <Ionicons name="people-outline" size={22} color={colors.text} />
-        </View>
-
-        <View style={styles.pickerCopy}>
-          <Text style={styles.pickerLabel}>Customer account</Text>
-          <Text style={customerName ? styles.pickerValue : styles.pickerPlaceholder}>
-            {customerName || "Search or browse customer accounts"}
-          </Text>
-          <Text style={styles.pickerHint}>
-            {customerName
-              ? "Tap to switch the billing profile"
-              : "Use the live customer master"}
-          </Text>
-        </View>
-
+      <View style={styles.referenceSearchShell}>
         <Ionicons
-          name="chevron-forward"
+          name="search-outline"
           size={18}
           color={colors.textSecondary}
         />
-      </TouchableOpacity>
+        <TextInput
+          autoCapitalize="words"
+          autoCorrect={false}
+          autoFocus={step === 1}
+          onChangeText={searchCustomers}
+          placeholder="Search clients..."
+          placeholderTextColor={colors.textSecondary}
+          style={styles.referenceSearchInput}
+          value={customerSearchQuery}
+        />
 
-      {customerName ? (
-        <View style={styles.customerSpotlight}>
-          <View style={styles.customerSpotlightTop}>
-            <View
-              style={[
-                styles.customerAvatar,
-                { backgroundColor: generateRandomColor(customerName) },
-              ]}
-            >
-              <Text style={styles.customerAvatarText}>{customerInitials}</Text>
-            </View>
+        {customerSearchQuery ? (
+          <TouchableOpacity
+            onPress={() => {
+              setCustomerSearchQuery("");
+              if (selectedLetter) {
+                fetchCustomers(selectedLetter);
+              } else {
+                fetchCustomers("A");
+              }
+            }}
+          >
+            <Ionicons
+              name="close-circle"
+              size={18}
+              color={colors.textSecondary}
+            />
+          </TouchableOpacity>
+        ) : null}
+      </View>
 
-            <View style={{ flex: 1 }}>
-              <Text style={styles.customerName}>{customerName}</Text>
-              <Text style={styles.customerCode}>
-                {selectedCustomerCode
-                  ? `Customer code ${selectedCustomerCode}`
-                  : "Customer code unavailable"}
-              </Text>
-            </View>
+      <Text style={styles.referenceSectionLabel}>
+        {customerSearchQuery.trim() ? "Search Results" : "Recent Clients"}
+      </Text>
 
-            <View style={styles.statusChip}>
-              <Text style={styles.statusChipText}>Selected</Text>
-            </View>
+      <View style={styles.referenceClientList}>
+        {isCustomerLoading ? (
+          <View style={styles.loaderContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loaderText}>Loading client accounts...</Text>
           </View>
+        ) : filteredCustomers.length > 0 ? (
+          filteredCustomers.slice(0, 8).map((item, index) => {
+            const selected =
+              item["Customer NAME"] === customerName &&
+              item["Customer CODE"] === selectedCustomerCode;
 
-          <View style={styles.helperCard}>
-            <Text style={styles.helperTitle}>Ready for line building</Text>
-            <Text style={styles.helperBody}>
-              The account is locked in. Continue to product selection to add live
-              catalog items and quantities.
+            return (
+              <TouchableOpacity
+                activeOpacity={0.9}
+                key={`${item["Customer CODE"] || item["Customer NAME"]}-${index}`}
+                onPress={() => handleCustomerSelection(item)}
+                style={[
+                  styles.referenceClientCard,
+                  selected && {
+                    backgroundColor: isDark
+                      ? "rgba(246,198,76,0.08)"
+                      : "#fff8dd",
+                    borderColor: colors.accentGold,
+                  },
+                ]}
+              >
+                <View style={styles.referenceClientBody}>
+                  <Text style={styles.referenceClientTitle}>
+                    {item["Customer NAME"]}
+                  </Text>
+                  <Text style={styles.referenceClientMeta}>
+                    {item["Customer CODE"]
+                      ? `Code ${item["Customer CODE"]}`
+                      : "Customer code unavailable"}
+                  </Text>
+                </View>
+
+                <View style={styles.referenceClientTag}>
+                  <Text style={styles.referenceClientTagText}>
+                    {selected
+                      ? "Selected"
+                      : item["Customer CODE"] || "Account"}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })
+        ) : (
+          <View style={styles.referenceEmptyCard}>
+            <Text style={styles.referenceEmptyTitle}>No matching clients</Text>
+            <Text style={styles.referenceEmptyBody}>
+              Try another search term or use the full picker to browse the live
+              customer master.
             </Text>
-            <View style={styles.helperRow}>
-              <View style={styles.helperMetric}>
-                <Text style={styles.helperMetricValue}>
-                  {selectedCustomerCode || "OMA"}
-                </Text>
-                <Text style={styles.helperMetricLabel}>Profile</Text>
-              </View>
-              <View style={styles.helperMetric}>
-                <Text style={styles.helperMetricValue}>0</Text>
-                <Text style={styles.helperMetricLabel}>Line items</Text>
-              </View>
-            </View>
           </View>
-        </View>
-      ) : (
-        <View style={styles.helperCard}>
-          <Text style={styles.helperTitle}>Start with the billing profile</Text>
-          <Text style={styles.helperBody}>
-            Customer choice drives the rest of the flow. Pick the account now,
-            then move straight into the order builder.
-          </Text>
-        </View>
-      )}
+        )}
+      </View>
     </>
   );
 
@@ -2600,7 +2737,7 @@ const NewSalesOrderScreen = () => {
     <>
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionEyebrow}>Step 2</Text>
-        <Text style={styles.sectionHeading}>Build order</Text>
+        <Text style={styles.sectionHeading}>Add Products</Text>
         <Text style={styles.sectionBody}>
           Add products, confirm quantities, and keep the running order total in
           view.
@@ -2775,7 +2912,7 @@ const NewSalesOrderScreen = () => {
     <>
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionEyebrow}>Step 3</Text>
-        <Text style={styles.sectionHeading}>Review & submit</Text>
+        <Text style={styles.sectionHeading}>Review & Details</Text>
         <Text style={styles.sectionBody}>
           Confirm fulfillment details, scan the line hierarchy, and dispatch the
           order through the existing OMA flow.
@@ -3081,8 +3218,8 @@ const NewSalesOrderScreen = () => {
           ₹{formatIndianNumber(totalAmount)}
         </Text>
         <Text style={styles.summaryDarkBody}>
-          Submit the order using the current OMA create-order logic. This UI port
-          only changes hierarchy, spacing, and touch flow.
+          Confirm the customer, schedule, and line items before sending the order
+          for approval and dispatch.
         </Text>
 
         <View style={styles.summaryDarkRow}>
@@ -3216,108 +3353,23 @@ const NewSalesOrderScreen = () => {
               }}
               style={styles.iconButton}
             >
-              <Ionicons name="arrow-back" size={20} color={colors.text} />
+              <Ionicons name={step === 1 ? "close" : "arrow-back"} size={20} color="#ffffff" />
             </TouchableOpacity>
 
-            <View style={styles.headerCopy}>
-              <Text style={styles.headerEyebrow}>
-                Step {step} of 3
-              </Text>
-              <Text style={styles.headerTitle}>{currentTitle}</Text>
-              <Text style={styles.headerSubtitle}>{currentSubtitle}</Text>
-            </View>
-
-            <View style={styles.orderIdPill}>
-              <Text style={styles.orderIdLabel}>Order ID</Text>
-              <Text numberOfLines={1} style={styles.orderIdValue}>
-                {isOrderIdLoading ? "..." : orderId}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.progressShell}>
-            <View style={styles.progressRow}>
+            <View style={styles.headerProgressRow}>
               {[1, 2, 3].map((index) => (
                 <View
-                  key={`progress-${index}`}
+                  key={`header-dot-${index}`}
                   style={[
-                    styles.progressTrack,
-                    step >= index && styles.progressTrackActive,
+                    styles.headerProgressDot,
+                    step >= index && styles.headerProgressDotActive,
+                    step === 3 && index === 3 && styles.headerProgressDotComplete,
                   ]}
                 />
               ))}
             </View>
 
-            <View style={styles.progressMetaRow}>
-              {[
-                { id: 1, label: "Customer" },
-                { id: 2, label: "Products" },
-                { id: 3, label: "Review" },
-              ].map((item) => (
-                <View key={item.id} style={styles.progressMetaItem}>
-                  <Text
-                    style={[
-                      styles.progressMetaStep,
-                      step === item.id && styles.progressMetaActiveText,
-                    ]}
-                  >
-                    0{item.id}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.progressMetaLabel,
-                      step === item.id && styles.progressMetaActiveText,
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.heroCard}>
-          <View style={styles.heroGlow} />
-          <Text style={styles.heroEyebrow}>
-            {step === 1
-              ? "Customer intake"
-              : step === 2
-              ? "Product builder"
-              : "Dispatch check"}
-          </Text>
-          <Text style={styles.heroTitle}>
-            {step === 1
-              ? "Start the draft with the right account."
-              : step === 2
-              ? "Add line items with a fast mobile rhythm."
-              : "Review totals before submission."}
-          </Text>
-          <Text style={styles.heroBody}>
-            {step === 1
-              ? "The customer selection anchors the order. Once it is chosen, the flow moves directly into product building."
-              : step === 2
-              ? "Search the live catalog, set quantities, and keep the running amount visible without leaving the screen."
-              : "Fulfillment timing, notes, and totals stay stacked in one place so the final check is short and clear."}
-          </Text>
-
-          <View style={styles.heroStatsRow}>
-            <View style={styles.heroStatCard}>
-              <Text style={styles.heroStatLabel}>Customer</Text>
-              <Text style={styles.heroStatValue}>
-                {customerName || "Not selected"}
-              </Text>
-            </View>
-            <View style={styles.heroStatCard}>
-              <Text style={styles.heroStatLabel}>Line items</Text>
-              <Text style={styles.heroStatValue}>{products.length}</Text>
-            </View>
-            <View style={styles.heroStatCard}>
-              <Text style={styles.heroStatLabel}>Current total</Text>
-              <Text style={styles.heroStatValue}>
-                ₹{formatIndianNumber(totalAmount)}
-              </Text>
-            </View>
+            <View style={styles.headerSpacer} />
           </View>
         </View>
 
