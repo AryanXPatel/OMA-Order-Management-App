@@ -12,10 +12,10 @@ const resolveBackendUrl = () => {
 
   if (__DEV__) {
     if (Platform.OS === "android") {
-      return "http://10.0.2.2:3000";
+      return "http://10.0.2.2:3011";
     }
 
-    return "http://localhost:3000";
+    return "http://localhost:3011";
   }
 
   return REMOTE_BACKEND_URL;

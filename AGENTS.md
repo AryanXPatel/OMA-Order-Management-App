@@ -76,8 +76,8 @@ There is no general `build` script in `package.json`. Do not invent one. If the 
 - Preserve existing retry, warm-up, and cache behavior unless the task is explicitly about changing it.
 - Web requests may use the web proxy logic in `app/utils/webApiManager.ts`. Do not break web behavior when editing API calls.
 - Local development now prefers a local backend automatically in `__DEV__`:
-  - `http://localhost:3000` for web / iOS simulator
-  - `http://10.0.2.2:3000` for Android emulator
+  - `http://localhost:3011` for web / iOS simulator
+  - `http://10.0.2.2:3011` for Android emulator
   - `EXPO_PUBLIC_BACKEND_URL` overrides both when set
 - Before assuming a backend bug on analytics work, verify whether the app is pointed at local or remote backend.
 
