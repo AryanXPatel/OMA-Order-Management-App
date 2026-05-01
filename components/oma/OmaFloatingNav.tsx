@@ -100,15 +100,6 @@ export default function OmaFloatingNav() {
         shellBlur: {
           ...StyleSheet.absoluteFillObject,
         },
-        shellHighlight: {
-          position: "absolute",
-          top: 1,
-          left: 16,
-          right: 16,
-          height: 18,
-          borderRadius: 999,
-          backgroundColor: "rgba(255,255,255,0.08)",
-        },
         shellCard: {
           flexDirection: "row",
           alignItems: "center",
@@ -117,8 +108,8 @@ export default function OmaFloatingNav() {
           paddingVertical: 8,
           borderRadius: 32,
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.14)",
-          backgroundColor: "rgba(52,52,56,0.58)",
+          borderColor: "rgba(255,255,255,0.08)",
+          backgroundColor: "rgba(44,44,46,0.9)",
           shadowColor: "#000000",
           shadowOffset: { width: 0, height: 14 },
           shadowOpacity: 0.18,
@@ -175,7 +166,6 @@ export default function OmaFloatingNav() {
             style={styles.shellBlur}
             tint={isDark ? "dark" : "light"}
           />
-          <View pointerEvents="none" style={styles.shellHighlight} />
 
           <View style={styles.shellCard}>
             {navItems.map((item) => {
@@ -198,7 +188,8 @@ export default function OmaFloatingNav() {
                   <Ionicons
                     color={isActive ? "#ffffff" : mutedText}
                     name={iconName}
-                    size={20}
+                    size={22}
+                    strokeWidth={1.8}
                   />
                   <Text
                     style={[
@@ -219,7 +210,7 @@ export default function OmaFloatingNav() {
           onPress={() => router.push("/(app)/new-order")}
           style={styles.ctaButton}
         >
-          <Ionicons color="#111111" name="add" size={30} />
+          <Ionicons color="#111111" name="add" size={32} strokeWidth={2} />
         </Pressable>
       </View>
     </View>

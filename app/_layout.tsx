@@ -3,7 +3,7 @@ import { wakeUpServer } from "@/utils/apiManager";
 import { Stack } from "expo-router";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { FeedbackProvider } from "@/context/FeedbackContext";
-import { Dimensions } from "react-native";
+import { View } from "react-native";
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -17,14 +17,8 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { useContext } from "react";
 import { ThemeContext } from "@/context/ThemeContext";
-import { View } from "react-native";
 import OmaFloatingNav from "@/components/oma/OmaFloatingNav";
 
-// Add dimension change listener
-Dimensions.addEventListener("change", ({ window }) => {
-  // This will fire when orientation changes
-  // You can use this to update your global state if needed
-});
 function RootLayoutNav() {
   const { colors, isDark } = useContext(ThemeContext);
 
@@ -43,29 +37,31 @@ function RootLayoutNav() {
   }, []);
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.appChrome }}>
+    <View
+      style={{
+        alignItems: "center",
+        backgroundColor: colors.appChrome,
+        flex: 1,
+      }}
+    >
       <StatusBar style={isDark ? "light" : "dark"} />
       <View
         style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 260,
-          backgroundColor: isDark ? "rgba(255,255,255,0.015)" : "rgba(255,255,255,0.04)",
-          opacity: 1,
-          pointerEvents: "none",
+          backgroundColor: colors.appChrome,
+          flex: 1,
+          width: "100%",
         }}
-      />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: {
-            backgroundColor: colors.appChrome,
-          },
-        }}
-      />
-      <OmaFloatingNav />
+      >
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: {
+              backgroundColor: colors.appChrome,
+            },
+          }}
+        />
+        <OmaFloatingNav />
+      </View>
     </View>
   );
 }

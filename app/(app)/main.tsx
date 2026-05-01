@@ -1,15 +1,15 @@
 import React, { useCallback, useContext, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
-import { BlurView } from "expo-blur";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { type Href, router, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -89,17 +89,7 @@ type DashboardPayload = {
   totalCustomers: number;
 };
 
-type OverlayName = "notifications" | "profile" | "search" | null;
-
-type ShortcutItem = {
-  hint: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  id: string;
-  keywords: string;
-  label: string;
-  managerOnly?: boolean;
-  route: Href;
-};
+type OverlayName = "notifications" | "profile" | null;
 
 type NotificationItem = {
   body: string;
@@ -109,13 +99,6 @@ type NotificationItem = {
   route: Href;
   time: string;
   title: string;
-};
-
-type QuickAction = {
-  icon: keyof typeof Ionicons.glyphMap;
-  id: string;
-  label: string;
-  route: Href;
 };
 
 const todayFormatter = new Intl.DateTimeFormat("en-US", {
@@ -190,19 +173,17 @@ const formatTimeAgo = (date: Date | null) => {
   return `${days}d ago`;
 };
 
-const formatShortDateTime = (date: Date | null) => {
-  if (!date) {
-    return "No recent activity";
+const formatOrderBadge = (orderId: string) => {
+  const rawOrderNumber = orderId.includes("_")
+    ? orderId.split("_").pop() || orderId
+    : orderId.replace(/^#?ORD-?/i, "");
+  const digits = rawOrderNumber.match(/\d+/g)?.pop();
+
+  if (!digits) {
+    return `#ORD-${orderId}`;
   }
 
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = date.getFullYear();
-
-  return `${day}/${month}/${year} ${date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
+  return `#ORD-${digits.slice(-3).padStart(3, "0")}`;
 };
 
 const toNumber = (amount: string) => {
@@ -393,7 +374,7 @@ const getApprovalMeta = (order: GroupedOrder, colors: AppColors) => {
       chipBg: "rgba(248,113,113,0.18)",
       chipColor: colors.accentCoral,
       description: "Requires manager follow-up",
-      icon: "alert-circle-outline" as const,
+      icon: "file-clock-outline" as const,
     };
   }
 
@@ -402,45 +383,18 @@ const getApprovalMeta = (order: GroupedOrder, colors: AppColors) => {
     chipBg: "rgba(234,179,8,0.18)",
     chipColor: colors.accentGold,
     description: "Waiting approval",
-    icon: "shield-checkmark-outline" as const,
+    icon: "file-clock-outline" as const,
   };
-};
-
-const getActiveOrderMeta = (status: GroupedOrder["status"], colors: AppColors) => {
-  switch (status) {
-    case "approved":
-      return {
-        bg: "rgba(96,165,250,0.18)",
-        color: colors.accentSky,
-        label: "Processing",
-      };
-    case "dispatched":
-      return {
-        bg: "rgba(16,185,129,0.18)",
-        color: colors.accentGreen,
-        label: "Dispatched",
-      };
-    case "rejected":
-      return {
-        bg: "rgba(248,113,113,0.18)",
-        color: colors.accentCoral,
-        label: "Blocked",
-      };
-    default:
-      return {
-        bg: "rgba(234,179,8,0.18)",
-        color: colors.accentGold,
-        label: "In Review",
-      };
-  }
 };
 
 function SectionHeading({
   actionLabel,
+  icon,
   onActionPress,
   title,
 }: {
   actionLabel?: string;
+  icon?: keyof typeof Ionicons.glyphMap;
   onActionPress?: () => void;
   title: string;
 }) {
@@ -451,21 +405,29 @@ function SectionHeading({
         flexDirection: "row",
         justifyContent: "space-between",
         marginBottom: 16,
-        paddingHorizontal: 2,
+        paddingHorizontal: 4,
       }}
     >
-      <View style={{ alignItems: "center", flexDirection: "row", gap: 6 }}>
+      <View style={{ alignItems: "center", flexDirection: "row", gap: 4 }}>
+        {icon ? (
+          <Ionicons
+            color="rgba(255,255,255,0.62)"
+            name={icon}
+            size={20}
+            strokeWidth={2.5}
+          />
+        ) : null}
         <Text
           style={{
             color: "#ffffff",
             fontFamily: omaTypography.bold,
-            fontSize: 19,
-            letterSpacing: -0.5,
+            fontSize: 22,
+            letterSpacing: -0.6,
           }}
         >
           {title}
         </Text>
-        <Ionicons color="rgba(255,255,255,0.4)" name="chevron-forward" size={17} />
+        <Ionicons color="#71717a" name="chevron-forward" size={22} strokeWidth={2.5} />
       </View>
 
       {actionLabel ? (
@@ -476,16 +438,19 @@ function SectionHeading({
         >
           <Text
             style={{
-              color: "#ffffff",
+              color:
+                actionLabel === "See all"
+                  ? "rgba(255,255,255,0.62)"
+                  : "#ffffff",
               fontFamily: omaTypography.semibold,
-              fontSize: 13,
+              fontSize: 14,
             }}
           >
             {actionLabel}
           </Text>
         </TouchableOpacity>
       ) : (
-        <Ionicons color="rgba(255,255,255,0.32)" name="ellipsis-horizontal" size={18} />
+        <Ionicons color="#52525b" name="ellipsis-horizontal" size={20} />
       )}
     </View>
   );
@@ -526,7 +491,7 @@ function RecentOrderCard({
       borderWidth: 1,
       borderColor: "rgba(255,255,255,0.04)",
       marginRight: 14,
-      padding: 18,
+      padding: 20,
       width: 240,
     },
     rowBetween: {
@@ -536,26 +501,31 @@ function RecentOrderCard({
       marginBottom: 16,
     },
     badge: {
-      backgroundColor: "rgba(255,255,255,0.06)",
-      borderRadius: 8,
-      color: "#c4c5cc",
-      fontFamily: omaTypography.bold,
+      backgroundColor: "rgba(39,39,42,0.5)",
+      borderRadius: 6,
+      color: "#a1a1aa",
+      fontFamily: omaTypography.semibold,
       fontSize: 12,
+      includeFontPadding: false,
+      lineHeight: 15,
       paddingHorizontal: 8,
-      paddingVertical: 4,
+      paddingVertical: 2,
     },
     time: {
-      color: "rgba(255,255,255,0.34)",
+      color: "#71717a",
       fontFamily: omaTypography.medium,
       fontSize: 12,
+      includeFontPadding: false,
+      lineHeight: 15,
+      marginLeft: 8,
     },
     customer: {
       color: "#ffffff",
-      fontFamily: omaTypography.bold,
+      fontFamily: omaTypography.semibold,
       fontSize: 20,
-      letterSpacing: -0.6,
+      letterSpacing: -0.5,
       lineHeight: 24,
-      marginBottom: 7,
+      marginBottom: 4,
     },
     statusRow: {
       alignItems: "center",
@@ -566,12 +536,15 @@ function RecentOrderCard({
     statusText: {
       fontFamily: omaTypography.semibold,
       fontSize: 13,
+      includeFontPadding: false,
+      letterSpacing: -0.3,
+      lineHeight: 16,
     },
     metrics: {
       borderTopWidth: 1,
-      borderTopColor: "rgba(255,255,255,0.05)",
+      borderTopColor: "rgba(255,255,255,0.04)",
       gap: 10,
-      paddingTop: 14,
+      paddingTop: 12,
     },
     metricRow: {
       alignItems: "center",
@@ -579,25 +552,31 @@ function RecentOrderCard({
       justifyContent: "space-between",
     },
     metricLabel: {
-      color: "rgba(255,255,255,0.55)",
+      color: "#a1a1aa",
       fontFamily: omaTypography.medium,
       fontSize: 14,
+      letterSpacing: -0.3,
     },
     metricValue: {
       color: "#ffffff",
-      fontFamily: omaTypography.bold,
+      fontFamily: omaTypography.semibold,
       fontSize: 14,
+      letterSpacing: -0.3,
     },
   });
 
   return (
     <TouchableOpacity activeOpacity={0.92} onPress={onPress} style={styles.card}>
       <View style={styles.rowBetween}>
-        <Text style={styles.badge}>#ORD-{order.orderId}</Text>
-        <Text style={styles.time}>{formatTimeAgo(order.createdAt)}</Text>
+        <Text ellipsizeMode="tail" numberOfLines={1} style={styles.badge}>
+          {formatOrderBadge(order.orderId)}
+        </Text>
+        <Text numberOfLines={1} style={styles.time}>
+          {formatTimeAgo(order.createdAt)}
+        </Text>
       </View>
 
-      <Text numberOfLines={2} style={styles.customer}>
+      <Text ellipsizeMode="tail" numberOfLines={2} style={styles.customer}>
         {order.customerName}
       </Text>
 
@@ -624,130 +603,20 @@ function RecentOrderCard({
   );
 }
 
-function MetricChip({
-  color,
-  icon,
-  label,
-  value,
-}: {
-  color: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value: string;
-}) {
-  return (
-    <View
-      style={{
-        backgroundColor: "rgba(255,255,255,0.06)",
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.04)",
-        marginRight: 12,
-        padding: 16,
-        width: 160,
-      }}
-    >
-      <View
-        style={{
-          alignItems: "center",
-          backgroundColor: `${color}20`,
-          borderRadius: 14,
-          height: 30,
-          justifyContent: "center",
-          marginBottom: 14,
-          width: 30,
-        }}
-      >
-        <Ionicons color={color} name={icon} size={15} />
-      </View>
-      <Text
-        style={{
-          color: "#ffffff",
-          fontFamily: omaTypography.bold,
-          fontSize: 20,
-          letterSpacing: -0.8,
-          marginBottom: 6,
-        }}
-      >
-        {value}
-      </Text>
-      <Text
-        style={{
-          color: "rgba(255,255,255,0.56)",
-          fontFamily: omaTypography.medium,
-          fontSize: 12,
-          lineHeight: 17,
-        }}
-      >
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-function QuickActionChip({
-  action,
-  onPress,
-}: {
-  action: QuickAction;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.88}
-      onPress={onPress}
-      style={{
-        alignItems: "center",
-        backgroundColor: "rgba(255,255,255,0.06)",
-        borderRadius: 18,
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.04)",
-        flexDirection: "row",
-        gap: 10,
-        marginRight: 10,
-        paddingHorizontal: 14,
-        paddingVertical: 11,
-      }}
-    >
-      <View
-        style={{
-          alignItems: "center",
-          backgroundColor: "rgba(255,255,255,0.08)",
-          borderRadius: 12,
-          height: 28,
-          justifyContent: "center",
-          width: 28,
-        }}
-      >
-        <Ionicons color="#ffffff" name={action.icon} size={14} />
-      </View>
-      <Text
-        style={{
-          color: "#ffffff",
-          fontFamily: omaTypography.semibold,
-          fontSize: 13,
-        }}
-      >
-        {action.label}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
 export default function MainScreen() {
   const { colors, isDark, toggleTheme } = useContext(ThemeContext);
   const { showFeedback } = useFeedback();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [lastLogin, setLastLogin] = useState<string | null>(null);
   const [activeOverlay, setActiveOverlay] = useState<OverlayName>(null);
-  const [searchQuery, setSearchQuery] = useState("");
 
   const displayName = userRole === "Manager" ? "Alex Carter" : "Sales Workspace";
-  const displayRole = userRole === "Manager" ? "Manager" : "User";
+  const displayRole = userRole === "Manager" ? "Owner" : "User";
+  const isDesktop = width >= 900;
   const todayLabel = todayFormatter.format(new Date()).toUpperCase();
 
   const loadDashboard = useCallback(
@@ -759,10 +628,7 @@ export default function MainScreen() {
           setLoading(true);
         }
 
-        const [storedRole, storedLastLogin] = await Promise.all([
-          AsyncStorage.getItem("userRole"),
-          AsyncStorage.getItem("lastLogin"),
-        ]);
+        const storedRole = await AsyncStorage.getItem("userRole");
 
         if (!storedRole) {
           router.replace("/(auth)/login");
@@ -770,7 +636,6 @@ export default function MainScreen() {
         }
 
         setUserRole(storedRole);
-        setLastLogin(storedLastLogin);
 
         const cachedPayload = apiCache.get("dashboardPayload");
         if (!forceRefresh && cachedPayload) {
@@ -835,146 +700,6 @@ export default function MainScreen() {
     }, [loadDashboard])
   );
 
-  const quickActions = useMemo<QuickAction[]>(() => {
-    if (userRole === "Manager") {
-      return [
-        {
-          id: "new-order",
-          label: "New Order",
-          icon: "document-text-outline",
-          route: "/(app)/new-order",
-        },
-        {
-          id: "process",
-          label: "Dispatch",
-          icon: "clipboard-outline",
-          route: "/(app)/process-orders",
-        },
-        {
-          id: "catalog",
-          label: "Catalog",
-          icon: "cube-outline",
-          route: "/(app)/products",
-        },
-        {
-          id: "ledger",
-          label: "Ledger",
-          icon: "wallet-outline",
-          route: "/(app)/customer-summary",
-        },
-      ];
-    }
-
-    return [
-      {
-        id: "new-order",
-        label: "New Order",
-        icon: "document-text-outline",
-        route: "/(app)/new-order",
-      },
-      {
-        id: "history",
-        label: "History",
-        icon: "time-outline",
-        route: "/(app)/my-orders",
-      },
-      {
-        id: "customers",
-        label: "Customers",
-        icon: "people-outline",
-        route: "/(app)/customers",
-      },
-      {
-        id: "catalog",
-        label: "Catalog",
-        icon: "cube-outline",
-        route: "/(app)/products",
-      },
-    ];
-  }, [userRole]);
-
-  const searchShortcuts = useMemo<ShortcutItem[]>(() => {
-    return [
-      {
-        id: "home",
-        label: "Dashboard",
-        hint: "Overview, metrics, and activity",
-        route: "/(app)/main",
-        icon: "home-outline",
-        keywords: "home dashboard overview revenue",
-      },
-      {
-        id: "new-order",
-        label: "New Order",
-        hint: "Create a fresh sales order",
-        route: "/(app)/new-order",
-        icon: "document-text-outline",
-        keywords: "new order create draft",
-      },
-      {
-        id: "process",
-        label: "Process Orders",
-        hint: "Dispatch and fulfillment queue",
-        route: "/(app)/process-orders",
-        icon: "clipboard-outline",
-        keywords: "dispatch process fulfillment queue",
-      },
-      {
-        id: "products",
-        label: "Products",
-        hint: "Browse product catalog",
-        route: "/(app)/products",
-        icon: "cube-outline",
-        keywords: "products catalog sku item",
-      },
-      {
-        id: "customers",
-        label: "Customers",
-        hint: "Contacts and account history",
-        route: "/(app)/customers",
-        icon: "people-outline",
-        keywords: "customers clients contacts history",
-      },
-      {
-        id: "orders",
-        label: "My Orders",
-        hint: "Search submitted orders",
-        route: "/(app)/my-orders",
-        icon: "receipt-outline",
-        keywords: "orders history submitted status",
-      },
-      {
-        id: "analytics",
-        label: "Analytics",
-        hint: "Performance snapshots",
-        route: "/(app)/analytics",
-        icon: "stats-chart-outline",
-        keywords: "analytics stats charts insights",
-        managerOnly: true,
-      },
-      {
-        id: "approvals",
-        label: "Approvals",
-        hint: "Manager review queue",
-        route: "/(app)/order-approval",
-        icon: "shield-checkmark-outline",
-        keywords: "manager approval blocked pending",
-        managerOnly: true,
-      },
-    ].filter((item) => !item.managerOnly || userRole === "Manager");
-  }, [userRole]);
-
-  const filteredSearchShortcuts = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) {
-      return searchShortcuts;
-    }
-
-    return searchShortcuts.filter((item) =>
-      `${item.label} ${item.hint} ${item.keywords}`.toLowerCase().includes(query)
-    );
-  }, [searchQuery, searchShortcuts]);
-
   const notificationItems = useMemo<NotificationItem[]>(() => {
     if (!payload) {
       return [];
@@ -1021,43 +746,6 @@ export default function MainScreen() {
     return items;
   }, [colors.accentGold, colors.accentGreen, colors.accentSky, payload]);
 
-  const metricCards = useMemo(() => {
-    if (!payload) {
-      return [];
-    }
-
-    return [
-      {
-        id: "customers",
-        label: "Active Customers",
-        value: String(payload.totalCustomers),
-        icon: "people-outline" as const,
-        color: colors.accentSky,
-      },
-      {
-        id: "average",
-        label: "Avg Order Value",
-        value: `₹${formatIndianCurrency(payload.averageOrderValue)}`,
-        icon: "cash-outline" as const,
-        color: colors.accentGold,
-      },
-      {
-        id: "pipeline",
-        label: "Open Pipeline",
-        value: `₹${formatIndianCurrency(payload.openPipelineValue)}`,
-        icon: "pulse-outline" as const,
-        color: colors.accentGreen,
-      },
-      {
-        id: "recent",
-        label: "Orders in 7 Days",
-        value: String(payload.recentOrders),
-        icon: "time-outline" as const,
-        color: colors.accentCoral,
-      },
-    ];
-  }, [colors, payload]);
-
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -1066,23 +754,20 @@ export default function MainScreen() {
           flex: 1,
         },
         scrollContent: {
-          paddingBottom: 36,
-        },
-        topGlow: {
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 260,
-          backgroundColor: "rgba(255,255,255,0.02)",
+          alignItems: "center",
+          paddingBottom: isDesktop ? 112 : 188,
+          width: "100%",
         },
         header: {
           alignItems: "center",
+          alignSelf: "center",
           flexDirection: "row",
           justifyContent: "space-between",
-          paddingHorizontal: 24,
-          paddingTop: insets.top + 12,
-          paddingBottom: 8,
+          maxWidth: isDesktop ? 1120 : 414,
+          paddingBottom: isDesktop ? 18 : 8,
+          paddingHorizontal: isDesktop ? 32 : 24,
+          paddingTop: isDesktop ? Math.max(insets.top, 0) + 32 : Math.max(insets.top, 0) + 56,
+          width: "100%",
         },
         profileButton: {
           alignItems: "center",
@@ -1093,11 +778,8 @@ export default function MainScreen() {
           width: 38,
           height: 38,
           borderRadius: 19,
-          backgroundColor: "rgba(255,255,255,0.08)",
           borderWidth: 1,
           borderColor: "rgba(255,255,255,0.08)",
-          alignItems: "center",
-          justifyContent: "center",
         },
         avatarText: {
           color: "#ffffff",
@@ -1105,7 +787,7 @@ export default function MainScreen() {
           fontSize: 16,
         },
         roleLabel: {
-          color: "rgba(255,255,255,0.46)",
+          color: "#a1a1aa",
           fontFamily: omaTypography.medium,
           fontSize: 13,
           marginBottom: 1,
@@ -1117,92 +799,76 @@ export default function MainScreen() {
         },
         nameText: {
           color: "#ffffff",
-          fontFamily: omaTypography.bold,
+          fontFamily: omaTypography.semibold,
           fontSize: 17,
           letterSpacing: -0.3,
         },
         utilityPillWrap: {
-          borderRadius: 26,
-          overflow: "hidden",
-        },
-        utilityPillFill: {
-          ...StyleSheet.absoluteFillObject,
-        },
-        utilityPillHighlight: {
-          position: "absolute",
-          top: 1,
-          left: 14,
-          right: 14,
-          height: 16,
           borderRadius: 999,
-          backgroundColor: "rgba(255,255,255,0.08)",
         },
         utilityPill: {
           alignItems: "center",
-          backgroundColor: "rgba(52,52,56,0.56)",
-          borderRadius: 26,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.14)",
+          backgroundColor: colors.appChromeMuted,
+          borderRadius: 999,
           flexDirection: "row",
           gap: 18,
-          height: 52,
-          paddingHorizontal: 16,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
         },
         titleSection: {
-          marginTop: 20,
-          paddingHorizontal: 24,
+          marginTop: isDesktop ? 0 : 24,
+          paddingHorizontal: isDesktop ? 0 : 20,
         },
         section: {
-          marginTop: 24,
-          paddingHorizontal: 24,
+          marginTop: 32,
+          paddingHorizontal: isDesktop ? 0 : 20,
         },
-        searchCard: {
-          alignItems: "center",
-          backgroundColor: colors.appChromeElevated,
-          borderRadius: 22,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
-          flexDirection: "row",
-          gap: 12,
-          paddingHorizontal: 16,
-          paddingVertical: 14,
+        contentShell: {
+          alignSelf: "center",
+          flexDirection: isDesktop ? "row" : "column",
+          flexWrap: isDesktop ? "wrap" : "nowrap",
+          gap: isDesktop ? 32 : 0,
+          maxWidth: isDesktop ? 1120 : 414,
+          paddingHorizontal: isDesktop ? 32 : 0,
+          width: "100%",
         },
-        searchText: {
-          color: "rgba(255,255,255,0.54)",
-          flex: 1,
-          fontFamily: omaTypography.medium,
-          fontSize: 15,
+        desktopPrimaryPanel: {
+          marginTop: 0,
+          width: "58%",
         },
-        actionRail: {
-          paddingTop: 16,
-          paddingBottom: 2,
+        desktopSidePanel: {
+          marginTop: 0,
+          width: "38%",
+        },
+        desktopFullPanel: {
+          marginTop: 0,
+          width: "100%",
+        },
+        desktopCatalogPanel: {
+          marginTop: 0,
+          width: "38%",
         },
         dashboardCard: {
           backgroundColor: colors.appChromeElevated,
-          borderRadius: 28,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
-          paddingHorizontal: 18,
-          paddingVertical: 20,
+          borderRadius: 24,
+          paddingHorizontal: 20,
+          paddingTop: 20,
+          paddingBottom: 20,
         },
         dateLabel: {
           color: colors.accentGold,
           fontFamily: omaTypography.bold,
           fontSize: 12,
-          letterSpacing: 1.1,
+          letterSpacing: 0.96,
+          lineHeight: 18,
           marginBottom: 16,
           textTransform: "uppercase",
-        },
-        divider: {
-          height: 1,
-          backgroundColor: "rgba(255,255,255,0.1)",
-          marginBottom: 16,
         },
         metricRow: {
           alignItems: "center",
           flexDirection: "row",
           justifyContent: "space-between",
-          marginBottom: 18,
+          marginBottom: 20,
           paddingLeft: 14,
           position: "relative",
         },
@@ -1211,46 +877,50 @@ export default function MainScreen() {
           left: 0,
           top: 0,
           bottom: 0,
-          width: 4,
+          width: 3,
           borderRadius: 999,
         },
         metricLabel: {
           fontFamily: omaTypography.medium,
           fontSize: 17,
-          letterSpacing: -0.2,
+          letterSpacing: -0.4,
+          lineHeight: 24,
         },
         metricSub: {
           fontFamily: omaTypography.medium,
           fontSize: 13,
+          lineHeight: 17,
           marginTop: 3,
         },
         metricValue: {
           fontFamily: omaTypography.bold,
           fontSize: 15,
+          letterSpacing: -0.2,
+          lineHeight: 24,
+          opacity: 0.9,
         },
         mutedHeader: {
-          color: "rgba(255,255,255,0.36)",
+          color: "#71717a",
           fontFamily: omaTypography.bold,
           fontSize: 12,
-          letterSpacing: 1.1,
-          marginBottom: 18,
-          marginTop: 8,
+          letterSpacing: 0.96,
+          lineHeight: 18,
+          marginBottom: 16,
+          marginTop: 32,
           textTransform: "uppercase",
         },
         approvalsCard: {
           backgroundColor: colors.appChromeElevated,
           borderRadius: 24,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
           overflow: "hidden",
-          paddingHorizontal: 4,
+          padding: 8,
         },
         approvalRow: {
           alignItems: "flex-start",
           borderBottomWidth: 1,
-          borderBottomColor: "rgba(255,255,255,0.08)",
+          borderBottomColor: "rgba(255,255,255,0.06)",
           flexDirection: "row",
-          gap: 14,
+          gap: 16,
           paddingHorizontal: 14,
           paddingVertical: 14,
         },
@@ -1260,218 +930,107 @@ export default function MainScreen() {
           borderRadius: 14,
           alignItems: "center",
           justifyContent: "center",
-          marginTop: 1,
+          marginTop: 2,
         },
         approvalTitleRow: {
           alignItems: "flex-start",
           flexDirection: "row",
           justifyContent: "space-between",
-          marginBottom: 3,
+          marginBottom: 2,
         },
         approvalClient: {
           color: "#ffffff",
-          fontFamily: omaTypography.semibold,
+          flex: 1,
+          fontFamily: omaTypography.regular,
           fontSize: 17,
-          letterSpacing: -0.3,
+          letterSpacing: -0.4,
+          lineHeight: 21,
+          minWidth: 0,
         },
         approvalAmount: {
-          fontFamily: omaTypography.bold,
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
           fontSize: 15,
           marginLeft: 12,
         },
         approvalDescription: {
           fontFamily: omaTypography.medium,
           fontSize: 13,
-          letterSpacing: -0.1,
+          letterSpacing: -0.3,
+          lineHeight: 17,
         },
         approvalFooterRow: {
-          alignItems: "center",
+          alignItems: "flex-start",
           flexDirection: "row",
-          gap: 12,
-          paddingHorizontal: 16,
-          paddingVertical: 16,
+          gap: 16,
+          paddingHorizontal: 14,
+          paddingVertical: 14,
         },
-        approvalFooterText: {
-          color: "rgba(255,255,255,0.36)",
-          fontFamily: omaTypography.semibold,
-          fontSize: 15,
-        },
-        metricRail: {
-          paddingBottom: 2,
-        },
-        orderRail: {
-          paddingBottom: 4,
-        },
-        spotlightCard: {
-          backgroundColor: colors.appChromeElevated,
-          borderRadius: 24,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
-          padding: 18,
-        },
-        spotlightHeader: {
-          alignItems: "center",
-          flexDirection: "row",
-          justifyContent: "space-between",
-          marginBottom: 18,
-        },
-        spotlightEyebrow: {
-          color: "rgba(255,255,255,0.42)",
-          fontFamily: omaTypography.bold,
-          fontSize: 11,
-          letterSpacing: 0.9,
-          marginBottom: 4,
-          textTransform: "uppercase",
-        },
-        spotlightTitle: {
-          color: "#ffffff",
-          fontFamily: omaTypography.bold,
-          fontSize: 18,
-          letterSpacing: -0.4,
-        },
-        spotlightStatus: {
-          borderRadius: 14,
-          paddingHorizontal: 12,
-          paddingVertical: 7,
-        },
-        spotlightStatusText: {
-          fontFamily: omaTypography.bold,
-          fontSize: 12,
-        },
-        spotlightMetaRow: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-          marginBottom: 18,
-        },
-        spotlightMetaLabel: {
-          color: "rgba(255,255,255,0.44)",
-          fontFamily: omaTypography.medium,
-          fontSize: 11,
-          marginBottom: 5,
-          textTransform: "uppercase",
-        },
-        spotlightMetaValue: {
-          color: "#ffffff",
-          fontFamily: omaTypography.semibold,
-          fontSize: 14,
-          maxWidth: 160,
-        },
-        spotlightMetaSub: {
-          color: "rgba(255,255,255,0.52)",
-          fontFamily: omaTypography.medium,
-          fontSize: 12,
-          marginTop: 4,
-        },
-        timelineCard: {
-          backgroundColor: "rgba(255,255,255,0.04)",
-          borderRadius: 18,
-          padding: 16,
-        },
-        timelineTrack: {
-          position: "absolute",
-          top: 28,
-          left: 30,
-          right: 30,
-          height: 3,
-          borderRadius: 999,
-          backgroundColor: "rgba(255,255,255,0.08)",
-        },
-        timelineProgress: {
-          position: "absolute",
-          top: 28,
-          left: 30,
-          height: 3,
-          borderRadius: 999,
-          backgroundColor: "#ffffff",
-        },
-        timelineRow: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-        },
-        timelineItem: {
-          alignItems: "center",
-          width: "33%",
-        },
-        timelineDot: {
+        approvalFooterIconWrap: {
           alignItems: "center",
           borderRadius: 14,
           height: 28,
           justifyContent: "center",
+          marginTop: 2,
           width: 28,
-          zIndex: 1,
         },
-        timelineTitle: {
-          color: "#ffffff",
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
-          marginTop: 11,
+        approvalFooterContent: {
+          height: 28,
+          justifyContent: "center",
+          marginTop: 2,
+          minWidth: 0,
         },
-        timelineSub: {
-          color: "rgba(255,255,255,0.5)",
+        approvalFooterText: {
+          color: "#71717a",
           fontFamily: omaTypography.medium,
-          fontSize: 10,
-          lineHeight: 14,
-          marginTop: 4,
-          paddingHorizontal: 6,
-          textAlign: "center",
+          fontSize: 15,
+          letterSpacing: -0.3,
+        },
+        orderRail: {
+          paddingBottom: 24,
         },
         activityCard: {
           backgroundColor: colors.appChromeElevated,
           borderRadius: 24,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
           overflow: "hidden",
-          paddingHorizontal: 4,
+          padding: 8,
         },
         activityRow: {
           alignItems: "center",
           borderBottomWidth: 1,
-          borderBottomColor: "rgba(255,255,255,0.08)",
+          borderBottomColor: "rgba(255,255,255,0.06)",
           flexDirection: "row",
-          justifyContent: "space-between",
+          gap: 16,
           paddingHorizontal: 14,
           paddingVertical: 14,
         },
         activityLeft: {
           alignItems: "center",
           flexDirection: "row",
-          gap: 12,
+          gap: 16,
           flex: 1,
-          paddingRight: 12,
         },
         activityIconWrap: {
-          width: 38,
-          height: 38,
-          borderRadius: 19,
-          backgroundColor: "rgba(255,255,255,0.06)",
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          borderWidth: 1,
           alignItems: "center",
           justifyContent: "center",
         },
         activityTitle: {
           color: "#ffffff",
-          fontFamily: omaTypography.semibold,
-          fontSize: 14,
-          marginBottom: 4,
+          fontFamily: omaTypography.medium,
+          fontSize: 15,
+          letterSpacing: -0.3,
+          marginBottom: 2,
         },
         activityBody: {
-          color: "rgba(255,255,255,0.56)",
+          color: "#71717a",
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
           lineHeight: 17,
-        },
-        activityTime: {
-          color: "rgba(255,255,255,0.42)",
-          fontFamily: omaTypography.medium,
-          fontSize: 11,
-        },
-        footerHint: {
-          color: "rgba(255,255,255,0.44)",
-          fontFamily: omaTypography.medium,
-          fontSize: 12,
-          lineHeight: 18,
-          marginTop: 24,
-          paddingHorizontal: 24,
-          textAlign: "center",
+          letterSpacing: -0.3,
         },
         centered: {
           alignItems: "center",
@@ -1556,105 +1115,13 @@ export default function MainScreen() {
           letterSpacing: 0.8,
           textTransform: "uppercase",
         },
-        searchInputCard: {
-          alignItems: "center",
-          backgroundColor: "rgba(255,255,255,0.06)",
-          borderRadius: 18,
-          flexDirection: "row",
-          gap: 12,
-          marginBottom: 18,
-          paddingHorizontal: 16,
-          paddingVertical: 14,
-        },
-        searchInput: {
-          color: "#ffffff",
-          flex: 1,
-          fontFamily: omaTypography.semibold,
-          fontSize: 15,
-          paddingVertical: 0,
-        },
-        sheetLabel: {
-          color: "rgba(255,255,255,0.46)",
-          fontFamily: omaTypography.bold,
-          fontSize: 11,
-          letterSpacing: 1,
-          marginBottom: 12,
-          textTransform: "uppercase",
-        },
-        searchGrid: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-        },
-        searchCardResult: {
-          backgroundColor: "rgba(255,255,255,0.06)",
-          borderRadius: 18,
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
-          marginBottom: 12,
-          minHeight: 120,
-          padding: 14,
-          width: "48%",
-        },
-        searchCardIconWrap: {
-          alignItems: "center",
-          backgroundColor: "rgba(255,255,255,0.08)",
-          borderRadius: 12,
-          height: 28,
-          justifyContent: "center",
-          marginBottom: 12,
-          width: 28,
-        },
-        searchCardTitle: {
-          color: "#ffffff",
-          fontFamily: omaTypography.semibold,
-          fontSize: 14,
-          marginBottom: 5,
-        },
-        searchCardHint: {
-          color: "rgba(255,255,255,0.56)",
-          fontFamily: omaTypography.medium,
-          fontSize: 12,
-          lineHeight: 17,
-        },
-        searchRowResult: {
-          alignItems: "center",
-          backgroundColor: "rgba(255,255,255,0.06)",
-          borderRadius: 18,
-          flexDirection: "row",
-          gap: 12,
-          marginBottom: 10,
-          paddingHorizontal: 14,
-          paddingVertical: 14,
-        },
-        searchRowIcon: {
-          alignItems: "center",
-          backgroundColor: "rgba(255,255,255,0.08)",
-          borderRadius: 14,
-          height: 34,
-          justifyContent: "center",
-          width: 34,
-        },
-        searchRowTitle: {
-          color: "#ffffff",
-          fontFamily: omaTypography.semibold,
-          fontSize: 14,
-          marginBottom: 3,
-        },
-        searchRowHint: {
-          color: "rgba(255,255,255,0.56)",
-          fontFamily: omaTypography.medium,
-          fontSize: 12,
-          lineHeight: 16,
-        },
       }),
-    [colors, insets.top]
+    [colors, insets.top, isDesktop]
   );
 
   if (loading && !payload) {
     return (
       <View style={styles.container}>
-        <View style={styles.topGlow} />
         <View style={styles.centered}>
           <ActivityIndicator color="#ffffff" size="large" />
           <Text style={styles.loadingText}>
@@ -1668,7 +1135,6 @@ export default function MainScreen() {
   if (!payload || !userRole) {
     return (
       <View style={styles.container}>
-        <View style={styles.topGlow} />
         <View style={styles.centered}>
           <Ionicons color="rgba(255,255,255,0.42)" name="cloud-offline-outline" size={44} />
           <Text style={styles.loadingText}>
@@ -1680,20 +1146,9 @@ export default function MainScreen() {
   }
 
   const approvalPreview = payload.approvalOrders.slice(0, 2);
-  const activeOrderMeta = payload.currentOrder
-    ? getActiveOrderMeta(payload.currentOrder.status, colors)
-    : null;
-  const activeOrderProgress =
-    payload.currentOrder?.status === "dispatched"
-      ? 1
-      : payload.currentOrder?.status === "approved"
-      ? 0.66
-      : 0.33;
 
   return (
     <View style={styles.container}>
-      <View style={styles.topGlow} />
-
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -1712,11 +1167,10 @@ export default function MainScreen() {
             onPress={() => setActiveOverlay("profile")}
             style={styles.profileButton}
           >
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {displayName.slice(0, 1).toUpperCase()}
-              </Text>
-            </View>
+            <Image
+              source={{ uri: "https://i.pravatar.cc/150?img=11" }}
+              style={styles.avatar}
+            />
             <View>
               <View style={styles.roleRow}>
                 <Text style={styles.roleLabel}>{displayRole}</Text>
@@ -1731,12 +1185,6 @@ export default function MainScreen() {
           </TouchableOpacity>
 
           <View style={styles.utilityPillWrap}>
-            <BlurView
-              intensity={74}
-              style={styles.utilityPillFill}
-              tint={isDark ? "dark" : "light"}
-            />
-            <View pointerEvents="none" style={styles.utilityPillHighlight} />
             <View style={styles.utilityPill}>
               {userRole === "Manager" ? (
                 <TouchableOpacity
@@ -1747,6 +1195,7 @@ export default function MainScreen() {
                     color="rgba(255,255,255,0.75)"
                     name="stats-chart-outline"
                     size={18}
+                    strokeWidth={2.2}
                   />
                 </TouchableOpacity>
               ) : null}
@@ -1758,54 +1207,21 @@ export default function MainScreen() {
                   color="rgba(255,255,255,0.82)"
                   name="notifications-outline"
                   size={18}
+                  strokeWidth={2.2}
                 />
               </TouchableOpacity>
             </View>
           </View>
         </View>
 
-        <View style={styles.titleSection}>
+        <View style={styles.contentShell}>
+        <View style={[styles.titleSection, isDesktop && styles.desktopPrimaryPanel]}>
           <SectionHeading title="Dashboard" />
-        </View>
 
-        <View style={styles.section}>
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() => setActiveOverlay("search")}
-            style={styles.searchCard}
-          >
-            <Ionicons color={colors.accentGold} name="search-outline" size={18} />
-            <Text style={styles.searchText}>
-              Search screens, actions, orders, and customers...
-            </Text>
-            <Ionicons
-              color="rgba(255,255,255,0.36)"
-              name="chevron-forward"
-              size={16}
-            />
-          </TouchableOpacity>
-
-          <ScrollView
-            contentContainerStyle={styles.actionRail}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-          >
-            {quickActions.map((action) => (
-              <QuickActionChip
-                action={action}
-                key={action.id}
-                onPress={() => router.push(action.route)}
-              />
-            ))}
-          </ScrollView>
-        </View>
-
-        <View style={styles.section}>
           <View style={styles.dashboardCard}>
             <Text style={styles.dateLabel}>{todayLabel}</Text>
-            <View style={styles.divider} />
 
-            <View style={styles.metricRow}>
+            <View style={[styles.metricRow, { marginBottom: 0 }]}>
               <View
                 style={[
                   styles.metricBar,
@@ -1813,7 +1229,7 @@ export default function MainScreen() {
                 ]}
               />
               <Text style={[styles.metricLabel, { color: colors.accentGold }]}>
-                Today&apos;s Revenue
+                Today's Revenue
               </Text>
               <Text style={[styles.metricValue, { color: colors.accentGold }]}>
                 ₹{formatIndianCurrency(payload.todayValue)}
@@ -1822,7 +1238,7 @@ export default function MainScreen() {
 
             <Text style={styles.mutedHeader}>Active Pipeline</Text>
 
-            <View style={styles.metricRow}>
+            <View style={[styles.metricRow, { marginBottom: 16 }]}>
               <View
                 style={[
                   styles.metricBar,
@@ -1859,7 +1275,7 @@ export default function MainScreen() {
           </View>
         </View>
 
-        <View style={styles.section}>
+        <View style={[styles.section, { marginTop: 32 }, isDesktop && styles.desktopSidePanel]}>
           <SectionHeading title="Approvals" />
           <View style={styles.approvalsCard}>
             {approvalPreview.length > 0 ? (
@@ -1870,35 +1286,43 @@ export default function MainScreen() {
                     activeOpacity={0.88}
                     key={order.orderId}
                     onPress={() => router.push("/(app)/order-approval")}
-                    style={[
-                      styles.approvalRow,
-                      index === approvalPreview.length - 1 &&
-                        payload.approvalOrders.length <= 2 && {
-                          borderBottomWidth: 0,
-                        },
-                    ]}
+                    style={styles.approvalRow}
                   >
                     <View
                       style={[
                         styles.approvalIconWrap,
-                        { backgroundColor: meta.chipBg },
+                        {
+                          backgroundColor: meta.chipBg,
+                          borderColor: `${meta.chipColor}4D`,
+                          borderWidth: 1,
+                        },
                       ]}
                     >
-                      <Ionicons color={meta.chipColor} name={meta.icon} size={15} />
+                      <Ionicons
+                        color={meta.chipColor}
+                        name={meta.icon}
+                        size={14}
+                        strokeWidth={2.5}
+                      />
                     </View>
                     <View style={{ flex: 1 }}>
                       <View style={styles.approvalTitleRow}>
-                        <Text style={styles.approvalClient}>{order.customerName}</Text>
                         <Text
-                          style={[
-                            styles.approvalAmount,
-                            { color: meta.amountColor },
-                          ]}
+                          ellipsizeMode="tail"
+                          numberOfLines={1}
+                          style={styles.approvalClient}
+                        >
+                          {order.customerName}
+                        </Text>
+                        <Text
+                          style={styles.approvalAmount}
                         >
                           ₹{formatIndianCurrency(order.totalAmount)}
                         </Text>
                       </View>
                       <Text
+                        ellipsizeMode="tail"
+                        numberOfLines={1}
                         style={[
                           styles.approvalDescription,
                           { color: meta.amountColor },
@@ -1916,17 +1340,27 @@ export default function MainScreen() {
                   style={[
                     styles.approvalIconWrap,
                     { backgroundColor: "rgba(16,185,129,0.18)" },
+                    { borderColor: "rgba(16,185,129,0.3)", borderWidth: 1 },
                   ]}
                 >
                   <Ionicons
                     color={colors.accentGreen}
                     name="checkmark-circle-outline"
-                    size={15}
+                    size={14}
+                    strokeWidth={2.5}
                   />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.approvalClient}>No approvals pending</Text>
                   <Text
+                    ellipsizeMode="tail"
+                    numberOfLines={1}
+                    style={styles.approvalClient}
+                  >
+                    No approvals pending
+                  </Text>
+                  <Text
+                    ellipsizeMode="tail"
+                    numberOfLines={1}
                     style={[
                       styles.approvalDescription,
                       { color: "rgba(255,255,255,0.48)" },
@@ -1943,40 +1377,26 @@ export default function MainScreen() {
               onPress={() => router.push("/(app)/order-approval")}
               style={styles.approvalFooterRow}
             >
-              <Ionicons
-                color="rgba(255,255,255,0.36)"
-                name="chevron-forward"
-                size={18}
-              />
-              <Text style={styles.approvalFooterText}>
-                {payload.pendingApprovals > 0
-                  ? `View ${payload.pendingApprovals} more pending`
-                  : "Queue is clear"}
-              </Text>
+              <View style={styles.approvalFooterIconWrap}>
+                <Ionicons
+                  color="#71717a"
+                  name="chevron-forward-circle-outline"
+                  size={20}
+                  strokeWidth={2}
+                />
+              </View>
+              <View style={styles.approvalFooterContent}>
+                <Text style={styles.approvalFooterText}>
+                  {payload.pendingApprovals > 0
+                    ? `View ${payload.pendingApprovals} more pending`
+                    : "Queue is clear"}
+                </Text>
+              </View>
             </TouchableOpacity>
           </View>
         </View>
 
-        <View style={styles.section}>
-          <SectionHeading actionLabel="Live" title="Key Metrics" />
-          <ScrollView
-            contentContainerStyle={styles.metricRail}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-          >
-            {metricCards.map((metric) => (
-              <MetricChip
-                color={metric.color}
-                icon={metric.icon}
-                key={metric.id}
-                label={metric.label}
-                value={metric.value}
-              />
-            ))}
-          </ScrollView>
-        </View>
-
-        <View style={styles.section}>
+        <View style={[styles.section, { marginTop: 32 }, isDesktop && styles.desktopFullPanel]}>
           <SectionHeading
             actionLabel="Recent"
             onActionPress={() => router.push("/(app)/my-orders")}
@@ -1999,145 +1419,10 @@ export default function MainScreen() {
           </ScrollView>
         </View>
 
-        {payload.currentOrder && activeOrderMeta ? (
-          <View style={styles.section}>
-            <SectionHeading
-              actionLabel="See all"
-              onActionPress={() => router.push("/(app)/my-orders")}
-              title="Active Order"
-            />
-
-            <View style={styles.spotlightCard}>
-              <View style={styles.spotlightHeader}>
-                <View>
-                  <Text style={styles.spotlightEyebrow}>Order ID</Text>
-                  <Text style={styles.spotlightTitle}>
-                    {payload.currentOrder.orderId}
-                  </Text>
-                </View>
-
-                <View
-                  style={[
-                    styles.spotlightStatus,
-                    { backgroundColor: activeOrderMeta.bg },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.spotlightStatusText,
-                      { color: activeOrderMeta.color },
-                    ]}
-                  >
-                    {activeOrderMeta.label}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.spotlightMetaRow}>
-                <View>
-                  <Text style={styles.spotlightMetaLabel}>Customer</Text>
-                  <Text style={styles.spotlightMetaValue}>
-                    {payload.currentOrder.customerName}
-                  </Text>
-                  <Text style={styles.spotlightMetaSub}>
-                    ₹{formatIndianCurrency(payload.currentOrder.totalAmount)}
-                  </Text>
-                </View>
-
-                <View style={{ alignItems: "flex-end" }}>
-                  <Text style={styles.spotlightMetaLabel}>Updated</Text>
-                  <Text style={styles.spotlightMetaValue}>
-                    {formatTimeAgo(payload.currentOrder.createdAt)}
-                  </Text>
-                  <Text style={styles.spotlightMetaSub}>
-                    {payload.currentOrder.dispatchedItems}/
-                    {payload.currentOrder.itemCount} items shipped
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.timelineCard}>
-                <View style={styles.timelineTrack} />
-                <View
-                  style={[
-                    styles.timelineProgress,
-                    { width: `${Math.max(18, activeOrderProgress * 100 - 8)}%` },
-                  ]}
-                />
-                <View style={styles.timelineRow}>
-                  {[
-                    {
-                      id: "drafted",
-                      label: "Drafted",
-                      active: true,
-                      sub: formatShortDateTime(payload.currentOrder.createdAt),
-                      color: "#ffffff",
-                    },
-                    {
-                      id: "approved",
-                      label: "Approved",
-                      active:
-                        payload.currentOrder.status === "approved" ||
-                        payload.currentOrder.status === "dispatched",
-                      sub:
-                        payload.currentOrder.status === "pending"
-                          ? "Waiting review"
-                          : `${payload.currentOrder.approvedItems} line items`,
-                      color:
-                        payload.currentOrder.status === "pending"
-                          ? colors.accentGold
-                          : "#ffffff",
-                    },
-                    {
-                      id: "shipped",
-                      label: "Shipped",
-                      active: payload.currentOrder.status === "dispatched",
-                      sub:
-                        payload.currentOrder.status === "dispatched"
-                          ? `${payload.currentOrder.dispatchedItems}/${payload.currentOrder.itemCount} done`
-                          : "Queued",
-                      color: colors.accentGreen,
-                    },
-                  ].map((step) => (
-                    <View key={step.id} style={styles.timelineItem}>
-                      <View
-                        style={[
-                          styles.timelineDot,
-                          {
-                            backgroundColor: step.active
-                              ? step.color
-                              : "rgba(255,255,255,0.06)",
-                            borderWidth: step.active ? 0 : 1,
-                            borderColor: "rgba(255,255,255,0.12)",
-                          },
-                        ]}
-                      >
-                        {step.active ? (
-                          <Ionicons color="#111111" name="checkmark" size={13} />
-                        ) : (
-                          <View
-                            style={{
-                              width: 6,
-                              height: 6,
-                              borderRadius: 3,
-                              backgroundColor: "rgba(255,255,255,0.44)",
-                            }}
-                          />
-                        )}
-                      </View>
-                      <Text style={styles.timelineTitle}>{step.label}</Text>
-                      <Text style={styles.timelineSub}>{step.sub}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
-            </View>
-          </View>
-        ) : null}
-
-        <View style={styles.section}>
+        <View style={[styles.section, { marginTop: 32 }, isDesktop && styles.desktopPrimaryPanel]}>
           <SectionHeading
             actionLabel="See all"
+            icon="pulse-outline"
             onActionPress={() => router.push("/(app)/my-orders")}
             title="Recent Activity"
           />
@@ -2154,7 +1439,15 @@ export default function MainScreen() {
                 ]}
               >
                 <View style={styles.activityLeft}>
-                  <View style={styles.activityIconWrap}>
+                  <View
+                    style={[
+                      styles.activityIconWrap,
+                      {
+                        backgroundColor: `${activity.iconColor}20`,
+                        borderColor: `${activity.iconColor}4D`,
+                      },
+                    ]}
+                  >
                     <Ionicons
                       color={activity.iconColor}
                       name={activity.icon}
@@ -2162,119 +1455,91 @@ export default function MainScreen() {
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.activityTitle}>{activity.title}</Text>
-                    <Text style={styles.activityBody}>{activity.description}</Text>
+                    <Text
+                      ellipsizeMode="tail"
+                      numberOfLines={1}
+                      style={styles.activityTitle}
+                    >
+                      {activity.title}
+                    </Text>
+                    <Text
+                      ellipsizeMode="tail"
+                      numberOfLines={1}
+                      style={styles.activityBody}
+                    >
+                      {activity.timeLabel} - {activity.description}
+                    </Text>
                   </View>
                 </View>
-                <Text style={styles.activityTime}>{activity.timeLabel}</Text>
               </View>
             ))}
           </View>
         </View>
 
-        <Text style={styles.footerHint}>
-          Last login: {formatShortDateTime(parseIndianDate(lastLogin || ""))} ·
-          Last sync {formatTimeAgo(parseIndianDate(payload.lastUpdatedAt))}
-        </Text>
-      </ScrollView>
-
-      <OmaBottomSheet
-        maxHeight="72%"
-        onClose={() => {
-          setActiveOverlay(null);
-          setSearchQuery("");
-        }}
-        subtitle="Find screens, flows, and actions without leaving the home context."
-        title="Search Workspace"
-        visible={activeOverlay === "search"}
-      >
-        <View style={styles.searchInputCard}>
-          <Ionicons color={colors.accentGold} name="search-outline" size={18} />
-          <TextInput
-            autoFocus
-            onChangeText={setSearchQuery}
-            placeholder="Search screens, orders, customers..."
-            placeholderTextColor="rgba(255,255,255,0.42)"
-            style={styles.searchInput}
-            value={searchQuery}
-          />
-          {searchQuery ? (
-            <TouchableOpacity
-              activeOpacity={0.82}
-              onPress={() => setSearchQuery("")}
+        <View style={[styles.section, { marginTop: 32, paddingBottom: 24 }, isDesktop && styles.desktopCatalogPanel]}>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => router.push("/(app)/products")}
+            style={{
+              backgroundColor: colors.appChromeElevated,
+              borderColor: "rgba(255,255,255,0.04)",
+              borderRadius: 24,
+              borderWidth: 1,
+              overflow: "hidden",
+              padding: 24,
+            }}
+          >
+            <View
+              style={{
+                pointerEvents: "none",
+                position: "absolute",
+                bottom: 0,
+                right: 0,
+                top: 0,
+                width: 128,
+                backgroundColor: "rgba(96,165,250,0.08)",
+              }}
+            />
+            <View
+              style={{
+                alignItems: "center",
+                flexDirection: "row",
+                justifyContent: "space-between",
+                marginBottom: 8,
+              }}
             >
-              <Ionicons
-                color="rgba(255,255,255,0.42)"
-                name="close-circle-outline"
-                size={18}
-              />
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
-        {!searchQuery.trim() ? (
-          <>
-            <Text style={styles.sheetLabel}>Quick Actions</Text>
-            <View style={styles.searchGrid}>
-              {searchShortcuts.slice(0, 6).map((item) => (
-                <TouchableOpacity
-                  activeOpacity={0.88}
-                  key={item.id}
-                  onPress={() => {
-                    setActiveOverlay(null);
-                    router.push(item.route);
-                  }}
-                  style={styles.searchCardResult}
-                >
-                  <View style={styles.searchCardIconWrap}>
-                    <Ionicons color="#ffffff" name={item.icon} size={15} />
-                  </View>
-                  <Text style={styles.searchCardTitle}>{item.label}</Text>
-                  <Text style={styles.searchCardHint}>{item.hint}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </>
-        ) : (
-          <>
-            <Text style={styles.sheetLabel}>Results</Text>
-            {filteredSearchShortcuts.map((item) => (
-              <TouchableOpacity
-                activeOpacity={0.88}
-                key={item.id}
-                onPress={() => {
-                  setActiveOverlay(null);
-                  setSearchQuery("");
-                  router.push(item.route);
+              <Text
+                style={{
+                  color: "#ffffff",
+                  fontFamily: omaTypography.bold,
+                  fontSize: 20,
+                  letterSpacing: -0.4,
                 }}
-                style={styles.searchRowResult}
               >
-                <View style={styles.searchRowIcon}>
-                  <Ionicons color="#ffffff" name={item.icon} size={15} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.searchRowTitle}>{item.label}</Text>
-                  <Text style={styles.searchRowHint}>{item.hint}</Text>
-                </View>
-                <Ionicons
-                  color="rgba(255,255,255,0.34)"
-                  name="chevron-forward"
-                  size={16}
-                />
-              </TouchableOpacity>
-            ))}
-            {filteredSearchShortcuts.length === 0 ? (
-              <View style={styles.sheetHero}>
-                <Text style={styles.sheetHeroTitle}>No matches found</Text>
-                <Text style={styles.sheetHeroBody}>
-                  Try searching for orders, customers, approvals, analytics, or
-                  dispatch.
-                </Text>
-              </View>
-            ) : null}
-          </>
-        )}
-      </OmaBottomSheet>
+                Product Catalog
+              </Text>
+              <Ionicons
+                color="#71717a"
+                name="chevron-forward"
+                size={20}
+              />
+            </View>
+            <Text
+              style={{
+                color: "#a1a1aa",
+                fontFamily: omaTypography.medium,
+                fontSize: 14,
+                letterSpacing: -0.3,
+                lineHeight: 19,
+                maxWidth: 200,
+              }}
+            >
+              Manage inventory, pricing, and 142 active SKUs.
+            </Text>
+          </TouchableOpacity>
+        </View>
+        </View>
+      </ScrollView>
 
       <OmaBottomSheet
         maxHeight="56%"
@@ -2330,7 +1595,7 @@ export default function MainScreen() {
         <View style={styles.sheetHero}>
           <Text style={styles.sheetHeroTitle}>{displayName}</Text>
           <Text style={styles.sheetHeroBody}>
-            {displayRole} session using the latest mobile dashboard shell.
+            {displayRole} session using the redesigned OMA workspace.
           </Text>
         </View>
 

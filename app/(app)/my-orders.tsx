@@ -117,11 +117,11 @@ const FILTER_OPTIONS: {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
 }[] = [
-  { id: "all", label: "All", icon: "apps-outline" },
-  { id: "pending", label: "Processing", icon: "hourglass-outline" },
-  { id: "approved", label: "Approved", icon: "checkmark-circle-outline" },
-  { id: "dispatched", label: "Dispatched", icon: "paper-plane-outline" },
-  { id: "rejected", label: "Rejected", icon: "close-circle-outline" },
+  { id: "all", label: "All Orders", icon: "apps-outline" },
+  { id: "pending", label: "Drafts", icon: "hourglass-outline" },
+  { id: "approved", label: "Processing", icon: "checkmark-circle-outline" },
+  { id: "rejected", label: "Incomplete", icon: "close-circle-outline" },
+  { id: "dispatched", label: "Delivered", icon: "paper-plane-outline" },
 ];
 
 const monthLabels = [
@@ -270,8 +270,8 @@ export default function MyOrdersScreen() {
   const isDark = theme === "dark";
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const activeSurfaceColor = colors.navActive;
-  const activeContentColor = isDark ? colors.background : colors.card;
+  const activeSurfaceColor = "#ffffff";
+  const activeContentColor = "#000000";
   const activeAccentMuted = hexToRgba(activeContentColor, isDark ? 0.12 : 0.16);
 
   const [orders, setOrders] = useState<GroupedOrder[]>([]);
@@ -281,7 +281,7 @@ export default function MyOrdersScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
 
-  const shellWidth = Math.min(width - 32, 460);
+  const shellWidth = Math.min(width - 40, 374);
 
   useEffect(() => {
     const initialize = async () => {
@@ -407,23 +407,6 @@ export default function MyOrdersScreen() {
     await loadOrders(userRole);
   };
 
-  const filterCounts = useMemo(() => {
-    return orders.reduce<Record<FilterStatus, number>>(
-      (counts, order) => {
-        counts.all += 1;
-        counts[order.status] += 1;
-        return counts;
-      },
-      {
-        all: 0,
-        pending: 0,
-        approved: 0,
-        rejected: 0,
-        dispatched: 0,
-      }
-    );
-  }, [orders]);
-
   const filteredOrders = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
 
@@ -482,23 +465,18 @@ export default function MyOrdersScreen() {
       StyleSheet.create({
         container: {
           flex: 1,
-          backgroundColor: colors.background,
+          backgroundColor: colors.appChrome,
         },
         topGlow: {
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 300,
-          backgroundColor: isDark ? "rgba(0,102,255,0.08)" : "#eef2f6",
+          display: "none",
         },
         listContent: {
+          paddingTop: insets.top + 8,
           paddingBottom: FLOATING_NAV_SPACE + Math.max(insets.bottom, 18),
         },
         headerShell: {
           alignSelf: "center",
-          paddingTop: insets.top + 18,
-          paddingBottom: 18,
+          paddingBottom: 0,
         },
         eyebrow: {
           color: colors.textSecondary,
@@ -510,19 +488,19 @@ export default function MyOrdersScreen() {
         },
         headingRow: {
           flexDirection: "row",
-          alignItems: "flex-start",
+          alignItems: "center",
           justifyContent: "space-between",
-          gap: 12,
+          marginBottom: 16,
         },
         titleWrap: {
           flex: 1,
         },
         title: {
-          color: colors.text,
+          color: "#ffffff",
           fontSize: 28,
-          lineHeight: 32,
-          letterSpacing: -1.1,
-          fontFamily: omaTypography.extrabold,
+          lineHeight: 34,
+          letterSpacing: -0.8,
+          fontFamily: omaTypography.bold,
         },
         subtitle: {
           color: colors.textSecondary,
@@ -532,19 +510,12 @@ export default function MyOrdersScreen() {
           marginTop: 10,
         },
         resultsPill: {
+          width: 36,
+          height: 36,
           borderRadius: 18,
-          paddingHorizontal: 12,
-          paddingVertical: 10,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
+          backgroundColor: colors.appChromeMuted,
           alignItems: "center",
           justifyContent: "center",
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 12 },
-          shadowOpacity: 1,
-          shadowRadius: 24,
-          elevation: 8,
         },
         resultsValue: {
           color: colors.text,
@@ -561,27 +532,22 @@ export default function MyOrdersScreen() {
           marginTop: 2,
         },
         searchShell: {
-          marginTop: 22,
-          height: 58,
-          borderRadius: 29,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.border,
+          height: 52,
+          borderRadius: 16,
+          backgroundColor: colors.appChromeElevated,
           flexDirection: "row",
           alignItems: "center",
-          paddingHorizontal: 18,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 14 },
-          shadowOpacity: 1,
-          shadowRadius: 28,
-          elevation: 10,
+          paddingHorizontal: 16,
+          marginBottom: 24,
         },
         searchInput: {
           flex: 1,
-          color: colors.text,
-          fontSize: 14,
-          paddingHorizontal: 12,
-          fontFamily: omaTypography.bold,
+          color: "#ffffff",
+          fontSize: 16,
+          paddingLeft: 12,
+          paddingRight: 4,
+          fontFamily: omaTypography.medium,
+          letterSpacing: -0.35,
         },
         searchPlaceholderPill: {
           borderRadius: 14,
@@ -597,31 +563,27 @@ export default function MyOrdersScreen() {
           fontFamily: omaTypography.bold,
         },
         filtersScrollContent: {
-          paddingTop: 18,
-          paddingBottom: 6,
+          paddingBottom: 16,
           paddingRight: 8,
         },
         filterChip: {
-          minHeight: 44,
-          borderRadius: 20,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: colors.card,
-          paddingHorizontal: 14,
-          paddingVertical: 10,
-          marginRight: 10,
+          borderRadius: 999,
+          backgroundColor: colors.appChromeElevated,
+          paddingHorizontal: 16,
+          paddingVertical: 8,
+          marginRight: 8,
           flexDirection: "row",
           alignItems: "center",
-          gap: 8,
         },
         activeFilterChip: {
           backgroundColor: activeSurfaceColor,
           borderColor: activeSurfaceColor,
         },
         filterChipLabel: {
-          color: colors.textSecondary,
-          fontSize: 12,
-          fontFamily: omaTypography.bold,
+          color: "#a1a1aa",
+          fontSize: 14,
+          fontFamily: omaTypography.semibold,
+          letterSpacing: -0.35,
         },
         activeFilterChipLabel: {
           color: activeContentColor,
@@ -655,12 +617,7 @@ export default function MyOrdersScreen() {
           marginRight: -6,
         },
         sectionHeader: {
-          alignSelf: "center",
-          marginTop: 6,
-          marginBottom: 10,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
+          display: "none",
         },
         sectionHeaderCard: {
           borderRadius: 18,
@@ -686,35 +643,54 @@ export default function MyOrdersScreen() {
           fontFamily: omaTypography.bold,
         },
         orderCard: {
-          borderRadius: 26,
-          backgroundColor: colors.card,
+          borderRadius: 20,
+          backgroundColor: colors.appChromeElevated,
           borderWidth: 1,
-          borderColor: colors.border,
-          padding: 20,
-          marginBottom: 14,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 16 },
-          shadowOpacity: 1,
-          shadowRadius: 30,
-          elevation: 12,
+          borderColor: "rgba(255,255,255,0.02)",
+          padding: 16,
+          marginBottom: 12,
         },
         orderCardTop: {
           flexDirection: "row",
           justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 12,
+          alignItems: "center",
+          gap: 10,
+          marginBottom: 12,
+        },
+        orderTopLeft: {
+          flex: 1,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+        },
+        inlineStatus: {
+          fontSize: 13,
+          fontFamily: omaTypography.semibold,
+          letterSpacing: -0.3,
+        },
+        orderAmount: {
+          color: "#ffffff",
+          fontSize: 14,
+          fontFamily: omaTypography.bold,
+          letterSpacing: -0.35,
+          textAlign: "right",
         },
         orderId: {
-          color: colors.text,
-          fontSize: 15,
-          fontFamily: omaTypography.extrabold,
-          marginBottom: 4,
+          color: "#d4d4d8",
+          fontSize: 13,
+          fontFamily: omaTypography.bold,
+          backgroundColor: "#27272a",
+          borderRadius: 6,
+          paddingHorizontal: 8,
+          paddingVertical: 4,
         },
         customerName: {
-          color: colors.text,
+          color: "#ffffff",
           fontSize: 18,
           lineHeight: 22,
-          fontFamily: omaTypography.extrabold,
+          fontFamily: omaTypography.bold,
+          letterSpacing: -0.45,
+          marginBottom: 2,
         },
         statusPill: {
           minHeight: 34,
@@ -753,11 +729,12 @@ export default function MyOrdersScreen() {
           fontFamily: omaTypography.bold,
         },
         previewText: {
-          color: colors.textSecondary,
+          color: "#71717a",
           fontSize: 13,
-          lineHeight: 19,
+          lineHeight: 18,
           fontFamily: omaTypography.medium,
-          marginTop: 14,
+          marginTop: 2,
+          letterSpacing: -0.3,
         },
         metricPanel: {
           marginTop: 16,
@@ -815,19 +792,10 @@ export default function MyOrdersScreen() {
         },
         emptyShell: {
           alignSelf: "center",
-          borderRadius: 28,
-          backgroundColor: colors.card,
-          borderWidth: 1,
-          borderColor: colors.border,
-          paddingHorizontal: 24,
-          paddingVertical: 28,
+          paddingTop: 64,
+          paddingBottom: 32,
+          paddingHorizontal: 32,
           alignItems: "center",
-          marginTop: 12,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 16 },
-          shadowOpacity: 1,
-          shadowRadius: 30,
-          elevation: 10,
         },
         emptyTitle: {
           color: colors.text,
@@ -852,41 +820,36 @@ export default function MyOrdersScreen() {
       colors,
       insets.bottom,
       insets.top,
-      isDark,
     ]
   );
 
   const renderListHeader = () => {
-    const activeFilterLabel =
-      FILTER_OPTIONS.find((option) => option.id === filterStatus)?.label || "All";
-
     return (
       <View style={[styles.headerShell, { width: shellWidth }]}>
-        <Text style={styles.eyebrow}>Order history</Text>
-
         <View style={styles.headingRow}>
           <View style={styles.titleWrap}>
-            <Text style={styles.title}>Review every submitted order.</Text>
-            <Text style={styles.subtitle}>
-              Search by customer or order ID, scan approval progress, and open a
-              full detail view without leaving the live OMA flow.
+            <Text style={styles.title}>
+              {userRole === "User" ? "Dispatch Queue" : "Orders"}
             </Text>
           </View>
 
           <View style={styles.resultsPill}>
-            <Text style={styles.resultsValue}>{filteredOrders.length}</Text>
-            <Text style={styles.resultsLabel}>Visible</Text>
+            <Ionicons color="#a1a1aa" name="git-compare-outline" size={20} />
           </View>
         </View>
 
         <View style={styles.searchShell}>
-          <Ionicons color={colors.textSecondary} name="search-outline" size={18} />
+          <Ionicons color="#71717a" name="search-outline" size={20} />
           <TextInput
             autoCapitalize="none"
             autoCorrect={false}
             onChangeText={setSearchQuery}
-            placeholder="Search by order ID or customer..."
-            placeholderTextColor={colors.textSecondary}
+            placeholder={
+              userRole === "User"
+                ? "Scan picking barcode or search..."
+                : "Search order ID or client..."
+            }
+            placeholderTextColor="#71717a"
             style={styles.searchInput}
             value={searchQuery}
           />
@@ -902,11 +865,7 @@ export default function MyOrdersScreen() {
                 size={20}
               />
             </TouchableOpacity>
-          ) : (
-            <View style={styles.searchPlaceholderPill}>
-              <Text style={styles.searchPlaceholderText}>{activeFilterLabel}</Text>
-            </View>
-          )}
+          ) : null}
         </View>
 
         <ScrollView
@@ -923,11 +882,6 @@ export default function MyOrdersScreen() {
                 onPress={() => setFilterStatus(option.id)}
                 style={[styles.filterChip, isActive && styles.activeFilterChip]}
               >
-                <Ionicons
-                  color={isActive ? activeContentColor : colors.textSecondary}
-                  name={option.icon}
-                  size={16}
-                />
                 <Text
                   style={[
                     styles.filterChipLabel,
@@ -936,21 +890,6 @@ export default function MyOrdersScreen() {
                 >
                   {option.label}
                 </Text>
-                <View
-                  style={[
-                    styles.filterChipCount,
-                    isActive && styles.activeFilterChipCount,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.filterChipCountText,
-                      isActive && styles.activeFilterChipCountText,
-                    ]}
-                  >
-                    {filterCounts[option.id]}
-                  </Text>
-                </View>
               </TouchableOpacity>
             );
           })}
@@ -971,21 +910,18 @@ export default function MyOrdersScreen() {
 
   const renderOrderCard = ({ item }: { item: GroupedOrder }) => {
     const status = STATUS_PRESENTATION[item.status];
-    const approvedCount = item.items.filter((line) => line.approved === "Y").length;
     const dispatchedCount = item.items.filter((line) => line.dispatched).length;
 
-    let progressLabel = "Awaiting manager approval";
+    let progressLabel = `${item.items.length} Items • Expected dispatch tomorrow`;
     if (item.status === "approved") {
       progressLabel =
         dispatchedCount > 0
           ? `${dispatchedCount}/${item.items.length} line items dispatched`
-          : "Approved and queued for dispatch";
+          : "Ready for picking at Warehouse A";
     } else if (item.status === "dispatched") {
       progressLabel = `${item.items.length}/${item.items.length} line items dispatched`;
     } else if (item.status === "rejected") {
       progressLabel = item.managerComments || "Rejected during manager review";
-    } else if (approvedCount > 0) {
-      progressLabel = `${approvedCount}/${item.items.length} line items approved`;
     }
 
     return (
@@ -995,77 +931,27 @@ export default function MyOrdersScreen() {
         style={[styles.orderCard, { width: shellWidth, alignSelf: "center" }]}
       >
         <View style={styles.orderCardTop}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.orderId}>{item.orderId}</Text>
-            <Text style={styles.customerName}>{item.customerName}</Text>
-          </View>
-
-          <View
-            style={[
-              styles.statusPill,
-              {
-                backgroundColor: hexToRgba(status.color, isDark ? 0.16 : 0.1),
-                borderColor: hexToRgba(status.color, isDark ? 0.24 : 0.15),
-              },
-            ]}
-          >
-            <Ionicons color={status.color} name={status.icon} size={14} />
-            <Text style={[styles.statusPillText, { color: status.color }]}>
-              {status.label}
+          <View style={styles.orderTopLeft}>
+            <Text style={styles.orderId}>#ORD-{item.orderId}</Text>
+            <Text
+              numberOfLines={1}
+              style={[styles.inlineStatus, { color: status.color }]}
+            >
+              • {status.label}
             </Text>
           </View>
-        </View>
 
-        <View style={styles.orderMetaRow}>
-          <View style={styles.metaPill}>
-            <Ionicons color={colors.textSecondary} name="calendar-outline" size={14} />
-            <Text style={styles.metaPillText}>{formatDateLabel(item.date)}</Text>
-          </View>
-          <View style={styles.metaPill}>
-            <Ionicons color={colors.textSecondary} name="globe-outline" size={14} />
-            <Text style={styles.metaPillText}>{getSourceLabel(item.source)}</Text>
-          </View>
-          <View style={styles.metaPill}>
-            <Ionicons color={colors.textSecondary} name="person-outline" size={14} />
-            <Text style={styles.metaPillText}>{item.user || "User"}</Text>
-          </View>
-        </View>
-
-        {!!buildPreviewText(item) && (
-          <Text numberOfLines={2} style={styles.previewText}>
-            {buildPreviewText(item)}
+          <Text style={styles.orderAmount}>
+            Rs {formatIndianCurrency(item.totalAmount)}
           </Text>
-        )}
-
-        <View style={styles.metricPanel}>
-          <View style={styles.metricCell}>
-            <Text style={styles.metricLabel}>Line items</Text>
-            <Text style={styles.metricValue}>{item.items.length}</Text>
-          </View>
-          <View style={styles.metricCell}>
-            <Text style={styles.metricLabel}>Dispatch</Text>
-            <Text style={styles.metricValue}>
-              {dispatchedCount}/{item.items.length}
-            </Text>
-          </View>
-          <View style={styles.metricCell}>
-            <Text style={styles.metricLabel}>Order value</Text>
-            <Text numberOfLines={1} style={styles.metricValue}>
-              Rs {formatIndianCurrency(item.totalAmount)}
-            </Text>
-          </View>
         </View>
 
-        <View style={styles.footerRow}>
-          <Text numberOfLines={2} style={styles.footerHint}>
-            {progressLabel}
-          </Text>
-
-          <View style={styles.footerAction}>
-            <Text style={styles.footerActionText}>View details</Text>
-            <Ionicons color={colors.text} name="chevron-forward" size={16} />
-          </View>
-        </View>
+        <Text numberOfLines={1} style={styles.customerName}>
+          {item.customerName}
+        </Text>
+        <Text numberOfLines={1} style={styles.previewText}>
+          {progressLabel || buildPreviewText(item)}
+        </Text>
       </TouchableOpacity>
     );
   };

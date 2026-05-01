@@ -121,28 +121,6 @@ const formatDateChip = (dateStr: string) => {
   ).padStart(2, "0")}/${parsed.getFullYear()}`;
 };
 
-const formatTimeAgo = (dateStr: string) => {
-  const parsed = parseIndianDate(dateStr);
-  if (!parsed) {
-    return "Unknown";
-  }
-
-  const diffMs = Date.now() - parsed.getTime();
-  const minutes = Math.max(1, Math.round(diffMs / 60000));
-
-  if (minutes < 60) {
-    return `${minutes} min ago`;
-  }
-
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) {
-    return `${hours} hr ago`;
-  }
-
-  const days = Math.round(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
-};
-
 const formatIndianNumber = (value: number | string | null | undefined) => {
   const numericValue = Number.parseFloat(
     String(value ?? "0")
@@ -184,9 +162,9 @@ export default function OrderApprovalScreen() {
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
-  const [sortBy, setSortBy] = useState<SortOption>("date");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
-  const [searchQuery, setSearchQuery] = useState("");
+  const sortBy: SortOption = "date";
+  const sortDirection: "asc" | "desc" = "desc";
+  const searchQuery = "";
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [approvalComments, setApprovalComments] = useState("");
@@ -673,26 +651,30 @@ export default function OrderApprovalScreen() {
       StyleSheet.create({
         screen: {
           flex: 1,
-          backgroundColor: colors.background,
+          backgroundColor: colors.appChrome,
         },
         topGlow: {
-          position: "absolute",
-          top: -40,
-          left: -20,
-          right: -20,
-          height: 240,
-          backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#e9eef6",
-          borderBottomLeftRadius: 120,
-          borderBottomRightRadius: 120,
-          opacity: isDark ? 0.35 : 0.55,
+          display: "none",
         },
         scrollContent: {
-          paddingTop: insets.top + 16,
-          paddingBottom: 40,
+          paddingTop: insets.top + 8,
+          paddingBottom: 84,
         },
         shell: {
-          width: contentWidth,
+          width: Math.min(contentWidth, 414),
           alignSelf: "center",
+          paddingHorizontal: 20,
+        },
+        approvalsPageHeader: {
+          marginTop: 8,
+          marginBottom: 24,
+        },
+        approvalsPageTitle: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 28,
+          letterSpacing: -0.8,
+          lineHeight: 34,
         },
         headerRow: {
           flexDirection: "row",
@@ -819,38 +801,106 @@ export default function OrderApprovalScreen() {
         },
         filterRow: {
           flexDirection: "row",
-          gap: 10,
-          marginBottom: 14,
+          gap: 8,
+          marginBottom: 0,
         },
         segmentShell: {
-          flex: 1,
-          backgroundColor: isDark ? colors.surfaceVariant : "#edf1f6",
-          padding: 5,
-          borderRadius: 18,
           flexDirection: "row",
+          gap: 8,
+          paddingBottom: 16,
+          marginBottom: 8,
+          flex: 1,
         },
         segmentButton: {
+          borderRadius: 999,
+          paddingHorizontal: 16,
+          paddingVertical: 8,
+          backgroundColor: colors.appChromeElevated,
+        },
+        segmentButtonActive: {
+          backgroundColor: "#ffffff",
+        },
+        segmentText: {
+          color: "#a1a1aa",
+          fontSize: 14,
+          fontFamily: omaTypography.semibold,
+          letterSpacing: -0.3,
+        },
+        segmentTextActive: {
+          color: "#000000",
+        },
+        segmentCount: {
+          display: "none",
+        },
+        approvalListHeader: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          marginBottom: 16,
+        },
+        approvalListLeft: {
+          flexDirection: "row",
+          gap: 12,
           flex: 1,
-          borderRadius: 14,
-          paddingVertical: 10,
+          paddingRight: 12,
+        },
+        approvalListIcon: {
+          width: 36,
+          height: 36,
+          borderRadius: 18,
           alignItems: "center",
           justifyContent: "center",
         },
-        segmentButtonActive: {
-          backgroundColor: colors.navActive,
-        },
-        segmentText: {
-          color: colors.textSecondary,
-          fontSize: 12,
+        approvalListTitle: {
+          color: "#ffffff",
           fontFamily: omaTypography.bold,
+          fontSize: 18,
+          letterSpacing: -0.4,
+          lineHeight: 22,
         },
-        segmentTextActive: {
-          color: isDark ? colors.background : "#ffffff",
-        },
-        segmentCount: {
-          fontSize: 10,
-          fontFamily: omaTypography.bold,
+        approvalListMeta: {
+          color: "#a1a1aa",
+          fontFamily: omaTypography.medium,
+          fontSize: 14,
+          letterSpacing: -0.3,
           marginTop: 2,
+        },
+        approvalListAmount: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 17,
+          letterSpacing: -0.4,
+          lineHeight: 22,
+          textAlign: "right",
+        },
+        approvalReasonBox: {
+          backgroundColor: colors.appChromeMuted,
+          borderRadius: 16,
+          borderWidth: 1,
+          marginBottom: 8,
+          padding: 14,
+        },
+        approvalReasonLabel: {
+          fontFamily: omaTypography.bold,
+          fontSize: 13,
+          letterSpacing: 0.65,
+          marginBottom: 4,
+          textTransform: "uppercase",
+        },
+        approvalReasonText: {
+          color: "#d4d4d8",
+          fontFamily: omaTypography.regular,
+          fontSize: 14,
+          letterSpacing: -0.3,
+          lineHeight: 18,
+        },
+        approvalReviewHint: {
+          color: "#71717a",
+          fontFamily: omaTypography.bold,
+          fontSize: 13,
+          letterSpacing: -0.3,
+          paddingTop: 8,
+          textAlign: "center",
         },
         sortRow: {
           flexDirection: "row",
@@ -915,17 +965,12 @@ export default function OrderApprovalScreen() {
           lineHeight: 20,
         },
         orderCard: {
-          backgroundColor: colors.card,
-          borderRadius: 28,
+          backgroundColor: colors.appChromeElevated,
+          borderRadius: 24,
           borderWidth: 1,
-          borderColor: colors.border,
-          marginBottom: 14,
-          overflow: "hidden",
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 14 },
-          shadowOpacity: 1,
-          shadowRadius: 26,
-          elevation: 9,
+          borderColor: "rgba(255,255,255,0.04)",
+          marginBottom: 16,
+          padding: 20,
         },
         orderBanner: {
           paddingHorizontal: 18,
@@ -1459,102 +1504,8 @@ export default function OrderApprovalScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.shell}>
-            <View style={styles.headerRow}>
-              <TouchableOpacity
-                onPress={() => router.back()}
-                style={styles.circleButton}
-              >
-                <Ionicons
-                  color={colors.text}
-                  name="arrow-back"
-                  size={20}
-                />
-              </TouchableOpacity>
-
-              <View style={styles.headerCopy}>
-                <Text style={styles.eyebrow}>Executive Inbox</Text>
-                <Text style={styles.headerTitle}>Approvals</Text>
-                <Text style={styles.headerSubtitle}>
-                  Manager review queue for live OMA orders.
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.summaryCard}>
-              <View style={styles.summaryAccent} />
-              <Text style={styles.summaryLabel}>Pending approval value</Text>
-              <Text style={styles.summaryValue}>
-                ₹{formatIndianNumber(summary.totalValue)}
-              </Text>
-
-              <View style={styles.summaryFoot}>
-                <View
-                  style={[
-                    styles.metricPill,
-                    {
-                      backgroundColor: isDark
-                        ? "rgba(0,102,255,0.16)"
-                        : "#eef5ff",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[styles.metricLabel, { color: colors.primary }]}
-                  >
-                    Fresh
-                  </Text>
-                  <Text
-                    style={[styles.metricValue, { color: colors.primary }]}
-                  >
-                    {summary.pendingCount}
-                  </Text>
-                </View>
-                <View
-                  style={[
-                    styles.metricPill,
-                    {
-                      backgroundColor: isDark
-                        ? "rgba(248,113,113,0.16)"
-                        : "#fff1f2",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[styles.metricLabel, { color: colors.accentRed }]}
-                  >
-                    Recheck
-                  </Text>
-                  <Text
-                    style={[styles.metricValue, { color: colors.accentRed }]}
-                  >
-                    {summary.recheckCount}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.searchWrap}>
-              <Ionicons
-                color={colors.textSecondary}
-                name="search-outline"
-                size={20}
-              />
-              <TextInput
-                placeholder="Search order, customer, rep, source, product"
-                placeholderTextColor={colors.textPlaceholder}
-                style={styles.searchInput}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-              {searchQuery ? (
-                <TouchableOpacity onPress={() => setSearchQuery("")}>
-                  <Ionicons
-                    color={colors.textSecondary}
-                    name="close-circle"
-                    size={20}
-                  />
-                </TouchableOpacity>
-              ) : null}
+            <View style={styles.approvalsPageHeader}>
+              <Text style={styles.approvalsPageTitle}>Approvals</Text>
             </View>
 
             <View style={styles.filterRow}>
@@ -1562,18 +1513,11 @@ export default function OrderApprovalScreen() {
                 {[
                   {
                     key: "all" as const,
-                    label: "All",
-                    count: orders.length,
-                  },
-                  {
-                    key: "pending" as const,
-                    label: "Fresh",
-                    count: summary.pendingCount,
+                    label: `Action Required (${summary.pendingCount + summary.recheckCount})`,
                   },
                   {
                     key: "recheck" as const,
-                    label: "Recheck",
-                    count: summary.recheckCount,
+                    label: "History",
                   },
                 ].map((item) => {
                   const active = reviewFilter === item.key;
@@ -1594,82 +1538,11 @@ export default function OrderApprovalScreen() {
                       >
                         {item.label}
                       </Text>
-                      <Text
-                        style={[
-                          styles.segmentCount,
-                          active
-                            ? styles.segmentTextActive
-                            : { color: colors.textSecondary },
-                        ]}
-                      >
-                        {item.count}
-                      </Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
             </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.sortRow}
-            >
-              {(["date", "amount", "customer", "source"] as SortOption[]).map(
-                (option) => {
-                  const active = sortBy === option;
-                  return (
-                    <TouchableOpacity
-                      key={option}
-                      onPress={() => {
-                        if (sortBy === option) {
-                          setSortDirection((current) =>
-                            current === "asc" ? "desc" : "asc"
-                          );
-                        } else {
-                          setSortBy(option);
-                          setSortDirection(
-                            option === "customer" || option === "source"
-                              ? "asc"
-                              : "desc"
-                          );
-                        }
-                      }}
-                      style={[
-                        styles.sortButton,
-                        active && styles.sortButtonActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.sortButtonText,
-                          active && styles.sortButtonTextActive,
-                        ]}
-                      >
-                        {option === "date"
-                          ? "Order ID"
-                          : option.charAt(0).toUpperCase() + option.slice(1)}
-                      </Text>
-                      {active ? (
-                        <Ionicons
-                          color={colors.primary}
-                          name={
-                            sortDirection === "asc"
-                              ? "arrow-down-outline"
-                              : "arrow-up-outline"
-                          }
-                          size={14}
-                        />
-                      ) : null}
-                    </TouchableOpacity>
-                  );
-                }
-              )}
-            </ScrollView>
-
-            <Text style={styles.sectionLabel}>
-              {sortedOrders.length} orders in manager queue
-            </Text>
 
             {sortedOrders.length === 0 ? (
               <View style={styles.emptyCard}>
@@ -1688,17 +1561,6 @@ export default function OrderApprovalScreen() {
               sortedOrders.map((order) => {
                 const isRecheck = order.approvalStatus === "R";
                 const hasNote = Boolean(order.orderComments?.trim());
-                const bannerBackground = isRecheck
-                  ? isDark
-                    ? "rgba(248,113,113,0.16)"
-                    : "#fff1f2"
-                  : hasNote
-                  ? isDark
-                    ? "rgba(251,146,60,0.16)"
-                    : "#fff7ed"
-                  : isDark
-                  ? "rgba(0,102,255,0.16)"
-                  : "#eef5ff";
                 const bannerColor = isRecheck
                   ? colors.accentRed
                   : hasNote
@@ -1712,110 +1574,70 @@ export default function OrderApprovalScreen() {
                     onPress={() => openOrder(order)}
                     style={styles.orderCard}
                   >
-                    <View
-                      style={[
-                        styles.orderBanner,
-                        { backgroundColor: bannerBackground },
-                      ]}
-                    >
-                      <View style={styles.orderBannerLeft}>
-                        <Ionicons
-                          color={bannerColor}
-                          name={
-                            isRecheck
-                              ? "alert-circle-outline"
-                              : hasNote
-                              ? "document-text-outline"
-                              : "shield-checkmark-outline"
-                          }
-                          size={14}
-                        />
-                        <Text
+                    <View style={styles.approvalListHeader}>
+                      <View style={styles.approvalListLeft}>
+                        <View
                           style={[
-                            styles.orderBannerLabel,
-                            { color: bannerColor },
+                            styles.approvalListIcon,
+                            { backgroundColor: `${bannerColor}33` },
                           ]}
                         >
-                          {isRecheck
-                            ? "Needs Recheck"
-                            : hasNote
-                            ? "Field Note Attached"
-                            : "Manager Review"}
-                        </Text>
+                          <Ionicons
+                            color={bannerColor}
+                            name="cash-outline"
+                            size={18}
+                            strokeWidth={2.5}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            ellipsizeMode="tail"
+                            numberOfLines={1}
+                            style={styles.approvalListTitle}
+                          >
+                            {order.customerName}
+                          </Text>
+                          <Text
+                            ellipsizeMode="tail"
+                            numberOfLines={1}
+                            style={styles.approvalListMeta}
+                          >
+                            Order #{order.orderId}
+                          </Text>
+                        </View>
                       </View>
-                      <Text style={styles.orderBannerDate}>
-                        {formatDateChip(order.date)}
+                      <Text style={styles.approvalListAmount}>
+                        ₹{formatIndianNumber(order.totalAmount)}
                       </Text>
                     </View>
 
-                    <View style={styles.orderBody}>
-                      <View style={styles.orderHeader}>
-                        <View
-                          style={{ flexDirection: "row", alignItems: "center", flex: 1 }}
-                        >
-                          <View style={styles.repBadge}>
-                            <Text style={styles.repBadgeText}>
-                              {(order.user || "O").slice(0, 1).toUpperCase()}
-                            </Text>
-                          </View>
-
-                          <View style={styles.orderIdentity}>
-                            <Text numberOfLines={2} style={styles.customerName}>
-                              {order.customerName}
-                            </Text>
-                            <Text style={styles.orderId}>{order.orderId}</Text>
-                          </View>
-                        </View>
-
-                        <View style={{ alignItems: "flex-end" }}>
-                          <Text style={styles.orderAmount}>
-                            ₹{formatIndianNumber(order.totalAmount)}
-                          </Text>
-                          <Text style={styles.orderAge}>
-                            {formatTimeAgo(order.date)}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.metaRow}>
-                        <View style={styles.metaChip}>
-                          <Ionicons
-                            color={colors.textSecondary}
-                            name="person-outline"
-                            size={12}
-                          />
-                          <Text style={styles.metaChipText}>{order.user}</Text>
-                        </View>
-                        <View style={styles.metaChip}>
-                          <Ionicons
-                            color={colors.textSecondary}
-                            name="cube-outline"
-                            size={12}
-                          />
-                          <Text style={styles.metaChipText}>
-                            {order.items.length} line
-                            {order.items.length === 1 ? "" : "s"}
-                          </Text>
-                        </View>
-                        <View style={styles.metaChip}>
-                          <Ionicons
-                            color={colors.textSecondary}
-                            name="call-outline"
-                            size={12}
-                          />
-                          <Text style={styles.metaChipText}>{order.source}</Text>
-                        </View>
-                      </View>
-
-                      {order.orderComments ? (
-                        <View style={styles.notePreview}>
-                          <Text style={styles.notePreviewLabel}>O.Note</Text>
-                          <Text numberOfLines={2} style={styles.notePreviewText}>
-                            {order.orderComments}
-                          </Text>
-                        </View>
-                      ) : null}
+                    <View
+                      style={[
+                        styles.approvalReasonBox,
+                        { borderColor: `${bannerColor}33` },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.approvalReasonLabel,
+                          { color: bannerColor },
+                        ]}
+                      >
+                        {isRecheck
+                          ? "Risk Override Needed"
+                          : hasNote
+                          ? "Discount Approval"
+                          : "Manager Review"}
+                      </Text>
+                      <Text numberOfLines={3} style={styles.approvalReasonText}>
+                        {order.orderComments ||
+                          `${order.items.length} line${order.items.length === 1 ? "" : "s"} from ${order.user || "field sales"} requires manager approval before dispatch.`}
+                      </Text>
                     </View>
+
+                    <Text style={styles.approvalReviewHint}>
+                      Tap to review ledger & approve
+                    </Text>
                   </TouchableOpacity>
                 );
               })

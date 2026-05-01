@@ -1,5 +1,4 @@
 import React, { createContext, useState } from "react";
-import { Appearance } from "react-native";
 
 type ThemeContextType = {
   isDark: boolean;
@@ -8,77 +7,44 @@ type ThemeContextType = {
   colors: typeof lightTheme;
 };
 
-const lightTheme = {
-  background: "#f7f8f9",
-  surface: "#ffffff",
-  surfaceVariant: "#eef2f6",
-  appChrome: "#111214",
-  appChromeMuted: "#191b20",
-  appChromeElevated: "#222327",
-  glass: "rgba(255,255,255,0.08)",
-  glassStrong: "rgba(255,255,255,0.12)",
-  overlay: "rgba(3, 7, 18, 0.56)",
-  primary: "#0066FF",
-  secondary: "#22c55e",
-  error: "#ef4444",
-  text: "#0c1a2e",
-  textSecondary: "#667085",
-  textPlaceholder: "rgba(12,26,46,0.35)",
-  success: "#16a34a",
-  warning: "#f59e0b",
-  card: "#ffffff",
-  cardMuted: "#f5f7fb",
-  border: "#e7ecf3",
-  shadow: "rgba(15, 23, 42, 0.08)",
-  navBg: "rgba(44,44,46,0.92)",
-  navActive: "rgba(255,255,255,0.1)",
-  accentBlue: "#0066FF",
-  accentGold: "#f6c64c",
-  accentSky: "#63a5ff",
-  accentIndigo: "#7a75ff",
-  accentCoral: "#ff8a7a",
-  accentOrange: "#fb923c",
-  accentGreen: "#22c55e",
-  accentPurple: "#a855f7",
-  accentRed: "#ef4444",
-};
-
 const darkTheme = {
-  background: "#0a0a0c",
-  surface: "#141417",
-  surfaceVariant: "#1b1c20",
-  appChrome: "#0a0a0c",
-  appChromeMuted: "#141417",
-  appChromeElevated: "#1f1f23",
+  background: "#121212",
+  surface: "#1C1C1E",
+  surfaceVariant: "#242426",
+  appChrome: "#121212",
+  appChromeMuted: "#242426",
+  appChromeElevated: "#1C1C1E",
   glass: "rgba(255,255,255,0.06)",
   glassStrong: "rgba(255,255,255,0.10)",
   overlay: "rgba(0, 0, 0, 0.72)",
-  primary: "#0066FF",
-  secondary: "#4ade80",
+  primary: "#EAB308",
+  secondary: "#10B981",
   error: "#f87171",
   text: "#ffffff",
-  textSecondary: "#98a2b3",
+  textSecondary: "#9CA3AF",
   textPlaceholder: "rgba(255,255,255,0.4)",
-  success: "#4ade80",
-  warning: "#fbbf24",
-  card: "#101a2b",
-  cardMuted: "#131f31",
-  border: "#2b2c31",
+  success: "#10B981",
+  warning: "#EAB308",
+  card: "#1C1C1E",
+  cardMuted: "#242426",
+  border: "rgba(255,255,255,0.06)",
   shadow: "rgba(0, 0, 0, 0.45)",
   navBg: "rgba(44,44,46,0.9)",
   navActive: "rgba(255,255,255,0.1)",
-  accentBlue: "#0066FF",
-  accentGold: "#f6c64c",
-  accentSky: "#63a5ff",
-  accentIndigo: "#7a75ff",
-  accentCoral: "#ff8a7a",
-  accentOrange: "#fb923c",
-  accentGreen: "#4ade80",
+  accentBlue: "#60A5FA",
+  accentGold: "#EAB308",
+  accentSky: "#60A5FA",
+  accentIndigo: "#818CF8",
+  accentCoral: "#F87171",
+  accentOrange: "#FB923C",
+  accentGreen: "#10B981",
   accentPurple: "#c084fc",
-  accentRed: "#f87171",
+  accentRed: "#F87171",
 };
 
-export type AppColors = typeof lightTheme;
+const lightTheme = darkTheme;
+
+export type AppColors = typeof darkTheme;
 
 export const ThemeContext = createContext<ThemeContextType>({
   isDark: false,
@@ -90,9 +56,7 @@ export const ThemeContext = createContext<ThemeContextType>({
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [theme, setTheme] = useState<"light" | "dark">(
-    Appearance.getColorScheme() || "light"
-  );
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
   const isDark = theme === "dark";
 
   const toggleTheme = () => {
