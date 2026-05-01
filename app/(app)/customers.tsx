@@ -28,6 +28,7 @@ import { useFeedback } from "@/context/FeedbackContext";
 import { apiCache, BACKEND_URL, fetchWithRetry } from "@/utils/apiManager";
 import { fetchSheetObjects } from "@/utils/fetchSheetObjects";
 import LoadingIndicator from "@/components/LoadingIndicator";
+import { FLOATING_NAV_SPACE } from "@/components/oma/OmaFloatingNav";
 import { omaTypography } from "@/utils/typography";
 
 type ContactInfo = {
@@ -52,6 +53,28 @@ type CustomerRecord = {
   balance: number;
   hasCredit: boolean;
   formattedBalance: string;
+  status: string;
+  salesOwner: string;
+  collectorOwner: string;
+  zone: string;
+  city: string;
+  state: string;
+  industry: string;
+  channel: string;
+  paymentTermsDays: string;
+  creditLimit: number;
+  riskTier: string;
+  customerGroup: string;
+  currentExposure: number;
+  thirtyDayExposure: number;
+  sixtyDayExposure: number;
+  ninetyDayExposure: number;
+  highRiskExposure: number;
+  collectedValue: number;
+  invoicedValue: number;
+  collectionRate: number;
+  averageAgeDays: number;
+  lastUpdatedAt: string;
 };
 
 type LedgerSummary = Record<
@@ -59,13 +82,60 @@ type LedgerSummary = Record<
   {
     balance: number;
     hasCredit: boolean;
+    customerGroup: string;
+    currentExposure: number;
+    thirtyDayExposure: number;
+    sixtyDayExposure: number;
+    ninetyDayExposure: number;
+    highRiskExposure: number;
+    collectedValue: number;
+    invoicedValue: number;
+    collectionRate: number;
+    averageAgeDays: number;
+    lastUpdatedAt: string;
   }
 >;
 
+type MutableCustomerRecord = Omit<
+  CustomerRecord,
+  "sources" | "salesReps" | "products"
+> & {
+  orders?: Set<string>;
+  sources: string[] | Set<string>;
+  salesReps: string[] | Set<string>;
+  products: string[] | Set<string>;
+};
+
 type SortField = "name" | "orders" | "date" | "spend" | "balance";
 type SortDirection = "asc" | "desc";
-type PaymentFilter = "all" | "due" | "credit";
+type PaymentFilter = "all" | "due" | "credit" | "risk";
 type DetailTab = "overview" | "activity" | "contacts";
+
+const CUSTOMER_CACHE_KEY = "customers_v2";
+
+const emptyLedgerSummary = {
+  balance: 0,
+  hasCredit: true,
+  customerGroup: "",
+  currentExposure: 0,
+  thirtyDayExposure: 0,
+  sixtyDayExposure: 0,
+  ninetyDayExposure: 0,
+  highRiskExposure: 0,
+  collectedValue: 0,
+  invoicedValue: 0,
+  collectionRate: 0,
+  averageAgeDays: 0,
+  lastUpdatedAt: "",
+};
+
+const parseAmount = (value: string | number | undefined) => {
+  const parsed = Number.parseFloat(String(value ?? "0").replace(/,/g, ""));
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const getLedgerForCode = (ledgerSummary: LedgerSummary, code: string) =>
+  ledgerSummary[code] || emptyLedgerSummary;
 
 const parseContactInfo = (contactString: string) => {
   try {
@@ -177,7 +247,7 @@ const getInitials = (name: string) =>
     .join("");
 
 const CustomersScreen = () => {
-  const { colors, isDark, toggleTheme } = useContext(ThemeContext);
+  const { colors, isDark } = useContext(ThemeContext);
   const { showFeedback } = useFeedback();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -201,140 +271,77 @@ const CustomersScreen = () => {
     null
   );
 
-  const isWideLayout = width >= 420;
+  const isWideLayout = width >= 560;
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: {
           flex: 1,
-          backgroundColor: colors.background,
+          backgroundColor: "#101011",
         },
         topGlow: {
           position: "absolute",
           top: 0,
           left: 0,
           right: 0,
-          height: 260,
-          backgroundColor: isDark
-            ? "rgba(0,102,255,0.12)"
-            : "rgba(15, 23, 42, 0.06)",
+          height: 180,
+          backgroundColor: "rgba(255,255,255,0.015)",
         },
         listContent: {
-          paddingHorizontal: 16,
-          paddingBottom: Math.max(insets.bottom, 20) + 18,
+          paddingHorizontal: 20,
+          paddingBottom: Math.max(insets.bottom, 20) + FLOATING_NAV_SPACE + 24,
         },
         headerShell: {
-          paddingTop: insets.top + 8,
-          paddingBottom: 8,
+          paddingTop: insets.top + 18,
+          paddingBottom: 4,
         },
         headerRow: {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 18,
+          marginBottom: 26,
         },
         iconButton: {
-          width: 42,
-          height: 42,
-          borderRadius: 21,
-          backgroundColor: colors.card,
+          width: 48,
+          height: 48,
+          borderRadius: 24,
+          backgroundColor: "#2A2A2C",
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.08)",
           alignItems: "center",
           justifyContent: "center",
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 1,
-          shadowRadius: 22,
-          elevation: 7,
+          shadowColor: "#000000",
+          shadowOffset: { width: 0, height: 14 },
+          shadowOpacity: 0.28,
+          shadowRadius: 24,
+          elevation: 6,
         },
         headerMeta: {
-          alignItems: "center",
+          flex: 1,
+          alignItems: "flex-start",
+          paddingHorizontal: 14,
           gap: 4,
         },
         eyebrow: {
-          color: colors.textSecondary,
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
-          letterSpacing: 0.6,
-          textTransform: "uppercase",
-        },
-        headerTitle: {
-          color: colors.text,
-          fontFamily: omaTypography.extrabold,
-          fontSize: 24,
-          letterSpacing: -0.8,
-        },
-        headerSubtitle: {
-          color: colors.textSecondary,
-          fontFamily: omaTypography.medium,
-          fontSize: 13,
-        },
-        introCard: {
-          backgroundColor: colors.card,
-          borderRadius: 28,
-          borderWidth: 1,
-          borderColor: colors.border,
-          padding: 20,
-          marginBottom: 18,
-          overflow: "hidden",
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 16 },
-          shadowOpacity: 1,
-          shadowRadius: 28,
-          elevation: 9,
-        },
-        introGlow: {
-          position: "absolute",
-          top: -36,
-          right: -28,
-          width: 150,
-          height: 150,
-          borderRadius: 75,
-          backgroundColor: isDark
-            ? "rgba(192,132,252,0.12)"
-            : "rgba(17,17,17,0.06)",
-        },
-        introRow: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 10,
-        },
-        introLabel: {
-          color: colors.textSecondary,
+          color: "#8E8E93",
           fontFamily: omaTypography.semibold,
           fontSize: 11,
           letterSpacing: 0.7,
           textTransform: "uppercase",
         },
-        introCountChip: {
-          paddingHorizontal: 12,
-          paddingVertical: 7,
-          borderRadius: 999,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
-        },
-        introCountText: {
-          color: colors.text,
-          fontFamily: omaTypography.semibold,
-          fontSize: 12,
-        },
-        introHeading: {
-          color: colors.text,
+        headerTitle: {
+          color: "#F5F5F7",
           fontFamily: omaTypography.extrabold,
-          fontSize: 22,
-          lineHeight: 28,
-          letterSpacing: -0.7,
-          marginBottom: 8,
-          paddingRight: 36,
+          fontSize: 34,
+          lineHeight: 38,
+          letterSpacing: -1,
         },
-        introBody: {
-          color: colors.textSecondary,
+        headerSubtitle: {
+          color: "#A1A1AA",
           fontFamily: omaTypography.medium,
-          fontSize: 13,
+          fontSize: 14,
           lineHeight: 19,
-          marginBottom: 18,
         },
         summaryGrid: {
           flexDirection: "row",
@@ -342,27 +349,32 @@ const CustomersScreen = () => {
           justifyContent: "space-between",
           gap: 10,
         },
+        statsStrip: {
+          marginBottom: 22,
+        },
         summaryCard: {
-          width: isWideLayout ? "31%" : "48.4%",
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
-          borderRadius: 20,
-          padding: 14,
+          width: "31%",
+          backgroundColor: "#242426",
+          borderRadius: 18,
+          padding: 12,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
         },
         summaryValue: {
-          color: colors.text,
+          color: "#FFFFFF",
           fontFamily: omaTypography.extrabold,
           fontSize: 22,
           marginBottom: 4,
           letterSpacing: -0.6,
         },
         summaryLabel: {
-          color: colors.textSecondary,
+          color: "#A1A1AA",
           fontFamily: omaTypography.medium,
           fontSize: 11,
           lineHeight: 15,
         },
         sectionLabel: {
-          color: colors.textSecondary,
+          color: "#8E8E93",
           fontFamily: omaTypography.semibold,
           fontSize: 11,
           letterSpacing: 0.7,
@@ -373,24 +385,24 @@ const CustomersScreen = () => {
         searchShell: {
           flexDirection: "row",
           alignItems: "center",
-          backgroundColor: colors.card,
+          backgroundColor: "#1C1C1E",
           borderRadius: 999,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.08)",
           paddingHorizontal: 14,
           paddingVertical: 4,
           marginBottom: 14,
-          shadowColor: colors.shadow,
+          shadowColor: "#000000",
           shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 1,
+          shadowOpacity: 0.22,
           shadowRadius: 20,
           elevation: 7,
         },
         searchInput: {
           flex: 1,
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.medium,
-          fontSize: 14,
+          fontSize: 15,
           paddingVertical: 13,
           paddingHorizontal: 10,
         },
@@ -404,29 +416,28 @@ const CustomersScreen = () => {
           paddingHorizontal: 16,
           paddingVertical: 10,
           borderRadius: 999,
-          backgroundColor: colors.card,
+          backgroundColor: "#1C1C1E",
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.08)",
         },
         chipActive: {
-          backgroundColor: isDark ? colors.text : "#111111",
-          borderColor: isDark ? colors.text : "#111111",
+          backgroundColor: "#F5F5F7",
+          borderColor: "#F5F5F7",
         },
         chipText: {
-          color: colors.textSecondary,
+          color: "#A1A1AA",
           fontFamily: omaTypography.semibold,
           fontSize: 12,
         },
         chipTextActive: {
-          color: isDark ? colors.background : "#ffffff",
+          color: "#101011",
         },
         sortCard: {
-          backgroundColor: colors.card,
-          borderRadius: 24,
-          borderWidth: 1,
-          borderColor: colors.border,
-          padding: 16,
-          marginBottom: 16,
+          backgroundColor: "transparent",
+          borderRadius: 0,
+          borderWidth: 0,
+          padding: 0,
+          marginBottom: 20,
         },
         sortRow: {
           flexDirection: "row",
@@ -435,12 +446,12 @@ const CustomersScreen = () => {
           marginBottom: 12,
         },
         sortTitle: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.semibold,
           fontSize: 14,
         },
         sortHint: {
-          color: colors.textSecondary,
+          color: "#8E8E93",
           fontFamily: omaTypography.medium,
           fontSize: 12,
         },
@@ -452,33 +463,41 @@ const CustomersScreen = () => {
           paddingHorizontal: 12,
           paddingVertical: 8,
           borderRadius: 16,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: "#242426",
         },
         sortChipActive: {
-          backgroundColor: isDark
-            ? "rgba(0,102,255,0.18)"
-            : "rgba(17,17,17,0.08)",
+          backgroundColor: "#343436",
         },
         sortChipText: {
-          color: colors.textSecondary,
+          color: "#A1A1AA",
           fontFamily: omaTypography.semibold,
           fontSize: 12,
         },
         sortChipTextActive: {
-          color: colors.text,
+          color: "#FFFFFF",
         },
         customerCard: {
-          backgroundColor: colors.card,
-          borderRadius: 28,
+          backgroundColor: "#1F1F21",
+          borderRadius: 26,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.07)",
           padding: 18,
           marginBottom: 14,
-          shadowColor: colors.shadow,
+          overflow: "hidden",
+          shadowColor: "#000000",
           shadowOffset: { width: 0, height: 12 },
-          shadowOpacity: 1,
-          shadowRadius: 24,
-          elevation: 8,
+          shadowOpacity: 0.2,
+          shadowRadius: 22,
+          elevation: 6,
+        },
+        customerAccent: {
+          position: "absolute",
+          left: 0,
+          top: 22,
+          width: 4,
+          height: 34,
+          borderTopRightRadius: 4,
+          borderBottomRightRadius: 4,
         },
         customerTopRow: {
           flexDirection: "row",
@@ -489,15 +508,15 @@ const CustomersScreen = () => {
         avatar: {
           width: 48,
           height: 48,
-          borderRadius: 24,
+          borderRadius: 16,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: "#2A2A2C",
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.08)",
         },
         avatarText: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.extrabold,
           fontSize: 16,
           letterSpacing: -0.4,
@@ -514,13 +533,13 @@ const CustomersScreen = () => {
         },
         customerName: {
           flex: 1,
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.extrabold,
-          fontSize: 16,
-          lineHeight: 20,
+          fontSize: 17,
+          lineHeight: 22,
         },
         customerSubtext: {
-          color: colors.textSecondary,
+          color: "#A1A1AA",
           fontFamily: omaTypography.medium,
           fontSize: 12,
           lineHeight: 17,
@@ -538,10 +557,10 @@ const CustomersScreen = () => {
           textTransform: "uppercase",
         },
         balancePanel: {
-          borderRadius: 22,
-          padding: 16,
+          borderTopWidth: 1,
+          borderTopColor: "rgba(255,255,255,0.07)",
+          paddingTop: 14,
           marginBottom: 14,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
         },
         balanceRow: {
           flexDirection: "row",
@@ -550,7 +569,7 @@ const CustomersScreen = () => {
           gap: 16,
         },
         balanceLabel: {
-          color: colors.textSecondary,
+          color: "#8E8E93",
           fontFamily: omaTypography.semibold,
           fontSize: 10,
           letterSpacing: 0.7,
@@ -559,20 +578,20 @@ const CustomersScreen = () => {
         },
         balanceValue: {
           fontFamily: omaTypography.extrabold,
-          fontSize: 23,
+          fontSize: 25,
           letterSpacing: -0.8,
         },
         balanceMetaColumn: {
           alignItems: "flex-end",
         },
         balanceMetaLabel: {
-          color: colors.textSecondary,
+          color: "#8E8E93",
           fontFamily: omaTypography.medium,
           fontSize: 11,
           marginBottom: 4,
         },
         balanceMetaValue: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.semibold,
           fontSize: 14,
         },
@@ -585,22 +604,22 @@ const CustomersScreen = () => {
         metaPill: {
           minWidth: isWideLayout ? "31.4%" : "48%",
           flexGrow: 1,
-          borderRadius: 18,
+          borderRadius: 16,
           paddingHorizontal: 12,
           paddingVertical: 10,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: "#242426",
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
         },
         metaLabel: {
-          color: colors.textSecondary,
+          color: "#8E8E93",
           fontFamily: omaTypography.medium,
           fontSize: 10,
           marginBottom: 2,
         },
         metaValue: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.semibold,
           fontSize: 12,
           lineHeight: 16,
@@ -612,6 +631,7 @@ const CustomersScreen = () => {
         actionButton: {
           flex: 1,
           borderRadius: 18,
+          minHeight: 46,
           paddingVertical: 12,
           alignItems: "center",
           justifyContent: "center",
@@ -619,21 +639,21 @@ const CustomersScreen = () => {
           gap: 6,
         },
         actionButtonMuted: {
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: "#2A2A2C",
         },
         actionButtonPrimary: {
-          backgroundColor: isDark ? colors.text : "#111111",
+          backgroundColor: "#F5F5F7",
         },
         actionButtonSecondary: {
-          backgroundColor: colors.primary,
+          backgroundColor: "#2F80ED",
         },
         actionButtonTextMuted: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.semibold,
           fontSize: 12,
         },
         actionButtonTextOnDark: {
-          color: isDark ? colors.background : "#ffffff",
+          color: "#101011",
           fontFamily: omaTypography.semibold,
           fontSize: 12,
         },
@@ -678,7 +698,7 @@ const CustomersScreen = () => {
         },
         detailScreen: {
           flex: 1,
-          backgroundColor: colors.background,
+          backgroundColor: "#101011",
         },
         detailHeader: {
           paddingTop: insets.top + 8,
@@ -696,13 +716,13 @@ const CustomersScreen = () => {
           paddingHorizontal: 14,
         },
         detailHeaderTitle: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.extrabold,
           fontSize: 22,
           letterSpacing: -0.8,
         },
         detailHeaderCode: {
-          color: colors.textSecondary,
+          color: "#8E8E93",
           fontFamily: omaTypography.semibold,
           fontSize: 11,
           letterSpacing: 0.7,
@@ -712,7 +732,9 @@ const CustomersScreen = () => {
         detailHero: {
           borderRadius: 30,
           padding: 20,
-          backgroundColor: isDark ? colors.surfaceVariant : "#111111",
+          backgroundColor: "#1C1C1E",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.08)",
           overflow: "hidden",
         },
         detailHeroGlow: {
@@ -758,7 +780,7 @@ const CustomersScreen = () => {
           flex: 1,
           borderRadius: 18,
           padding: 12,
-          backgroundColor: "rgba(255,255,255,0.08)",
+          backgroundColor: "#242426",
         },
         detailHeroStatLabel: {
           color: "rgba(255,255,255,0.6)",
@@ -789,7 +811,7 @@ const CustomersScreen = () => {
           backgroundColor: "#ffffff",
         },
         detailHeroActionSecondary: {
-          backgroundColor: "rgba(255,255,255,0.08)",
+          backgroundColor: "#2A2A2C",
           borderWidth: 1,
           borderColor: "rgba(255,255,255,0.18)",
         },
@@ -813,37 +835,37 @@ const CustomersScreen = () => {
           flex: 1,
           borderRadius: 18,
           paddingVertical: 12,
-          backgroundColor: colors.card,
+          backgroundColor: "#1C1C1E",
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.08)",
           alignItems: "center",
         },
         tabButtonActive: {
-          backgroundColor: isDark ? colors.text : "#111111",
-          borderColor: isDark ? colors.text : "#111111",
+          backgroundColor: "#F5F5F7",
+          borderColor: "#F5F5F7",
         },
         tabButtonText: {
-          color: colors.textSecondary,
+          color: "#A1A1AA",
           fontFamily: omaTypography.semibold,
           fontSize: 12,
         },
         tabButtonTextActive: {
-          color: isDark ? colors.background : "#ffffff",
+          color: "#101011",
         },
         detailScrollContent: {
           paddingHorizontal: 16,
           paddingBottom: Math.max(insets.bottom, 24) + 28,
         },
         detailSectionCard: {
-          backgroundColor: colors.card,
+          backgroundColor: "#1C1C1E",
           borderRadius: 24,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.08)",
           padding: 18,
           marginBottom: 14,
         },
         detailSectionTitle: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.semibold,
           fontSize: 15,
           marginBottom: 14,
@@ -858,16 +880,16 @@ const CustomersScreen = () => {
           width: isWideLayout ? "48%" : "100%",
           borderRadius: 18,
           padding: 14,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: "#242426",
         },
         detailStatLabel: {
-          color: colors.textSecondary,
+          color: "#8E8E93",
           fontFamily: omaTypography.medium,
           fontSize: 11,
           marginBottom: 6,
         },
         detailStatValue: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.extrabold,
           fontSize: 18,
           letterSpacing: -0.5,
@@ -879,10 +901,10 @@ const CustomersScreen = () => {
         infoCard: {
           borderRadius: 18,
           padding: 14,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: "#242426",
         },
         infoCardText: {
-          color: colors.textSecondary,
+          color: "#B5B5BB",
           fontFamily: omaTypography.medium,
           fontSize: 13,
           lineHeight: 20,
@@ -909,10 +931,10 @@ const CustomersScreen = () => {
           borderRadius: 999,
           paddingHorizontal: 12,
           paddingVertical: 8,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: "#242426",
         },
         detailTagText: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.medium,
           fontSize: 12,
         },
@@ -922,18 +944,18 @@ const CustomersScreen = () => {
           justifyContent: "space-between",
           borderRadius: 18,
           padding: 14,
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: "#242426",
           marginBottom: 10,
         },
         contactLabel: {
-          color: colors.textSecondary,
+          color: "#8E8E93",
           fontFamily: omaTypography.medium,
           fontSize: 11,
           marginBottom: 4,
           textTransform: "uppercase",
         },
         contactValue: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.semibold,
           fontSize: 14,
         },
@@ -943,11 +965,11 @@ const CustomersScreen = () => {
           justifyContent: "flex-end",
         },
         callSheet: {
-          backgroundColor: colors.card,
+          backgroundColor: "#1C1C1E",
           borderTopLeftRadius: 28,
           borderTopRightRadius: 28,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.08)",
           paddingTop: 14,
           paddingHorizontal: 16,
           paddingBottom: Math.max(insets.bottom, 20) + 12,
@@ -957,17 +979,17 @@ const CustomersScreen = () => {
           width: 48,
           height: 4,
           borderRadius: 2,
-          backgroundColor: colors.border,
+          backgroundColor: "rgba(255,255,255,0.2)",
           marginBottom: 14,
         },
         callSheetTitle: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.extrabold,
           fontSize: 20,
           marginBottom: 4,
         },
         callSheetSubtitle: {
-          color: colors.textSecondary,
+          color: "#A1A1AA",
           fontFamily: omaTypography.medium,
           fontSize: 13,
           marginBottom: 18,
@@ -975,7 +997,7 @@ const CustomersScreen = () => {
         callOption: {
           flexDirection: "row",
           alignItems: "center",
-          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          backgroundColor: "#242426",
           borderRadius: 20,
           padding: 14,
           marginBottom: 10,
@@ -990,14 +1012,14 @@ const CustomersScreen = () => {
           marginRight: 14,
         },
         callOptionLabel: {
-          color: colors.textSecondary,
+          color: "#8E8E93",
           fontFamily: omaTypography.medium,
           fontSize: 11,
           marginBottom: 4,
           textTransform: "uppercase",
         },
         callOptionNumber: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.semibold,
           fontSize: 14,
         },
@@ -1005,18 +1027,18 @@ const CustomersScreen = () => {
           marginTop: 8,
           borderRadius: 18,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: "rgba(255,255,255,0.08)",
           paddingVertical: 14,
           alignItems: "center",
           justifyContent: "center",
         },
         cancelButtonText: {
-          color: colors.text,
+          color: "#F5F5F7",
           fontFamily: omaTypography.semibold,
           fontSize: 13,
         },
       }),
-    [colors, insets.bottom, insets.top, isDark, isWideLayout]
+    [colors, insets.bottom, insets.top, isWideLayout]
   );
 
   const fetchLedgerSummary = useCallback(async (): Promise<LedgerSummary> => {
@@ -1035,15 +1057,26 @@ const CustomersScreen = () => {
 
       return rows.reduce<LedgerSummary>((summary, row) => {
         const customerCode = row.customer_code;
-        const balance = Number.parseFloat(row.total_exposure || "0");
+        const balance = parseAmount(row.total_exposure);
 
-        if (!customerCode || Number.isNaN(balance)) {
+        if (!customerCode) {
           return summary;
         }
 
         summary[customerCode] = {
           balance,
           hasCredit: balance <= 0,
+          customerGroup: row.customer_group || "",
+          currentExposure: parseAmount(row.current_exposure),
+          thirtyDayExposure: parseAmount(row.thirty_day_exposure),
+          sixtyDayExposure: parseAmount(row.sixty_day_exposure),
+          ninetyDayExposure: parseAmount(row.ninety_day_exposure),
+          highRiskExposure: parseAmount(row.high_risk_exposure),
+          collectedValue: parseAmount(row.collected_value),
+          invoicedValue: parseAmount(row.invoiced_value),
+          collectionRate: parseAmount(row.collection_rate),
+          averageAgeDays: parseAmount(row.average_age_days),
+          lastUpdatedAt: row.last_updated_at || "",
         };
         return summary;
       }, {});
@@ -1061,7 +1094,7 @@ const CustomersScreen = () => {
         1500
       );
 
-      const rows = response.data?.values?.slice(1) || [];
+      const rows = (response.data?.values?.slice(1) || []) as string[][];
 
       return rows.reduce<Record<string, string>>((map, row: string[]) => {
         const code = row[0];
@@ -1078,7 +1111,9 @@ const CustomersScreen = () => {
 
   const loadCustomers = useCallback(async () => {
     try {
-      const cachedCustomers = apiCache.get("customers") as CustomerRecord[] | null;
+      const cachedCustomers = apiCache.get(CUSTOMER_CACHE_KEY) as
+        | CustomerRecord[]
+        | null;
       if (cachedCustomers?.length) {
         setCustomers(cachedCustomers);
         setLoading(false);
@@ -1092,7 +1127,7 @@ const CustomersScreen = () => {
       ]);
 
       const masterResponse = await fetchWithRetry(
-        `${BACKEND_URL}/api/sheets/Customer_Master!A1:C`,
+        `${BACKEND_URL}/api/sheets/Customer_Master!A1:Z`,
         {},
         3,
         3000
@@ -1102,28 +1137,23 @@ const CustomersScreen = () => {
         throw new Error("Invalid response from Customer Master API");
       }
 
-      const masterCustomers: Record<
-        string,
-        CustomerRecord & {
-          orders?: Set<string>;
-          sources: string[] | Set<string>;
-          salesReps: string[] | Set<string>;
-          products: string[] | Set<string>;
-        }
-      > = {};
+      const masterCustomers: Record<string, MutableCustomerRecord> = {};
 
-      masterResponse.data.values.slice(1).forEach((row: string[]) => {
-        if (row.length < 2) {
-          return;
-        }
+      const masterRows = fetchSheetObjects(masterResponse.data.values, [
+        "Customer CODE",
+        "Customer NAME",
+      ]);
 
-        const code = row[0] || "";
-        const name = row[1] || "";
-        const contactString = row[2] || "";
+      masterRows.forEach((row) => {
+        const code = row["Customer CODE"] || "";
+        const name = row["Customer NAME"] || "";
+        const contactString = row.Contact || "";
 
         if (!name) {
           return;
         }
+
+        const ledger = getLedgerForCode(ledgerSummary, code);
 
         masterCustomers[name] = {
           name,
@@ -1139,14 +1169,31 @@ const CustomersScreen = () => {
           products: [],
           productCount: 0,
           isNew: true,
-          balance: ledgerSummary[code]?.balance || 0,
-          hasCredit:
-            ledgerSummary[code]?.hasCredit !== undefined
-              ? ledgerSummary[code].hasCredit
-              : true,
-          formattedBalance: formatIndianNumber(
-            Math.abs(ledgerSummary[code]?.balance || 0)
-          ),
+          balance: ledger.balance,
+          hasCredit: ledger.hasCredit,
+          formattedBalance: formatIndianNumber(Math.abs(ledger.balance)),
+          status: row.customer_status || "",
+          salesOwner: row.sales_owner || "",
+          collectorOwner: row.collector_owner || "",
+          zone: row.zone || "",
+          city: row.city || "",
+          state: row.state || "",
+          industry: row.industry || "",
+          channel: row.channel || "",
+          paymentTermsDays: row.payment_terms_days || "",
+          creditLimit: parseAmount(row.credit_limit),
+          riskTier: row.risk_tier || "",
+          customerGroup: ledger.customerGroup,
+          currentExposure: ledger.currentExposure,
+          thirtyDayExposure: ledger.thirtyDayExposure,
+          sixtyDayExposure: ledger.sixtyDayExposure,
+          ninetyDayExposure: ledger.ninetyDayExposure,
+          highRiskExposure: ledger.highRiskExposure,
+          collectedValue: ledger.collectedValue,
+          invoicedValue: ledger.invoicedValue,
+          collectionRate: ledger.collectionRate,
+          averageAgeDays: ledger.averageAgeDays,
+          lastUpdatedAt: ledger.lastUpdatedAt,
         };
       });
 
@@ -1166,6 +1213,7 @@ const CustomersScreen = () => {
 
         if (!masterCustomers[customerName]) {
           const code = customerCodesMap[customerName] || "";
+          const ledger = getLedgerForCode(ledgerSummary, code);
           masterCustomers[customerName] = {
             name: customerName,
             code,
@@ -1179,14 +1227,31 @@ const CustomersScreen = () => {
             products: new Set<string>(),
             productCount: 0,
             isNew: false,
-            balance: ledgerSummary[code]?.balance || 0,
-            hasCredit:
-              ledgerSummary[code]?.hasCredit !== undefined
-                ? ledgerSummary[code].hasCredit
-                : true,
-            formattedBalance: formatIndianNumber(
-              Math.abs(ledgerSummary[code]?.balance || 0)
-            ),
+            balance: ledger.balance,
+            hasCredit: ledger.hasCredit,
+            formattedBalance: formatIndianNumber(Math.abs(ledger.balance)),
+            status: "",
+            salesOwner: "",
+            collectorOwner: "",
+            zone: "",
+            city: "",
+            state: "",
+            industry: "",
+            channel: "",
+            paymentTermsDays: "",
+            creditLimit: 0,
+            riskTier: "",
+            customerGroup: ledger.customerGroup,
+            currentExposure: ledger.currentExposure,
+            thirtyDayExposure: ledger.thirtyDayExposure,
+            sixtyDayExposure: ledger.sixtyDayExposure,
+            ninetyDayExposure: ledger.ninetyDayExposure,
+            highRiskExposure: ledger.highRiskExposure,
+            collectedValue: ledger.collectedValue,
+            invoicedValue: ledger.invoicedValue,
+            collectionRate: ledger.collectionRate,
+            averageAgeDays: ledger.averageAgeDays,
+            lastUpdatedAt: ledger.lastUpdatedAt,
           };
         } else {
           masterCustomers[customerName].isNew = false;
@@ -1207,24 +1272,31 @@ const CustomersScreen = () => {
           customer.latestOrderId = row[5] || "";
         }
 
-        if (!(customer.sources instanceof Set)) {
-          customer.sources = new Set(customer.sources);
-        }
-        if (!(customer.salesReps instanceof Set)) {
-          customer.salesReps = new Set(customer.salesReps);
-        }
-        if (!(customer.products instanceof Set)) {
-          customer.products = new Set(customer.products);
-        }
+        const sourcesSet =
+          customer.sources instanceof Set
+            ? customer.sources
+            : new Set(customer.sources);
+        const salesRepsSet =
+          customer.salesReps instanceof Set
+            ? customer.salesReps
+            : new Set(customer.salesReps);
+        const productsSet =
+          customer.products instanceof Set
+            ? customer.products
+            : new Set(customer.products);
+
+        customer.sources = sourcesSet;
+        customer.salesReps = salesRepsSet;
+        customer.products = productsSet;
 
         if (row[11]) {
-          customer.sources.add(row[11]);
+          sourcesSet.add(row[11]);
         }
         if (row[2]) {
-          customer.salesReps.add(row[2]);
+          salesRepsSet.add(row[2]);
         }
         if (row[6]) {
-          customer.products.add(row[6]);
+          productsSet.add(row[6]);
         }
       });
 
@@ -1249,7 +1321,7 @@ const CustomersScreen = () => {
       });
 
       setCustomers(customerList);
-      apiCache.set("customers", customerList);
+      apiCache.set(CUSTOMER_CACHE_KEY, customerList);
     } catch (error: any) {
       showFeedback({
         type: "error",
@@ -1281,7 +1353,7 @@ const CustomersScreen = () => {
         const [ledgerSummary, response] = await Promise.all([
           fetchLedgerSummary(),
           fetchWithRetry(
-            `${BACKEND_URL}/api/sheets/Customer_Master!A1:C`,
+            `${BACKEND_URL}/api/sheets/Customer_Master!A1:Z`,
             {},
             2,
             1500
@@ -1292,22 +1364,21 @@ const CustomersScreen = () => {
           throw new Error("Invalid response from Customer Master API");
         }
 
-        const matches = response.data.values
-          .slice(1)
-          .filter((row: string[]) => {
-            const code = (row[0] || "").toLowerCase();
-            const name = (row[1] || "").toLowerCase();
+        const matches = fetchSheetObjects(response.data.values, [
+          "Customer CODE",
+          "Customer NAME",
+        ])
+          .filter((row) => {
+            const code = (row["Customer CODE"] || "").toLowerCase();
+            const name = (row["Customer NAME"] || "").toLowerCase();
             const normalizedQuery = query.toLowerCase();
             return code.includes(normalizedQuery) || name.includes(normalizedQuery);
           })
-          .map((row: string[]) => {
-            const code = row[0] || "";
-            const name = row[1] || "";
-            const contactString = row[2] || "";
-            const ledger = ledgerSummary[code] || {
-              balance: 0,
-              hasCredit: true,
-            };
+          .map((row) => {
+            const code = row["Customer CODE"] || "";
+            const name = row["Customer NAME"] || "";
+            const contactString = row.Contact || "";
+            const ledger = getLedgerForCode(ledgerSummary, code);
 
             return {
               name,
@@ -1326,6 +1397,28 @@ const CustomersScreen = () => {
               balance: ledger.balance,
               hasCredit: ledger.hasCredit,
               formattedBalance: formatIndianNumber(Math.abs(ledger.balance)),
+              status: row.customer_status || "",
+              salesOwner: row.sales_owner || "",
+              collectorOwner: row.collector_owner || "",
+              zone: row.zone || "",
+              city: row.city || "",
+              state: row.state || "",
+              industry: row.industry || "",
+              channel: row.channel || "",
+              paymentTermsDays: row.payment_terms_days || "",
+              creditLimit: parseAmount(row.credit_limit),
+              riskTier: row.risk_tier || "",
+              customerGroup: ledger.customerGroup,
+              currentExposure: ledger.currentExposure,
+              thirtyDayExposure: ledger.thirtyDayExposure,
+              sixtyDayExposure: ledger.sixtyDayExposure,
+              ninetyDayExposure: ledger.ninetyDayExposure,
+              highRiskExposure: ledger.highRiskExposure,
+              collectedValue: ledger.collectedValue,
+              invoicedValue: ledger.invoicedValue,
+              collectionRate: ledger.collectionRate,
+              averageAgeDays: ledger.averageAgeDays,
+              lastUpdatedAt: ledger.lastUpdatedAt,
             } as CustomerRecord;
           });
 
@@ -1377,7 +1470,7 @@ const CustomersScreen = () => {
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    apiCache.set("customers", null);
+    apiCache.set(CUSTOMER_CACHE_KEY, null);
     void loadCustomers();
   }, [loadCustomers]);
 
@@ -1426,6 +1519,12 @@ const CustomersScreen = () => {
       nextCustomers = nextCustomers.filter((customer) => customer.balance > 0);
     } else if (paymentFilter === "credit") {
       nextCustomers = nextCustomers.filter((customer) => customer.balance < 0);
+    } else if (paymentFilter === "risk") {
+      nextCustomers = nextCustomers.filter(
+        (customer) =>
+          customer.highRiskExposure > 0 ||
+          ["high", "medium"].includes(customer.riskTier.toLowerCase())
+      );
     }
 
     nextCustomers.sort((a, b) => {
@@ -1482,7 +1581,7 @@ const CustomersScreen = () => {
   const summaryCards = useMemo(
     () => [
       {
-        label: "Visible Accounts",
+        label: "Visible",
         value: `${filteredAndSortedCustomers.length}`,
       },
       {
@@ -1490,8 +1589,14 @@ const CustomersScreen = () => {
         value: `${filteredAndSortedCustomers.filter((item) => item.balance > 0).length}`,
       },
       {
-        label: "New Accounts",
-        value: `${filteredAndSortedCustomers.filter((item) => item.isNew).length}`,
+        label: "At risk",
+        value: `${
+          filteredAndSortedCustomers.filter(
+            (item) =>
+              item.highRiskExposure > 0 ||
+              ["high", "medium"].includes(item.riskTier.toLowerCase())
+          ).length
+        }`,
       },
     ],
     [filteredAndSortedCustomers]
@@ -1559,6 +1664,7 @@ const CustomersScreen = () => {
           onPress={() => openCustomerDetails(item)}
           style={styles.customerCard}
         >
+          <View style={[styles.customerAccent, { backgroundColor: accentColor }]} />
           <View style={styles.customerTopRow}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{getInitials(item.name)}</Text>
@@ -1589,7 +1695,9 @@ const CustomersScreen = () => {
                 {item.code
                   ? `ID ${item.code}`
                   : "Customer master record"}{" "}
-                · Last order {item.lastOrderDate || "No orders yet"}
+                · {item.channel || item.industry || "Direct"} ·{" "}
+                {item.city || item.zone || "Unmapped"} ·{" "}
+                {item.riskTier || "Unrated"} risk
               </Text>
             </View>
 
@@ -1610,8 +1718,12 @@ const CustomersScreen = () => {
               </View>
 
               <View style={styles.balanceMetaColumn}>
-                <Text style={styles.balanceMetaLabel}>Orders tracked</Text>
-                <Text style={styles.balanceMetaValue}>{item.orderCount}</Text>
+                <Text style={styles.balanceMetaLabel}>Collection</Text>
+                <Text style={styles.balanceMetaValue}>
+                  {item.collectionRate
+                    ? `${Math.round(item.collectionRate)}%`
+                    : "No receipts"}
+                </Text>
               </View>
             </View>
           </View>
@@ -1620,27 +1732,29 @@ const CustomersScreen = () => {
             <View style={styles.metaPill}>
               <Ionicons
                 color={colors.textSecondary}
+                name="person-outline"
+                size={16}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.metaLabel}>Owner</Text>
+                <Text numberOfLines={2} style={styles.metaValue}>
+                  {item.salesOwner || item.collectorOwner || "Unassigned"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.metaPill}>
+              <Ionicons
+                color={colors.textSecondary}
                 name="calendar-outline"
                 size={16}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.metaLabel}>Last order</Text>
-                <Text numberOfLines={2} style={styles.metaValue}>
-                  {item.lastOrderDate || "No orders yet"}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.metaPill}>
-              <Ionicons
-                color={colors.textSecondary}
-                name="pricetag-outline"
-                size={16}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.metaLabel}>Lifetime spend</Text>
+                <Text style={styles.metaLabel}>Terms</Text>
                 <Text numberOfLines={1} style={styles.metaValue}>
-                  ₹{formatIndianNumber(item.totalSpend)}
+                  {item.paymentTermsDays
+                    ? `${item.paymentTermsDays} days`
+                    : "Not set"}
                 </Text>
               </View>
             </View>
@@ -1648,13 +1762,13 @@ const CustomersScreen = () => {
             <View style={styles.metaPill}>
               <Ionicons
                 color={colors.textSecondary}
-                name="cube-outline"
+                name="wallet-outline"
                 size={16}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.metaLabel}>Product mix</Text>
+                <Text style={styles.metaLabel}>Credit limit</Text>
                 <Text style={styles.metaValue}>
-                  {item.productCount || 0} SKUs
+                  {item.creditLimit ? `₹${formatIndianNumber(item.creditLimit)}` : "Unset"}
                 </Text>
               </View>
             </View>
@@ -1673,27 +1787,19 @@ const CustomersScreen = () => {
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={() =>
-                router.push(
-                  "/(app)/new-order?customer=" + encodeURIComponent(item.name)
-                )
+                router.push({
+                  pathname: "/(app)/new-order",
+                  params: { customer: item.name },
+                })
               }
               style={[styles.actionButton, styles.actionButtonPrimary]}
             >
               <Ionicons
-                color={isDark ? colors.background : "#ffffff"}
+                color="#101011"
                 name="add-outline"
                 size={16}
               />
               <Text style={styles.actionButtonTextOnDark}>New Order</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={() => openCustomerDetails(item)}
-              style={[styles.actionButton, styles.actionButtonSecondary]}
-            >
-              <Ionicons color="#ffffff" name="layers-outline" size={16} />
-              <Text style={styles.actionButtonTextSecondary}>Profile</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -1714,54 +1820,33 @@ const CustomersScreen = () => {
         </TouchableOpacity>
 
         <View style={styles.headerMeta}>
-          <Text style={styles.eyebrow}>OMA Customer Flow</Text>
-          <Text style={styles.headerTitle}>Client Roster</Text>
+          <Text style={styles.eyebrow}>OMA</Text>
+          <Text style={styles.headerTitle}>Clients</Text>
           <Text style={styles.headerSubtitle}>
-            Live master, payment, and order history
+            Master, risk, terms, and order history
           </Text>
         </View>
 
         <TouchableOpacity
           activeOpacity={0.85}
-          onPress={toggleTheme}
+          onPress={handleRefresh}
           style={styles.iconButton}
         >
-          <Ionicons
-            color={colors.text}
-            name={isDark ? "sunny-outline" : "moon-outline"}
-            size={18}
-          />
+          {refreshing ? (
+            <ActivityIndicator color="#F5F5F7" size="small" />
+          ) : (
+            <Ionicons color="#F5F5F7" name="pulse-outline" size={18} />
+          )}
         </TouchableOpacity>
       </View>
 
-      <View style={styles.introCard}>
-        <View style={styles.introGlow} />
-
-        <View style={styles.introRow}>
-          <Text style={styles.introLabel}>Accounts snapshot</Text>
-          <View style={styles.introCountChip}>
-            <Text style={styles.introCountText}>
-              {filteredAndSortedCustomers.length} visible
-            </Text>
+      <View style={[styles.summaryGrid, styles.statsStrip]}>
+        {summaryCards.map((card) => (
+          <View key={card.label} style={styles.summaryCard}>
+            <Text style={styles.summaryValue}>{card.value}</Text>
+            <Text style={styles.summaryLabel}>{card.label}</Text>
           </View>
-        </View>
-
-        <Text style={styles.introHeading}>
-          Cleaner scanning for dense customer books.
-        </Text>
-        <Text style={styles.introBody}>
-          Search by name or code, isolate payment position fast, and drop into a
-          richer detail view without losing the live OMA data shape.
-        </Text>
-
-        <View style={styles.summaryGrid}>
-          {summaryCards.map((card) => (
-            <View key={card.label} style={styles.summaryCard}>
-              <Text style={styles.summaryValue}>{card.value}</Text>
-              <Text style={styles.summaryLabel}>{card.label}</Text>
-            </View>
-          ))}
-        </View>
+        ))}
       </View>
 
       <Text style={styles.sectionLabel}>Search</Text>
@@ -1792,16 +1877,17 @@ const CustomersScreen = () => {
         ) : null}
       </View>
 
-      <Text style={styles.sectionLabel}>Payment Filter</Text>
+      <Text style={styles.sectionLabel}>Exposure</Text>
       <ScrollView
         contentContainerStyle={styles.chipRow}
         horizontal
         showsHorizontalScrollIndicator={false}
       >
         {[
-          { id: "all", label: "All Accounts" },
+          { id: "all", label: "All Clients" },
           { id: "due", label: "Outstanding" },
-          { id: "credit", label: "Advance Payment" },
+          { id: "credit", label: "Advance" },
+          { id: "risk", label: "At risk" },
         ].map((filter) => {
           const active = paymentFilter === filter.id;
 
@@ -2005,8 +2091,16 @@ const CustomersScreen = () => {
                     : `₹${selectedCustomer.formattedBalance}`}
                 </Text>
                 <Text style={styles.detailHeroSubtext}>
-                  Real OMA customer master, payment position, product footprint,
-                  and latest order activity in a denser mobile layout.
+                  {selectedCustomer.channel ||
+                    selectedCustomer.industry ||
+                    "Customer master"}
+                  {" · "}
+                  {selectedCustomer.city ||
+                    selectedCustomer.zone ||
+                    selectedCustomer.state ||
+                    "Location not set"}
+                  {" · "}
+                  {selectedCustomer.salesOwner || "Owner not assigned"}
                 </Text>
 
                 <View style={styles.detailHeroStatsRow}>
@@ -2017,15 +2111,17 @@ const CustomersScreen = () => {
                     </Text>
                   </View>
                   <View style={styles.detailHeroStat}>
-                    <Text style={styles.detailHeroStatLabel}>Spend</Text>
+                    <Text style={styles.detailHeroStatLabel}>Limit</Text>
                     <Text style={styles.detailHeroStatValue}>
-                      ₹{formatIndianNumber(selectedCustomer.totalSpend)}
+                      {selectedCustomer.creditLimit
+                        ? `₹${formatIndianNumber(selectedCustomer.creditLimit)}`
+                        : "Unset"}
                     </Text>
                   </View>
                   <View style={styles.detailHeroStat}>
-                    <Text style={styles.detailHeroStatLabel}>Products</Text>
+                    <Text style={styles.detailHeroStatLabel}>Risk</Text>
                     <Text style={styles.detailHeroStatValue}>
-                      {selectedCustomer.productCount}
+                      {selectedCustomer.riskTier || "Unrated"}
                     </Text>
                   </View>
                 </View>
@@ -2047,8 +2143,10 @@ const CustomersScreen = () => {
                     activeOpacity={0.88}
                     onPress={() =>
                       router.push(
-                        "/(app)/new-order?customer=" +
-                          encodeURIComponent(selectedCustomer.name)
+                        {
+                          pathname: "/(app)/new-order",
+                          params: { customer: selectedCustomer.name },
+                        }
                       )
                     }
                     style={[
@@ -2122,16 +2220,68 @@ const CustomersScreen = () => {
                       </View>
 
                       <View style={styles.detailStatCard}>
-                        <Text style={styles.detailStatLabel}>Sales reps</Text>
-                        <Text style={styles.detailStatValue}>
-                          {selectedCustomer.salesReps.length || 0}
+                        <Text style={styles.detailStatLabel}>Sales owner</Text>
+                        <Text
+                          style={[
+                            styles.detailStatValue,
+                            styles.detailStatValueSmall,
+                          ]}
+                        >
+                          {selectedCustomer.salesOwner || "Unassigned"}
                         </Text>
                       </View>
 
                       <View style={styles.detailStatCard}>
-                        <Text style={styles.detailStatLabel}>Order sources</Text>
+                        <Text style={styles.detailStatLabel}>Payment terms</Text>
                         <Text style={styles.detailStatValue}>
-                          {selectedCustomer.sources.length || 0}
+                          {selectedCustomer.paymentTermsDays
+                            ? `${selectedCustomer.paymentTermsDays} days`
+                            : "Not set"}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailSectionCard}>
+                    <Text style={styles.detailSectionTitle}>
+                      Collections position
+                    </Text>
+
+                    <View style={styles.detailStatsGrid}>
+                      <View style={styles.detailStatCard}>
+                        <Text style={styles.detailStatLabel}>Collector</Text>
+                        <Text
+                          style={[
+                            styles.detailStatValue,
+                            styles.detailStatValueSmall,
+                          ]}
+                        >
+                          {selectedCustomer.collectorOwner || "Unassigned"}
+                        </Text>
+                      </View>
+
+                      <View style={styles.detailStatCard}>
+                        <Text style={styles.detailStatLabel}>Collection rate</Text>
+                        <Text style={styles.detailStatValue}>
+                          {selectedCustomer.collectionRate
+                            ? `${selectedCustomer.collectionRate.toFixed(1)}%`
+                            : "0%"}
+                        </Text>
+                      </View>
+
+                      <View style={styles.detailStatCard}>
+                        <Text style={styles.detailStatLabel}>90+ exposure</Text>
+                        <Text style={styles.detailStatValue}>
+                          ₹{formatIndianNumber(selectedCustomer.ninetyDayExposure)}
+                        </Text>
+                      </View>
+
+                      <View style={styles.detailStatCard}>
+                        <Text style={styles.detailStatLabel}>Average age</Text>
+                        <Text style={styles.detailStatValue}>
+                          {selectedCustomer.averageAgeDays
+                            ? `${Math.round(selectedCustomer.averageAgeDays)}d`
+                            : "0d"}
                         </Text>
                       </View>
                     </View>
@@ -2151,8 +2301,10 @@ const CustomersScreen = () => {
                           activeOpacity={0.88}
                           onPress={() =>
                             router.push(
-                              "/(app)/new-order?customer=" +
-                                encodeURIComponent(selectedCustomer.name)
+                              {
+                                pathname: "/(app)/new-order",
+                                params: { customer: selectedCustomer.name },
+                              }
                             )
                           }
                           style={styles.infoCardAction}
