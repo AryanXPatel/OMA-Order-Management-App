@@ -70,6 +70,22 @@ type ActivityItem = {
   title: string;
 };
 
+type BackendActivityItem = {
+  customer_name?: string;
+  display_id?: string;
+  entity_id?: string;
+  event_id?: string;
+  event_type?: string;
+  message?: string;
+  occurred_at?: string;
+  severity?: string;
+  title?: string;
+};
+
+type BackendActivityResponse = {
+  activities?: BackendActivityItem[];
+};
+
 type DashboardPayload = {
   approvalOrders: GroupedOrder[];
   averageOrderValue: number;
@@ -174,6 +190,96 @@ const formatTimeAgo = (date: Date | null) => {
   return `${days}d ago`;
 };
 
+const activityVisuals: Record<
+  string,
+  { icon: keyof typeof Ionicons.glyphMap; iconColor: string }
+> = {
+  "approval.approved": {
+    icon: "checkmark-circle-outline",
+    iconColor: "#10B981",
+  },
+  "approval.rejected": {
+    icon: "alert-circle-outline",
+    iconColor: "#F87171",
+  },
+  "dispatch.completed": {
+    icon: "paper-plane-outline",
+    iconColor: "#10B981",
+  },
+  "invoice.issued": {
+    icon: "receipt-outline",
+    iconColor: "#60A5FA",
+  },
+  "ledger.invoice_posted": {
+    icon: "receipt-outline",
+    iconColor: "#60A5FA",
+  },
+  "ledger.payment_received": {
+    icon: "cash-outline",
+    iconColor: "#10B981",
+  },
+  "order.cancelled": {
+    icon: "close-circle-outline",
+    iconColor: "#F87171",
+  },
+  "order.created": {
+    icon: "document-text-outline",
+    iconColor: "#60A5FA",
+  },
+  "queue.attention": {
+    icon: "alert-circle-outline",
+    iconColor: "#FACC15",
+  },
+};
+
+const getActivityVisual = (activity: BackendActivityItem) => {
+  if (activity.event_type && activityVisuals[activity.event_type]) {
+    return activityVisuals[activity.event_type];
+  }
+
+  if (activity.severity === "danger") {
+    return { icon: "alert-circle-outline" as const, iconColor: "#F87171" };
+  }
+  if (activity.severity === "warning") {
+    return { icon: "alert-circle-outline" as const, iconColor: "#FACC15" };
+  }
+  if (activity.severity === "success") {
+    return { icon: "checkmark-circle-outline" as const, iconColor: "#10B981" };
+  }
+
+  return { icon: "pulse-outline" as const, iconColor: "#60A5FA" };
+};
+
+const normalizeBackendActivities = (
+  activities: BackendActivityItem[] = []
+): ActivityItem[] =>
+  activities
+    .filter((activity) => activity.event_id && activity.occurred_at)
+    .map((activity) => {
+      const visual = getActivityVisual(activity);
+      const occurredAt = activity.occurred_at
+        ? new Date(activity.occurred_at)
+        : null;
+      const validDate =
+        occurredAt && !Number.isNaN(occurredAt.getTime()) ? occurredAt : null;
+      const fallbackDescription = [
+        activity.display_id || formatCompactOrderId(activity.entity_id),
+        activity.customer_name,
+      ]
+        .filter(Boolean)
+        .join(" for ");
+
+      return {
+        id: activity.event_id || `${activity.event_type}-${activity.entity_id}`,
+        icon: visual.icon,
+        iconColor: visual.iconColor,
+        title: activity.title || "Recent activity",
+        description:
+          activity.message || fallbackDescription || "Latest OMA activity",
+        timeLabel: formatTimeAgo(validDate),
+      };
+    });
+
 const toNumber = (amount: string) => {
   const parsed = Number.parseFloat((amount || "0").replace(/,/g, ""));
   return Number.isNaN(parsed) ? 0 : parsed;
@@ -210,7 +316,10 @@ const deriveOrderStatus = (rows: OrderRow[]) => {
   return "pending" as const;
 };
 
-const buildDashboardPayload = (rows: OrderRow[]) => {
+const buildDashboardPayload = (
+  rows: OrderRow[],
+  recentActivityOverride: ActivityItem[] = []
+) => {
   const groupedOrderMap: Record<string, OrderRow[]> = {};
   const uniqueCustomers = new Set<string>();
   const now = new Date();
@@ -347,7 +456,9 @@ const buildDashboardPayload = (rows: OrderRow[]) => {
     pendingDeliveries,
     pendingDispatches,
     processingOrders,
-    recentActivities,
+    recentActivities: recentActivityOverride.length
+      ? recentActivityOverride
+      : recentActivities,
     recentOrders,
     rejectedOrders,
     todayValue,
@@ -635,14 +746,30 @@ export default function MainScreen() {
         await wakeUpServer();
         await preloadData();
 
-        const response = await fetchWithRetry(
-          `${BACKEND_URL}/api/sheets/New_Order_Table!A2:Q`,
-          {},
-          2,
-          1500
-        );
+        const activityUrl = `${BACKEND_URL}/api/activity/recent?limit=5${
+          forceRefresh ? "&refresh=1" : ""
+        }`;
+        const [orderResult, activityResult] = await Promise.allSettled([
+          fetchWithRetry<{ values?: string[][] }>(
+            `${BACKEND_URL}/api/sheets/New_Order_Table!A2:Q`,
+            {},
+            2,
+            1500
+          ),
+          fetchWithRetry<BackendActivityResponse>(activityUrl, {}, 1, 1000),
+        ]);
 
-        const rows: OrderRow[] = (response.data?.values || []).map((row) => ({
+        if (orderResult.status === "rejected") {
+          throw orderResult.reason;
+        }
+
+        const response = orderResult.value;
+        const backendActivities =
+          activityResult.status === "fulfilled"
+            ? normalizeBackendActivities(activityResult.value.data?.activities)
+            : [];
+
+        const rows: OrderRow[] = (response.data?.values || []).map((row: string[]) => ({
           sysTime: row[0] || "",
           orderTime: row[1] || "",
           user: row[2] || "",
@@ -662,7 +789,7 @@ export default function MainScreen() {
           dispatchTime: row[16] || "",
         }));
 
-        const nextPayload = buildDashboardPayload(rows);
+        const nextPayload = buildDashboardPayload(rows, backendActivities);
         setPayload(nextPayload);
         apiCache.set("dashboardPayload", nextPayload);
       } catch (error: any) {
@@ -1642,7 +1769,11 @@ export default function MainScreen() {
               onPress={action.onPress}
               style={styles.actionRow}
             >
-              <Ionicons color="#ffffff" name={action.icon} size={16} />
+              <Ionicons
+                color="#ffffff"
+                name={action.icon as keyof typeof Ionicons.glyphMap}
+                size={16}
+              />
               <Text style={styles.actionLabel}>{action.label}</Text>
               <Ionicons
                 color="rgba(255,255,255,0.34)"
