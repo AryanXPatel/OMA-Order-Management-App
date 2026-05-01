@@ -20,6 +20,7 @@ import LoadingIndicator from "@/components/LoadingIndicator";
 import { FLOATING_NAV_SPACE } from "@/components/oma/OmaFloatingNav";
 import { ThemeContext } from "@/context/ThemeContext";
 import { BACKEND_URL, apiCache, fetchWithRetry } from "@/utils/apiManager";
+import { formatCompactOrderId } from "@/utils/orderDisplay";
 import { omaTypography } from "@/utils/typography";
 
 type FilterStatus = "all" | "pending" | "approved" | "rejected" | "dispatched";
@@ -686,8 +687,8 @@ export default function MyOrdersScreen() {
         },
         customerName: {
           color: "#ffffff",
-          fontSize: 18,
-          lineHeight: 22,
+          fontSize: 16,
+          lineHeight: 20,
           fontFamily: omaTypography.bold,
           letterSpacing: -0.45,
           marginBottom: 2,
@@ -932,7 +933,7 @@ export default function MyOrdersScreen() {
       >
         <View style={styles.orderCardTop}>
           <View style={styles.orderTopLeft}>
-            <Text style={styles.orderId}>#ORD-{item.orderId}</Text>
+            <Text style={styles.orderId}>{formatCompactOrderId(item.orderId)}</Text>
             <Text
               numberOfLines={1}
               style={[styles.inlineStatus, { color: status.color }]}

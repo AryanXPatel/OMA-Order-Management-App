@@ -26,6 +26,7 @@ import {
   batchUpdateSheetRanges,
   fetchWithRetry,
 } from "@/utils/apiManager";
+import { formatCompactOrderId } from "@/utils/orderDisplay";
 import LoadingIndicator from "@/components/LoadingIndicator";
 import {
   calculateLedgerStats,
@@ -1602,7 +1603,7 @@ export default function OrderApprovalScreen() {
                             numberOfLines={1}
                             style={styles.approvalListMeta}
                           >
-                            Order #{order.orderId}
+                            Order {formatCompactOrderId(order.orderId)}
                           </Text>
                         </View>
                       </View>

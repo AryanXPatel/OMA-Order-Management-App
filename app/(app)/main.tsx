@@ -25,6 +25,7 @@ import {
   preloadData,
   wakeUpServer,
 } from "@/utils/apiManager";
+import { formatCompactOrderId } from "@/utils/orderDisplay";
 import { omaTypography } from "@/utils/typography";
 
 type OrderRow = {
@@ -173,19 +174,6 @@ const formatTimeAgo = (date: Date | null) => {
   return `${days}d ago`;
 };
 
-const formatOrderBadge = (orderId: string) => {
-  const rawOrderNumber = orderId.includes("_")
-    ? orderId.split("_").pop() || orderId
-    : orderId.replace(/^#?ORD-?/i, "");
-  const digits = rawOrderNumber.match(/\d+/g)?.pop();
-
-  if (!digits) {
-    return `#ORD-${orderId}`;
-  }
-
-  return `#ORD-${digits.slice(-3).padStart(3, "0")}`;
-};
-
 const toNumber = (amount: string) => {
   const parsed = Number.parseFloat((amount || "0").replace(/,/g, ""));
   return Number.isNaN(parsed) ? 0 : parsed;
@@ -305,7 +293,7 @@ const buildDashboardPayload = (rows: OrderRow[]) => {
 
   const recentActivities: ActivityItem[] = groupedOrders.slice(0, 5).map((order) => {
     let title = "New order submitted";
-    let description = `${order.orderId} for ${order.customerName}`;
+    let description = `${formatCompactOrderId(order.orderId)} for ${order.customerName}`;
     let icon: keyof typeof Ionicons.glyphMap = "document-text-outline";
     let iconColor = "#60A5FA";
 
@@ -522,9 +510,9 @@ function RecentOrderCard({
     customer: {
       color: "#ffffff",
       fontFamily: omaTypography.semibold,
-      fontSize: 20,
+      fontSize: 18,
       letterSpacing: -0.5,
-      lineHeight: 24,
+      lineHeight: 22,
       marginBottom: 4,
     },
     statusRow: {
@@ -569,7 +557,7 @@ function RecentOrderCard({
     <TouchableOpacity activeOpacity={0.92} onPress={onPress} style={styles.card}>
       <View style={styles.rowBetween}>
         <Text ellipsizeMode="tail" numberOfLines={1} style={styles.badge}>
-          {formatOrderBadge(order.orderId)}
+          {formatCompactOrderId(order.orderId)}
         </Text>
         <Text numberOfLines={1} style={styles.time}>
           {formatTimeAgo(order.createdAt)}
@@ -735,7 +723,7 @@ export default function MainScreen() {
       items.push({
         id: "active",
         title: "Active order",
-        body: `${payload.currentOrder.orderId} is still moving through the workflow.`,
+        body: `${formatCompactOrderId(payload.currentOrder.orderId)} is still moving through the workflow.`,
         color: colors.accentGreen,
         icon: "time-outline",
         route: "/(app)/my-orders",
