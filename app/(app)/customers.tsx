@@ -246,6 +246,8 @@ const getInitials = (name: string) =>
     .map((part) => part[0]?.toUpperCase() || "")
     .join("");
 
+const compactChipHitSlop = { top: 4, bottom: 4, left: 2, right: 2 };
+
 const CustomersScreen = () => {
   const { colors, isDark } = useContext(ThemeContext);
   const { showFeedback } = useFeedback();
@@ -271,6 +273,7 @@ const CustomersScreen = () => {
     null
   );
 
+  const contentWidth = Math.min(width - 40, 374);
   const isWideLayout = width >= 560;
 
   const styles = useMemo(
@@ -291,21 +294,23 @@ const CustomersScreen = () => {
         listContent: {
           paddingHorizontal: 20,
           paddingBottom: Math.max(insets.bottom, 20) + FLOATING_NAV_SPACE + 24,
+          alignItems: "center",
         },
         headerShell: {
-          paddingTop: insets.top + 18,
+          width: contentWidth,
+          paddingTop: insets.top + 12,
           paddingBottom: 4,
         },
         headerRow: {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 26,
+          marginBottom: 18,
         },
         iconButton: {
-          width: 48,
-          height: 48,
-          borderRadius: 24,
+          width: 44,
+          height: 44,
+          borderRadius: 22,
           backgroundColor: "#2A2A2C",
           borderWidth: 1,
           borderColor: "rgba(255,255,255,0.08)",
@@ -332,16 +337,16 @@ const CustomersScreen = () => {
         },
         headerTitle: {
           color: "#F5F5F7",
-          fontFamily: omaTypography.extrabold,
-          fontSize: 34,
-          lineHeight: 38,
-          letterSpacing: -1,
+          fontFamily: omaTypography.bold,
+          fontSize: 28,
+          lineHeight: 34,
+          letterSpacing: -0.8,
         },
         headerSubtitle: {
           color: "#A1A1AA",
           fontFamily: omaTypography.medium,
-          fontSize: 14,
-          lineHeight: 19,
+          fontSize: 13,
+          lineHeight: 18,
         },
         summaryGrid: {
           flexDirection: "row",
@@ -350,37 +355,31 @@ const CustomersScreen = () => {
           gap: 10,
         },
         statsStrip: {
-          marginBottom: 22,
+          marginBottom: 12,
         },
         summaryCard: {
-          width: "31%",
+          flex: 1,
           backgroundColor: "#242426",
-          borderRadius: 18,
-          padding: 12,
+          borderRadius: 14,
+          minHeight: 50,
+          paddingHorizontal: 11,
+          paddingVertical: 8,
           borderWidth: 1,
           borderColor: "rgba(255,255,255,0.04)",
+          justifyContent: "center",
         },
         summaryValue: {
           color: "#FFFFFF",
           fontFamily: omaTypography.extrabold,
-          fontSize: 22,
-          marginBottom: 4,
-          letterSpacing: -0.6,
+          fontSize: 19,
+          marginBottom: 2,
+          letterSpacing: -0.5,
         },
         summaryLabel: {
           color: "#A1A1AA",
           fontFamily: omaTypography.medium,
-          fontSize: 11,
-          lineHeight: 15,
-        },
-        sectionLabel: {
-          color: "#8E8E93",
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
-          letterSpacing: 0.7,
-          textTransform: "uppercase",
-          marginBottom: 10,
-          paddingHorizontal: 2,
+          fontSize: 10,
+          lineHeight: 14,
         },
         searchShell: {
           flexDirection: "row",
@@ -391,7 +390,8 @@ const CustomersScreen = () => {
           borderColor: "rgba(255,255,255,0.08)",
           paddingHorizontal: 14,
           paddingVertical: 4,
-          marginBottom: 14,
+          marginBottom: 10,
+          minHeight: 50,
           shadowColor: "#000000",
           shadowOffset: { width: 0, height: 10 },
           shadowOpacity: 0.22,
@@ -402,19 +402,46 @@ const CustomersScreen = () => {
           flex: 1,
           color: "#F5F5F7",
           fontFamily: omaTypography.medium,
-          fontSize: 15,
-          paddingVertical: 13,
+          fontSize: 16,
+          paddingVertical: 11,
           paddingHorizontal: 10,
+          letterSpacing: -0.35,
+        },
+        controlPanel: {
+          backgroundColor: "#171718",
+          borderRadius: 22,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.06)",
+          padding: 10,
+          marginBottom: 14,
+        },
+        controlPanelHeader: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingHorizontal: 2,
+          marginBottom: 8,
+        },
+        controlPanelTitle: {
+          color: "#F5F5F7",
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+          letterSpacing: -0.25,
+        },
+        controlPanelMeta: {
+          color: "#8E8E93",
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
         },
         chipRow: {
           flexDirection: "row",
-          gap: 10,
-          paddingBottom: 6,
-          marginBottom: 12,
+          gap: 8,
+          paddingBottom: 8,
         },
         chip: {
-          paddingHorizontal: 16,
-          paddingVertical: 10,
+          minHeight: 36,
+          paddingHorizontal: 14,
+          paddingVertical: 8,
           borderRadius: 999,
           backgroundColor: "#1C1C1E",
           borderWidth: 1,
@@ -432,37 +459,16 @@ const CustomersScreen = () => {
         chipTextActive: {
           color: "#101011",
         },
-        sortCard: {
-          backgroundColor: "transparent",
-          borderRadius: 0,
-          borderWidth: 0,
-          padding: 0,
-          marginBottom: 20,
-        },
-        sortRow: {
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 12,
-        },
-        sortTitle: {
-          color: "#F5F5F7",
-          fontFamily: omaTypography.semibold,
-          fontSize: 14,
-        },
-        sortHint: {
-          color: "#8E8E93",
-          fontFamily: omaTypography.medium,
-          fontSize: 12,
-        },
         sortChipRow: {
           flexDirection: "row",
           gap: 8,
+          paddingTop: 2,
         },
         sortChip: {
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-          borderRadius: 16,
+          minHeight: 34,
+          paddingHorizontal: 10,
+          paddingVertical: 7,
+          borderRadius: 999,
           backgroundColor: "#242426",
         },
         sortChipActive: {
@@ -477,12 +483,13 @@ const CustomersScreen = () => {
           color: "#FFFFFF",
         },
         customerCard: {
+          width: contentWidth,
           backgroundColor: "#1F1F21",
-          borderRadius: 26,
+          borderRadius: 20,
           borderWidth: 1,
           borderColor: "rgba(255,255,255,0.07)",
-          padding: 18,
-          marginBottom: 14,
+          padding: 14,
+          marginBottom: 12,
           overflow: "hidden",
           shadowColor: "#000000",
           shadowOffset: { width: 0, height: 12 },
@@ -493,22 +500,22 @@ const CustomersScreen = () => {
         customerAccent: {
           position: "absolute",
           left: 0,
-          top: 22,
+          top: 18,
           width: 4,
-          height: 34,
+          height: 30,
           borderTopRightRadius: 4,
           borderBottomRightRadius: 4,
         },
         customerTopRow: {
           flexDirection: "row",
           alignItems: "flex-start",
-          gap: 14,
-          marginBottom: 16,
+          gap: 12,
+          marginBottom: 10,
         },
         avatar: {
-          width: 48,
-          height: 48,
-          borderRadius: 16,
+          width: 42,
+          height: 42,
+          borderRadius: 14,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: "#2A2A2C",
@@ -518,7 +525,7 @@ const CustomersScreen = () => {
         avatarText: {
           color: "#F5F5F7",
           fontFamily: omaTypography.extrabold,
-          fontSize: 16,
+          fontSize: 15,
           letterSpacing: -0.4,
         },
         identityColumn: {
@@ -534,15 +541,15 @@ const CustomersScreen = () => {
         customerName: {
           flex: 1,
           color: "#F5F5F7",
-          fontFamily: omaTypography.extrabold,
-          fontSize: 17,
-          lineHeight: 22,
+          fontFamily: omaTypography.bold,
+          fontSize: 16,
+          lineHeight: 20,
         },
         customerSubtext: {
           color: "#A1A1AA",
           fontFamily: omaTypography.medium,
           fontSize: 12,
-          lineHeight: 17,
+          lineHeight: 16,
         },
         statusPill: {
           paddingHorizontal: 10,
@@ -559,8 +566,8 @@ const CustomersScreen = () => {
         balancePanel: {
           borderTopWidth: 1,
           borderTopColor: "rgba(255,255,255,0.07)",
-          paddingTop: 14,
-          marginBottom: 14,
+          paddingTop: 10,
+          marginBottom: 10,
         },
         balanceRow: {
           flexDirection: "row",
@@ -574,12 +581,12 @@ const CustomersScreen = () => {
           fontSize: 10,
           letterSpacing: 0.7,
           textTransform: "uppercase",
-          marginBottom: 6,
+          marginBottom: 4,
         },
         balanceValue: {
           fontFamily: omaTypography.extrabold,
-          fontSize: 25,
-          letterSpacing: -0.8,
+          fontSize: 21,
+          letterSpacing: -0.6,
         },
         balanceMetaColumn: {
           alignItems: "flex-end",
@@ -587,27 +594,27 @@ const CustomersScreen = () => {
         balanceMetaLabel: {
           color: "#8E8E93",
           fontFamily: omaTypography.medium,
-          fontSize: 11,
-          marginBottom: 4,
+          fontSize: 10,
+          marginBottom: 3,
         },
         balanceMetaValue: {
           color: "#F5F5F7",
           fontFamily: omaTypography.semibold,
-          fontSize: 14,
+          fontSize: 12,
         },
         metaGrid: {
           flexDirection: "row",
           flexWrap: "wrap",
           gap: 8,
-          marginBottom: 14,
+          marginBottom: 10,
         },
         metaPill: {
-          minWidth: isWideLayout ? "31.4%" : "48%",
+          minWidth: "48%",
           flexGrow: 1,
-          borderRadius: 16,
-          paddingHorizontal: 12,
-          paddingVertical: 10,
-          backgroundColor: "#242426",
+          borderRadius: 14,
+          paddingHorizontal: 10,
+          paddingVertical: 8,
+          backgroundColor: "rgba(255,255,255,0.035)",
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
@@ -615,14 +622,14 @@ const CustomersScreen = () => {
         metaLabel: {
           color: "#8E8E93",
           fontFamily: omaTypography.medium,
-          fontSize: 10,
+          fontSize: 9,
           marginBottom: 2,
         },
         metaValue: {
           color: "#F5F5F7",
           fontFamily: omaTypography.semibold,
           fontSize: 12,
-          lineHeight: 16,
+          lineHeight: 15,
         },
         actionsRow: {
           flexDirection: "row",
@@ -630,9 +637,9 @@ const CustomersScreen = () => {
         },
         actionButton: {
           flex: 1,
-          borderRadius: 18,
-          minHeight: 46,
-          paddingVertical: 12,
+          borderRadius: 16,
+          minHeight: 44,
+          paddingVertical: 10,
           alignItems: "center",
           justifyContent: "center",
           flexDirection: "row",
@@ -663,6 +670,7 @@ const CustomersScreen = () => {
           fontSize: 12,
         },
         emptyState: {
+          width: contentWidth,
           alignItems: "center",
           paddingVertical: 56,
           paddingHorizontal: 20,
@@ -682,6 +690,7 @@ const CustomersScreen = () => {
           lineHeight: 19,
         },
         loadMoreButton: {
+          width: contentWidth,
           marginTop: 4,
           borderRadius: 22,
           borderWidth: 1,
@@ -1038,7 +1047,7 @@ const CustomersScreen = () => {
           fontSize: 13,
         },
       }),
-    [colors, insets.bottom, insets.top, isWideLayout]
+    [colors, contentWidth, insets.bottom, insets.top, isWideLayout]
   );
 
   const fetchLedgerSummary = useCallback(async (): Promise<LedgerSummary> => {
@@ -1759,19 +1768,6 @@ const CustomersScreen = () => {
               </View>
             </View>
 
-            <View style={styles.metaPill}>
-              <Ionicons
-                color={colors.textSecondary}
-                name="wallet-outline"
-                size={16}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.metaLabel}>Credit limit</Text>
-                <Text style={styles.metaValue}>
-                  {item.creditLimit ? `₹${formatIndianNumber(item.creditLimit)}` : "Unset"}
-                </Text>
-              </View>
-            </View>
           </View>
 
           <View style={styles.actionsRow}>
@@ -1807,6 +1803,10 @@ const CustomersScreen = () => {
     },
     [callCustomer, colors, isDark, openCustomerDetails, styles]
   );
+
+  const activeSortLabel =
+    sortOptions.find((option) => option.field === sortBy)?.label || "Name";
+  const activeSortDirection = sortDirection === "asc" ? "ascending" : "descending";
 
   const headerComponent = (
     <View style={styles.headerShell}>
@@ -1849,7 +1849,6 @@ const CustomersScreen = () => {
         ))}
       </View>
 
-      <Text style={styles.sectionLabel}>Search</Text>
       <View style={styles.searchShell}>
         <Ionicons color={colors.textSecondary} name="search-outline" size={18} />
 
@@ -1877,42 +1876,42 @@ const CustomersScreen = () => {
         ) : null}
       </View>
 
-      <Text style={styles.sectionLabel}>Exposure</Text>
-      <ScrollView
-        contentContainerStyle={styles.chipRow}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-      >
-        {[
-          { id: "all", label: "All Clients" },
-          { id: "due", label: "Outstanding" },
-          { id: "credit", label: "Advance" },
-          { id: "risk", label: "At risk" },
-        ].map((filter) => {
-          const active = paymentFilter === filter.id;
-
-          return (
-            <TouchableOpacity
-              key={filter.id}
-              activeOpacity={0.88}
-              onPress={() => setPaymentFilter(filter.id as PaymentFilter)}
-              style={[styles.chip, active && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                {filter.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      <View style={styles.sortCard}>
-        <View style={styles.sortRow}>
-          <Text style={styles.sortTitle}>Sort customers</Text>
-          <Text style={styles.sortHint}>
-            {sortDirection === "asc" ? "Ascending" : "Descending"}
+      <View style={styles.controlPanel}>
+        <View style={styles.controlPanelHeader}>
+          <Text style={styles.controlPanelTitle}>Exposure</Text>
+          <Text style={styles.controlPanelMeta}>
+            {activeSortLabel} {activeSortDirection}
           </Text>
         </View>
+
+        <ScrollView
+          contentContainerStyle={styles.chipRow}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {[
+            { id: "all", label: "All Clients" },
+            { id: "due", label: "Outstanding" },
+            { id: "credit", label: "Advance" },
+            { id: "risk", label: "At risk" },
+          ].map((filter) => {
+            const active = paymentFilter === filter.id;
+
+            return (
+              <TouchableOpacity
+                key={filter.id}
+                activeOpacity={0.88}
+                hitSlop={compactChipHitSlop}
+                onPress={() => setPaymentFilter(filter.id as PaymentFilter)}
+                style={[styles.chip, active && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  {filter.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
         <ScrollView
           contentContainerStyle={styles.sortChipRow}
@@ -1925,6 +1924,7 @@ const CustomersScreen = () => {
               <TouchableOpacity
                 key={option.field}
                 activeOpacity={0.9}
+                hitSlop={compactChipHitSlop}
                 onPress={() => {
                   if (sortBy === option.field) {
                     setSortDirection((current) =>
