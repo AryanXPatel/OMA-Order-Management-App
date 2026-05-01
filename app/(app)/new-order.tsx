@@ -31,8 +31,6 @@ import {
   ScrollView,
   StatusBar,
   Modal,
-  TouchableWithoutFeedback,
-  Keyboard,
   Dimensions,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -42,6 +40,118 @@ import { AppIcon as Ionicons } from "@/components/AppIcon";
 import NetInfo from "@react-native-community/netinfo";
 import { omaTypography } from "@/utils/typography";
 registerTranslation("en", {}); // English locale
+
+const webTextInputReset =
+  Platform.OS === "web"
+    ? ({
+        outlineStyle: "none",
+        outlineColor: "transparent",
+        outlineWidth: 0,
+        outlineOffset: 0,
+        boxShadow: "none",
+        appearance: "none",
+        WebkitAppearance: "none",
+        borderWidth: 0,
+        backgroundColor: "transparent",
+      } as any)
+    : {};
+
+type SheetRecord = Record<string, string>;
+
+const getSheetValue = (
+  record: SheetRecord | null | undefined,
+  keys: string[],
+  fallback = ""
+) => {
+  if (!record) {
+    return fallback;
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim();
+    }
+  }
+
+  return fallback;
+};
+
+const formatCompactCurrency = (value: string) => {
+  const parsed = Number.parseFloat(String(value || "0").replace(/,/g, ""));
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return "";
+  }
+
+  try {
+    return new Intl.NumberFormat("en-IN", {
+      maximumFractionDigits: 0,
+      minimumFractionDigits: 0,
+    }).format(parsed);
+  } catch {
+    return `${Math.round(parsed)}`;
+  }
+};
+
+const getCustomerLocationLine = (customer: SheetRecord | null | undefined) =>
+  [
+    getSheetValue(customer, ["city"]),
+    getSheetValue(customer, ["zone"]),
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+const getCustomerProfileLine = (customer: SheetRecord | null | undefined) =>
+  [
+    getSheetValue(customer, ["channel"]),
+    getSheetValue(customer, ["industry"]),
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+const getCustomerTermsLabel = (customer: SheetRecord | null | undefined) => {
+  const terms = getSheetValue(customer, ["payment_terms_days"]);
+  return terms ? `${terms}d terms` : "Terms n/a";
+};
+
+const getCustomerRiskLabel = (customer: SheetRecord | null | undefined) => {
+  const risk = getSheetValue(customer, ["risk_tier"]);
+  return risk ? `${risk} risk` : "Risk n/a";
+};
+
+const getCreditLimitLabel = (customer: SheetRecord | null | undefined) => {
+  const limit = formatCompactCurrency(getSheetValue(customer, ["credit_limit"]));
+  return limit ? `₹${limit} limit` : "Limit n/a";
+};
+
+const getProductGroup = (product: SheetRecord | null | undefined) =>
+  getSheetValue(product, [
+    "Product Group Name",
+    "product_group_norm",
+    "Category",
+  ]);
+
+const getProductUnit = (product: SheetRecord | null | undefined) =>
+  getSheetValue(product, ["uom", "UOM", "Unit"], "Unit");
+
+const getProductRate = (product: SheetRecord | null | undefined) => {
+  const parsed = Number.parseFloat(getSheetValue(product, ["Rate"], "0"));
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getProductDescriptor = (product: SheetRecord | null | undefined) =>
+  [
+    getSheetValue(product, ["brand"]),
+    getSheetValue(product, ["subcategory"]),
+    getProductGroup(product),
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+const getProductMarginLabel = (product: SheetRecord | null | undefined) => {
+  const margin = getSheetValue(product, ["margin_pct"]);
+  return margin ? `${margin}% margin` : "Margin n/a";
+};
 
 const NewSalesOrderScreen = () => {
   const { colors, isDark } = useContext(ThemeContext);
@@ -55,23 +165,28 @@ const NewSalesOrderScreen = () => {
 
   // Customer state
   const [customerName, setCustomerName] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<SheetRecord | null>(
+    null
+  );
   const [selectedCustomerCode, setSelectedCustomerCode] = useState("");
   const [selectedLetter, setSelectedLetter] = useState("");
   const [customerModalVisible, setCustomerModalVisible] = useState(false);
   const [isCustomerLoading, setIsCustomerLoading] = useState(false);
   const [customerSearchQuery, setCustomerSearchQuery] = useState("");
-  const [filteredCustomers, setFilteredCustomers] = useState([]);
+  const [filteredCustomers, setFilteredCustomers] = useState<SheetRecord[]>([]);
 
   // Product state
-  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState<SheetRecord | null>(
+    null
+  );
   const [productModalVisible, setProductModalVisible] = useState(false);
-  const [productList, setProductList] = useState([]);
+  const [productList, setProductList] = useState<SheetRecord[]>([]);
   const [quantity, setQuantity] = useState("");
   const [quantityError, setQuantityError] = useState("");
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [productSearchQuery, setProductSearchQuery] = useState("");
-  const [filteredProducts, setFilteredProducts] = useState([]);
-  const [selectedProductLetter, setSelectedProductLetter] = useState("");
+  const [filteredProducts, setFilteredProducts] = useState<SheetRecord[]>([]);
+  const [selectedProductGroup, setSelectedProductGroup] = useState("All");
   const [orderSuccess, setOrderSuccess] = useState(false);
 
   // Add to your state declarations inside NewSalesOrderScreen
@@ -90,11 +205,6 @@ const NewSalesOrderScreen = () => {
   // References
   const scrollViewRef = useRef(null);
   const quantityInputRef = useRef(null);
-
-  // Define alphabet for letter selectors
-  const alphabet = Array.from({ length: 26 }, (_, i) =>
-    String.fromCharCode(65 + i)
-  );
 
   // Add these callback functions for the date picker
   const onDismissDatePicker = useCallback(() => {
@@ -137,16 +247,6 @@ const NewSalesOrderScreen = () => {
     },
     [orderDate]
   );
-
-  // Group alphabet into chunks for better display
-  const getAlphabetGroups = () => {
-    return [
-      alphabet.slice(0, 7), // A-G
-      alphabet.slice(7, 14), // H-N
-      alphabet.slice(14, 21), // O-U
-      alphabet.slice(21), // V-Z
-    ];
-  };
 
   // Format numbers with Indian comma style
   const formatIndianNumber = (num) => {
@@ -491,7 +591,7 @@ const NewSalesOrderScreen = () => {
   const fetchProducts = async () => {
     try {
       const response = await fetchWithRetry(
-        `${BACKEND_URL}/api/sheets/Product_Master!A1:E`,
+        `${BACKEND_URL}/api/sheets/Product_Master!A1:L`,
         {},
         2,
         1500
@@ -504,7 +604,7 @@ const NewSalesOrderScreen = () => {
 
         setProductList(
           rows.map((row) => {
-            const product = {};
+            const product: SheetRecord = {};
             headers.forEach((header, index) => {
               product[header] = row[index] || "";
             });
@@ -523,7 +623,7 @@ const NewSalesOrderScreen = () => {
     setIsCustomerLoading(true);
     try {
       const response = await fetchWithRetry(
-        `${BACKEND_URL}/api/sheets/Customer_Master!A1:B`,
+        `${BACKEND_URL}/api/sheets/Customer_Master!A1:N`,
         {},
         2,
         1500
@@ -532,14 +632,18 @@ const NewSalesOrderScreen = () => {
       if (response.data && response.data.values) {
         const rows = response.data.values.slice(1);
 
+        const headers = response.data.values[0];
         const customerData = rows
           .filter(
             (row) => row[1] && row[1].trim().toUpperCase().startsWith(letter)
           )
-          .map((row) => ({
-            "Customer CODE": row[0] || "",
-            "Customer NAME": row[1] || "",
-          }));
+          .map((row) => {
+            const customer: SheetRecord = {};
+            headers.forEach((header, index) => {
+              customer[header] = row[index] || "";
+            });
+            return customer;
+          });
 
         setFilteredCustomers(customerData);
       }
@@ -579,30 +683,40 @@ const NewSalesOrderScreen = () => {
     setIsCustomerLoading(true);
     try {
       const response = await fetchWithRetry(
-        `${BACKEND_URL}/api/sheets/Customer_Master!A1:B`,
+        `${BACKEND_URL}/api/sheets/Customer_Master!A1:N`,
         {},
         2,
         1500
       );
 
       if (response.data && response.data.values) {
+        const headers = response.data.values[0];
         const rows = response.data.values.slice(1);
 
-        const allCustomers = rows.map((row) => ({
-          "Customer CODE": row[0] || "",
-          "Customer NAME": row[1] || "",
-        }));
+        const allCustomers = rows.map((row) => {
+          const customer: SheetRecord = {};
+          headers.forEach((header, index) => {
+            customer[header] = row[index] || "";
+          });
+          return customer;
+        });
 
         // Filter by query (both name and code)
         const filtered = allCustomers.filter(
           (customer) =>
-            customer["Customer NAME"]
-              .toLowerCase()
-              .includes(query.toLowerCase()) ||
-            (customer["Customer CODE"] &&
-              customer["Customer CODE"]
-                .toLowerCase()
-                .includes(query.toLowerCase()))
+            [
+              customer["Customer NAME"],
+              customer["Customer CODE"],
+              customer.city,
+              customer.zone,
+              customer.sales_owner,
+              customer.channel,
+              customer.industry,
+            ]
+              .filter(Boolean)
+              .some((value) =>
+                String(value).toLowerCase().includes(query.toLowerCase())
+              )
         );
 
         setFilteredCustomers(filtered);
@@ -619,20 +733,28 @@ const NewSalesOrderScreen = () => {
     setProductSearchQuery(query);
 
     if (!query.trim()) {
-      setFilteredProducts([]);
+      filterProductsByGroup(selectedProductGroup || "All");
       return;
     }
+
+    setSelectedProductGroup("");
 
     try {
       // For better performance, filter the already loaded products
       const filtered = productList.filter(
         (product) =>
-          product["Product NAME"].toLowerCase().includes(query.toLowerCase()) ||
-          product["Product CODE"].toLowerCase().includes(query.toLowerCase()) ||
-          (product["Product Group Name"] &&
-            product["Product Group Name"]
-              .toLowerCase()
-              .includes(query.toLowerCase()))
+          [
+            product["Product NAME"],
+            product["Product CODE"],
+            product["Product Group Name"],
+            product.product_group_norm,
+            product.brand,
+            product.subcategory,
+          ]
+            .filter(Boolean)
+            .some((value) =>
+              String(value).toLowerCase().includes(query.toLowerCase())
+            )
       );
 
       setFilteredProducts(filtered);
@@ -641,15 +763,33 @@ const NewSalesOrderScreen = () => {
     }
   };
 
-  // Filter products by letter
-  const filterProductsByLetter = useCallback(
-    (letter) => {
-      setSelectedProductLetter(letter);
+  const productGroupOptions = useMemo(() => {
+    const groups = Array.from(
+      new Set(
+        productList
+          .map((product) => getProductGroup(product))
+          .filter(Boolean)
+      )
+    );
+
+    return ["All", ...groups.slice(0, 8)];
+  }, [productList]);
+
+  // Filter products by sheet-backed product group
+  const filterProductsByGroup = useCallback(
+    (group) => {
+      const nextGroup = group || "All";
+      setSelectedProductGroup(nextGroup);
       setProductSearchQuery("");
 
-      const filtered = productList.filter((product) =>
-        product["Product NAME"].trim().toUpperCase().startsWith(letter)
-      );
+      const filtered =
+        nextGroup === "All"
+          ? productList
+          : productList.filter(
+              (product) =>
+                getProductGroup(product) === nextGroup ||
+                getSheetValue(product, ["product_group_norm"]) === nextGroup
+            );
 
       setFilteredProducts(filtered);
     },
@@ -668,30 +808,26 @@ const NewSalesOrderScreen = () => {
     if (
       step === 2 &&
       !productSearchQuery.trim() &&
-      !selectedProductLetter &&
+      filteredProducts.length === 0 &&
       productList.length > 0
     ) {
-      filterProductsByLetter("A");
+      filterProductsByGroup(selectedProductGroup || "All");
     }
   }, [
-    filterProductsByLetter,
+    filterProductsByGroup,
+    filteredProducts.length,
     productList.length,
     productSearchQuery,
-    selectedProductLetter,
+    selectedProductGroup,
     step,
   ]);
 
   // Handle product selection
   const handleProductSelect = (product) => {
     setSelectedProduct(product);
+    setQuantity("1");
+    setQuantityError("");
     setProductModalVisible(false);
-
-    // Focus quantity input after selecting product
-    setTimeout(() => {
-      if (quantityInputRef.current) {
-        quantityInputRef.current.focus();
-      }
-    }, 300);
   };
 
   // Validate quantity
@@ -735,7 +871,7 @@ const NewSalesOrderScreen = () => {
     }
 
     const numericQuantity = parseFloat(quantity);
-    const numericRate = parseFloat(selectedProduct["Rate"]);
+    const numericRate = getProductRate(selectedProduct);
 
     if (isNaN(numericRate)) {
       Alert.alert("Error", "Product has invalid rate");
@@ -750,12 +886,12 @@ const NewSalesOrderScreen = () => {
     const newProduct = {
       productName: selectedProduct["Product NAME"],
       productCode: selectedProduct["Product CODE"] || "",
-      productGroup:
-        selectedProduct["Product Group Name"] ||
-        selectedProduct["Category"] ||
-        "",
+      productGroup: getProductGroup(selectedProduct),
+      productBrand: getSheetValue(selectedProduct, ["brand"]),
+      productSubcategory: getSheetValue(selectedProduct, ["subcategory"]),
+      productMargin: getSheetValue(selectedProduct, ["margin_pct"]),
       quantity: numericQuantity,
-      unit: "Unit",
+      unit: getProductUnit(selectedProduct),
       rate: numericRate,
       formattedRate: formatIndianNumber(numericRate),
       orderAmount: formattedAmount,
@@ -765,15 +901,9 @@ const NewSalesOrderScreen = () => {
     setProducts([...products, newProduct]);
 
     // Reset fields for next product
+    setSelectedProduct(null);
     setQuantity("");
     setQuantityError("");
-
-    // Scroll to bottom to show newly added product
-    setTimeout(() => {
-      if (scrollViewRef.current) {
-        scrollViewRef.current.scrollToEnd({ animated: true });
-      }
-    }, 200);
   };
 
   // Remove product from order
@@ -924,9 +1054,33 @@ const NewSalesOrderScreen = () => {
     Platform.OS === "android" ? (StatusBar.currentHeight || 0) + 10 : 18;
   const totalAmount = calculateTotal();
   const totalItems = calculateTotalItems();
+  const quantityNumber = Number.parseFloat(quantity);
+  const hasValidQuantity = Number.isFinite(quantityNumber) && quantityNumber > 0;
+  const selectedProductRate = selectedProduct
+    ? formatIndianNumber(getProductRate(selectedProduct))
+    : "";
+  const selectedProductDescriptor = getProductDescriptor(selectedProduct);
+  const selectedProductUnit = getProductUnit(selectedProduct);
+  const selectedProductMargin = getProductMarginLabel(selectedProduct);
+  const selectedCustomerLocation = getCustomerLocationLine(selectedCustomer);
+  const selectedCustomerProfile = getCustomerProfileLine(selectedCustomer);
+  const selectedCustomerTerms = getCustomerTermsLabel(selectedCustomer);
+  const selectedCustomerRisk = getCustomerRiskLabel(selectedCustomer);
+  const selectedCustomerLimit = getCreditLimitLabel(selectedCustomer);
   const canAdvanceToProducts = Boolean(customerName);
   const canAdvanceToReview = products.length > 0;
   const canSubmitOrder = Boolean(customerName && products.length > 0) && !isLoading;
+  const draftLineAmount =
+    selectedProduct && hasValidQuantity
+      ? formatIndianNumber(getProductRate(selectedProduct) * quantityNumber)
+      : "";
+  const addLineButtonLabel = !selectedProduct
+    ? "Choose a product"
+    : quantityError
+    ? "Fix quantity"
+    : !hasValidQuantity
+    ? "Set quantity"
+    : "Add to order";
   const customerInitials = customerName
     ? customerName
         .split(" ")
@@ -943,15 +1097,11 @@ const NewSalesOrderScreen = () => {
       return;
     }
 
-    const nextLetter =
-      selectedProductLetter ||
-      selectedProduct?.["Product NAME"]?.trim().charAt(0).toUpperCase() ||
-      "A";
-
-    filterProductsByLetter(nextLetter);
+    filterProductsByGroup(selectedProductGroup || "All");
   };
 
   const handleCustomerSelection = (customer) => {
+    setSelectedCustomer(customer);
     setCustomerName(customer["Customer NAME"]);
     setSelectedCustomerCode(customer["Customer CODE"] || "");
     setCustomerModalVisible(false);
@@ -1148,10 +1298,12 @@ const NewSalesOrderScreen = () => {
           marginBottom: 18,
         },
         referenceSearchInput: {
+          ...webTextInputReset,
           flex: 1,
           color: "#ffffff",
           fontFamily: omaTypography.medium,
           fontSize: 15,
+          minHeight: 24,
           paddingVertical: 0,
           paddingLeft: 10,
         },
@@ -1193,6 +1345,14 @@ const NewSalesOrderScreen = () => {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
           fontSize: 13,
+          lineHeight: 18,
+        },
+        referenceClientSubMeta: {
+          color: "rgba(255,255,255,0.52)",
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+          lineHeight: 17,
+          marginTop: 3,
         },
         referenceClientTag: {
           alignSelf: "center",
@@ -1201,10 +1361,40 @@ const NewSalesOrderScreen = () => {
           paddingHorizontal: 10,
           paddingVertical: 6,
         },
+        referenceTagColumn: {
+          alignItems: "flex-end",
+          gap: 7,
+          maxWidth: 110,
+        },
         referenceClientTagText: {
           color: "#ffffff",
           fontFamily: omaTypography.bold,
           fontSize: 11,
+        },
+        referenceRiskText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 10,
+          textAlign: "right",
+        },
+        referenceClientInsightRow: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 6,
+          marginTop: 10,
+        },
+        referenceClientMiniPill: {
+          borderRadius: 999,
+          paddingHorizontal: 9,
+          paddingVertical: 5,
+          backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "#f1f3f7",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.05)",
+        },
+        referenceClientMiniText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 10,
         },
         referenceEmptyCard: {
           borderRadius: 18,
@@ -1476,6 +1666,13 @@ const NewSalesOrderScreen = () => {
           shadowRadius: 20,
           elevation: 8,
         },
+        composerCardHeader: {
+          flexDirection: "row",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 12,
+        },
         fieldLabel: {
           color: colors.textSecondary,
           fontFamily: omaTypography.semibold,
@@ -1484,13 +1681,43 @@ const NewSalesOrderScreen = () => {
           textTransform: "uppercase",
           marginBottom: 8,
         },
+        composerHint: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+          lineHeight: 17,
+        },
+        readyChip: {
+          minHeight: 32,
+          paddingHorizontal: 10,
+          borderRadius: 999,
+          backgroundColor: isDark
+            ? "rgba(50,215,75,0.11)"
+            : "rgba(52,199,89,0.12)",
+          borderWidth: 1,
+          borderColor: isDark
+            ? "rgba(50,215,75,0.24)"
+            : "rgba(52,199,89,0.22)",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "row",
+          gap: 5,
+        },
+        readyChipText: {
+          color: colors.success,
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+        },
         productPreviewCard: {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
+          minHeight: 96,
           padding: 16,
           borderRadius: 22,
           backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: colors.border,
           marginBottom: 14,
         },
         productPreviewMeta: {
@@ -1515,6 +1742,69 @@ const NewSalesOrderScreen = () => {
           fontFamily: omaTypography.extrabold,
           fontSize: 16,
         },
+        productPreviewAction: {
+          minWidth: 78,
+          alignItems: "flex-end",
+          justifyContent: "center",
+          gap: 4,
+        },
+        productPreviewActionText: {
+          color: colors.primary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+        },
+        changeProductPill: {
+          minHeight: 30,
+          borderRadius: 999,
+          paddingHorizontal: 9,
+          backgroundColor: isDark
+            ? "rgba(255,214,10,0.11)"
+            : "rgba(255,204,0,0.14)",
+          borderWidth: 1,
+          borderColor: isDark
+            ? "rgba(255,214,10,0.26)"
+            : "rgba(255,204,0,0.28)",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "row",
+          gap: 4,
+        },
+        changeProductPillText: {
+          color: colors.primary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+        },
+        productSpecGrid: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 14,
+        },
+        productSpecPill: {
+          borderRadius: 999,
+          paddingHorizontal: 11,
+          paddingVertical: 7,
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        productSpecText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+        },
+        quantityHeaderRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+        },
+        quantityHelperText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 11,
+          marginBottom: 8,
+        },
         quantityShell: {
           flexDirection: "row",
           alignItems: "center",
@@ -1522,9 +1812,9 @@ const NewSalesOrderScreen = () => {
           marginBottom: 10,
         },
         quantityStepper: {
-          width: 44,
-          height: 44,
-          borderRadius: 16,
+          width: 48,
+          height: 48,
+          borderRadius: 18,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
@@ -1543,6 +1833,7 @@ const NewSalesOrderScreen = () => {
           backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
           paddingHorizontal: 16,
           paddingVertical: 4,
+          minHeight: 48,
         },
         quantityInput: {
           color: colors.text,
@@ -1551,11 +1842,64 @@ const NewSalesOrderScreen = () => {
           paddingVertical: 10,
           textAlign: "center",
         },
+        quantityPresetRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 12,
+        },
+        quantityPresetChip: {
+          flex: 1,
+          minHeight: 44,
+          borderRadius: 16,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        quantityPresetChipActive: {
+          backgroundColor: isDark ? colors.text : "#111111",
+          borderColor: isDark ? colors.text : "#111111",
+        },
+        quantityPresetText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+        },
+        quantityPresetTextActive: {
+          color: isDark ? colors.background : "#ffffff",
+        },
         quantityError: {
           color: colors.error,
           fontFamily: omaTypography.medium,
           fontSize: 12,
           marginBottom: 10,
+        },
+        linePreviewStrip: {
+          minHeight: 48,
+          borderRadius: 18,
+          paddingHorizontal: 14,
+          marginBottom: 12,
+          backgroundColor: isDark
+            ? "rgba(255,255,255,0.045)"
+            : "rgba(17,24,39,0.045)",
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        },
+        linePreviewLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+        },
+        linePreviewValue: {
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 15,
+          textAlign: "right",
+          flexShrink: 1,
         },
         addLineButton: {
           backgroundColor: isDark ? colors.text : "#111111",
@@ -1676,9 +2020,9 @@ const NewSalesOrderScreen = () => {
           lineHeight: 17,
         },
         lineItemRemoveButton: {
-          width: 34,
-          height: 34,
-          borderRadius: 17,
+          width: 44,
+          height: 44,
+          borderRadius: 22,
           alignItems: "center",
           justifyContent: "center",
           backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
@@ -1688,11 +2032,14 @@ const NewSalesOrderScreen = () => {
           alignItems: "center",
           justifyContent: "space-between",
           gap: 12,
+          paddingTop: 4,
         },
         lineItemAmount: {
           color: colors.text,
           fontFamily: omaTypography.extrabold,
           fontSize: 16,
+          textAlign: "right",
+          flexShrink: 0,
         },
         reviewCard: {
           backgroundColor: colors.appChromeElevated,
@@ -2069,10 +2416,12 @@ const NewSalesOrderScreen = () => {
           backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
         },
         modalSearchInput: {
+          ...webTextInputReset,
           flex: 1,
           color: colors.text,
           fontFamily: omaTypography.medium,
           fontSize: 14,
+          minHeight: 24,
           paddingVertical: 12,
         },
         modalShortcutBlock: {
@@ -2087,33 +2436,31 @@ const NewSalesOrderScreen = () => {
           textTransform: "uppercase",
           marginBottom: 8,
         },
-        letterRow: {
-          flexDirection: "row",
-          justifyContent: "space-between",
-          gap: 8,
-          marginBottom: 8,
+        groupShortcutScroll: {
+          paddingRight: 18,
         },
-        letterChip: {
-          flex: 1,
-          minWidth: 34,
+        groupChip: {
+          minHeight: 36,
+          paddingHorizontal: 14,
           paddingVertical: 9,
-          borderRadius: 14,
+          borderRadius: 999,
           borderWidth: 1,
           borderColor: colors.border,
           backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
           alignItems: "center",
           justifyContent: "center",
+          marginRight: 8,
         },
-        letterChipActive: {
+        groupChipActive: {
           backgroundColor: isDark ? colors.text : "#111111",
           borderColor: isDark ? colors.text : "#111111",
         },
-        letterChipText: {
+        groupChipText: {
           color: colors.textSecondary,
           fontFamily: omaTypography.semibold,
           fontSize: 12,
         },
-        letterChipTextActive: {
+        groupChipTextActive: {
           color: isDark ? colors.background : "#ffffff",
         },
         loaderContainer: {
@@ -2281,15 +2628,14 @@ const NewSalesOrderScreen = () => {
       animationType="slide"
       onRequestClose={() => setCustomerModalVisible(false)}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalSheet}>
             <View style={styles.modalHeader}>
               <View style={styles.modalHeaderCopy}>
                 <Text style={styles.modalEyebrow}>Customer selection</Text>
                 <Text style={styles.modalTitle}>Choose client account</Text>
                 <Text style={styles.modalSubtitle}>
-                  Search directly or browse by first letter.
+                  Search by customer name, code, city, owner, or channel.
                 </Text>
               </View>
 
@@ -2310,7 +2656,6 @@ const NewSalesOrderScreen = () => {
               <TextInput
                 autoCapitalize="words"
                 autoCorrect={false}
-                autoFocus
                 onChangeText={searchCustomers}
                 placeholder="Search by customer name or code"
                 placeholderTextColor={colors.textSecondary}
@@ -2336,42 +2681,6 @@ const NewSalesOrderScreen = () => {
                   />
                 </TouchableOpacity>
               ) : null}
-            </View>
-
-            <View style={styles.modalShortcutBlock}>
-              <Text style={styles.modalShortcutTitle}>Browse by initial</Text>
-              {getAlphabetGroups().map((group, index) => (
-                <View key={`customer-group-${index}`} style={styles.letterRow}>
-                  {group.map((letter) => {
-                    const active = selectedLetter === letter && !customerSearchQuery;
-
-                    return (
-                      <TouchableOpacity
-                        key={letter}
-                        activeOpacity={0.88}
-                        onPress={() => {
-                          setSelectedLetter(letter);
-                          setCustomerSearchQuery("");
-                          fetchCustomers(letter);
-                        }}
-                        style={[
-                          styles.letterChip,
-                          active && styles.letterChipActive,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.letterChipText,
-                            active && styles.letterChipTextActive,
-                          ]}
-                        >
-                          {letter}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ))}
             </View>
 
             {isCustomerLoading ? (
@@ -2418,10 +2727,32 @@ const NewSalesOrderScreen = () => {
                         {item["Customer NAME"]}
                       </Text>
                       <Text style={styles.modalCardMeta}>
-                        {item["Customer CODE"]
-                          ? `Customer code: ${item["Customer CODE"]}`
-                          : "Customer code unavailable"}
+                        {[
+                          item["Customer CODE"]
+                            ? `Code ${item["Customer CODE"]}`
+                            : "Code unavailable",
+                          getCustomerLocationLine(item),
+                        ]
+                          .filter(Boolean)
+                          .join(" • ")}
                       </Text>
+                      {getCustomerProfileLine(item) ? (
+                        <Text style={styles.referenceClientSubMeta}>
+                          {getCustomerProfileLine(item)}
+                        </Text>
+                      ) : null}
+                      <View style={styles.referenceClientInsightRow}>
+                        <View style={styles.referenceClientMiniPill}>
+                          <Text style={styles.referenceClientMiniText}>
+                            {getCustomerTermsLabel(item)}
+                          </Text>
+                        </View>
+                        <View style={styles.referenceClientMiniPill}>
+                          <Text style={styles.referenceClientMiniText}>
+                            {getCustomerRiskLabel(item)}
+                          </Text>
+                        </View>
+                      </View>
                     </View>
 
                     <Ionicons
@@ -2441,16 +2772,15 @@ const NewSalesOrderScreen = () => {
                     <Text style={styles.modalEmptyTitle}>No customer results</Text>
                     <Text style={styles.modalEmptyBody}>
                       {customerSearchQuery
-                        ? `Nothing matched "${customerSearchQuery}". Try a broader search or browse by initial.`
-                        : "Choose a letter or type a customer name to load the live account list."}
+                        ? `Nothing matched "${customerSearchQuery}". Try a broader customer name, city, owner, or code.`
+                        : "Type a customer name, city, owner, or code to search the live account list."}
                     </Text>
                   </View>
                 }
               />
             )}
-          </View>
         </View>
-      </TouchableWithoutFeedback>
+      </View>
     </Modal>
   );
 
@@ -2461,15 +2791,14 @@ const NewSalesOrderScreen = () => {
       animationType="slide"
       onRequestClose={() => setProductModalVisible(false)}
     >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalSheet}>
             <View style={styles.modalHeader}>
               <View style={styles.modalHeaderCopy}>
                 <Text style={styles.modalEyebrow}>Product selection</Text>
                 <Text style={styles.modalTitle}>Pick live catalog items</Text>
                 <Text style={styles.modalSubtitle}>
-                  Search by SKU, name, or group, or browse by first letter.
+                  Search by SKU, name, or brand, or use product groups.
                 </Text>
               </View>
 
@@ -2490,7 +2819,6 @@ const NewSalesOrderScreen = () => {
               <TextInput
                 autoCapitalize="none"
                 autoCorrect={false}
-                autoFocus
                 onChangeText={searchProducts}
                 placeholder="Search by SKU, product, or group"
                 placeholderTextColor={colors.textSecondary}
@@ -2500,13 +2828,11 @@ const NewSalesOrderScreen = () => {
 
               {productSearchQuery ? (
                 <TouchableOpacity
+                  accessibilityLabel="Clear product search"
+                  accessibilityRole="button"
                   onPress={() => {
                     setProductSearchQuery("");
-                    if (selectedProductLetter) {
-                      filterProductsByLetter(selectedProductLetter);
-                    } else {
-                      setFilteredProducts([]);
-                    }
+                    filterProductsByGroup(selectedProductGroup || "All");
                   }}
                 >
                   <Ionicons
@@ -2519,36 +2845,38 @@ const NewSalesOrderScreen = () => {
             </View>
 
             <View style={styles.modalShortcutBlock}>
-              <Text style={styles.modalShortcutTitle}>Browse by initial</Text>
-              {getAlphabetGroups().map((group, index) => (
-                <View key={`product-group-${index}`} style={styles.letterRow}>
-                  {group.map((letter) => {
-                    const active =
-                      selectedProductLetter === letter && !productSearchQuery;
+              <Text style={styles.modalShortcutTitle}>Catalog shortcuts</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.groupShortcutScroll}
+              >
+                {productGroupOptions.map((group) => {
+                  const active =
+                    selectedProductGroup === group && !productSearchQuery;
 
-                    return (
-                      <TouchableOpacity
-                        key={letter}
-                        activeOpacity={0.88}
-                        onPress={() => filterProductsByLetter(letter)}
+                  return (
+                    <TouchableOpacity
+                      accessibilityLabel={`Filter products by ${group}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      key={group}
+                      activeOpacity={0.88}
+                      onPress={() => filterProductsByGroup(group)}
+                      style={[styles.groupChip, active && styles.groupChipActive]}
+                    >
+                      <Text
                         style={[
-                          styles.letterChip,
-                          active && styles.letterChipActive,
+                          styles.groupChipText,
+                          active && styles.groupChipTextActive,
                         ]}
                       >
-                        <Text
-                          style={[
-                            styles.letterChipText,
-                            active && styles.letterChipTextActive,
-                          ]}
-                        >
-                          {letter}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ))}
+                        {group}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
 
             <FlatList
@@ -2582,12 +2910,19 @@ const NewSalesOrderScreen = () => {
                       {item["Product NAME"]}
                     </Text>
                     <Text style={styles.modalCardMeta}>
-                      {item["Product CODE"] || "No product code"}
+                      {[
+                        item["Product CODE"] || "No product code",
+                        getProductDescriptor(item),
+                      ]
+                        .filter(Boolean)
+                        .join(" • ")}
                     </Text>
-                    {item["Product Group Name"] ? (
+                    {getProductDescriptor(item) ? (
                       <View style={styles.modalTag}>
                         <Text style={styles.modalTagText}>
-                          {item["Product Group Name"]}
+                          {`${getProductUnit(item)} • ${getProductMarginLabel(
+                            item
+                          )}`}
                         </Text>
                       </View>
                     ) : null}
@@ -2615,15 +2950,14 @@ const NewSalesOrderScreen = () => {
                   <Text style={styles.modalEmptyTitle}>No products found</Text>
                   <Text style={styles.modalEmptyBody}>
                     {productSearchQuery
-                      ? `Nothing matched "${productSearchQuery}". Try a shorter term or browse alphabetically.`
-                      : "Choose a letter or type a product name to explore the live catalog."}
+                      ? `Nothing matched "${productSearchQuery}". Try a shorter term or another product group.`
+                      : "Choose a product group or type a product name to explore the live catalog."}
                   </Text>
                 </View>
               }
             />
-          </View>
         </View>
-      </TouchableWithoutFeedback>
+      </View>
     </Modal>
   );
 
@@ -2640,7 +2974,6 @@ const NewSalesOrderScreen = () => {
         <TextInput
           autoCapitalize="words"
           autoCorrect={false}
-          autoFocus={step === 1}
           onChangeText={searchCustomers}
           placeholder="Search clients..."
           placeholderTextColor={colors.textSecondary}
@@ -2704,17 +3037,42 @@ const NewSalesOrderScreen = () => {
                     {item["Customer NAME"]}
                   </Text>
                   <Text style={styles.referenceClientMeta}>
-                    {item["Customer CODE"]
-                      ? `Code ${item["Customer CODE"]}`
-                      : "Customer code unavailable"}
+                    {[
+                      item["Customer CODE"]
+                        ? `Code ${item["Customer CODE"]}`
+                        : "Code unavailable",
+                      getCustomerLocationLine(item),
+                    ]
+                      .filter(Boolean)
+                      .join(" • ")}
                   </Text>
+                  {getCustomerProfileLine(item) ? (
+                    <Text style={styles.referenceClientSubMeta}>
+                      {getCustomerProfileLine(item)}
+                    </Text>
+                  ) : null}
+                  <View style={styles.referenceClientInsightRow}>
+                    <View style={styles.referenceClientMiniPill}>
+                      <Text style={styles.referenceClientMiniText}>
+                        {getCustomerTermsLabel(item)}
+                      </Text>
+                    </View>
+                    <View style={styles.referenceClientMiniPill}>
+                      <Text style={styles.referenceClientMiniText}>
+                        {getCreditLimitLabel(item)}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
 
-                <View style={styles.referenceClientTag}>
-                  <Text style={styles.referenceClientTagText}>
-                    {selected
-                      ? "Selected"
-                      : item["Customer CODE"] || "Account"}
+                <View style={styles.referenceTagColumn}>
+                  <View style={styles.referenceClientTag}>
+                    <Text style={styles.referenceClientTagText}>
+                      {selected ? "Selected" : getCustomerTermsLabel(item)}
+                    </Text>
+                  </View>
+                  <Text style={styles.referenceRiskText}>
+                    {getCustomerRiskLabel(item)}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -2739,15 +3097,37 @@ const NewSalesOrderScreen = () => {
         <Text style={styles.sectionEyebrow}>Step 2</Text>
         <Text style={styles.sectionHeading}>Add Products</Text>
         <Text style={styles.sectionBody}>
-          Add products, confirm quantities, and keep the running order total in
-          view.
+          Ordering for {customerName}
+          {selectedCustomerLocation ? ` • ${selectedCustomerLocation}` : ""}
+          {selectedCustomerTerms ? ` • ${selectedCustomerTerms}` : ""}.
         </Text>
       </View>
 
       <View style={styles.composerCard}>
-        <Text style={styles.fieldLabel}>Product</Text>
+        <View style={styles.composerCardHeader}>
+          <View>
+            <Text style={styles.fieldLabel}>Product</Text>
+            <Text style={styles.composerHint}>
+              {selectedProduct
+                ? "Quantity starts at 1. Tap the card to change product."
+                : products.length > 0
+                ? "Choose another catalog product for the next line."
+                : "Pick an item to price this line."}
+            </Text>
+          </View>
+          {selectedProduct ? (
+            <View style={styles.readyChip}>
+              <Ionicons name="checkmark-circle" size={13} color={colors.success} />
+              <Text style={styles.readyChipText}>Ready</Text>
+            </View>
+          ) : null}
+        </View>
 
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={
+            selectedProduct ? "Change selected product" : "Open product catalog"
+          }
           activeOpacity={0.9}
           onPress={openProductPicker}
           style={styles.productPreviewCard}
@@ -2758,18 +3138,30 @@ const NewSalesOrderScreen = () => {
             </Text>
             <Text style={styles.productPreviewCode}>
               {selectedProduct
-                ? `${selectedProduct["Product CODE"] || "No code"}${
-                    selectedProduct["Product Group Name"]
-                      ? ` • ${selectedProduct["Product Group Name"]}`
-                      : ""
-                  }`
+                ? [
+                    selectedProduct["Product CODE"] || "No code",
+                    selectedProductDescriptor,
+                    selectedProductUnit,
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")
                 : "Search by name, SKU, or group"}
             </Text>
           </View>
 
-          <View>
+          <View style={styles.productPreviewAction}>
             {selectedProduct ? (
-              <Text style={styles.productPreviewRate}>₹{selectedProductRate}</Text>
+              <>
+                <Text style={styles.productPreviewRate}>₹{selectedProductRate}</Text>
+                <View style={styles.changeProductPill}>
+                  <Ionicons
+                    name="search-outline"
+                    size={12}
+                    color={colors.primary}
+                  />
+                  <Text style={styles.changeProductPillText}>Change</Text>
+                </View>
+              </>
             ) : (
               <Ionicons
                 name="search-outline"
@@ -2780,9 +3172,30 @@ const NewSalesOrderScreen = () => {
           </View>
         </TouchableOpacity>
 
-        <Text style={styles.fieldLabel}>Quantity</Text>
+        {selectedProduct ? (
+          <View style={styles.productSpecGrid}>
+            {[selectedProductUnit, selectedProductMargin, selectedProductDescriptor]
+              .filter(Boolean)
+              .map((label) => (
+                <View key={label} style={styles.productSpecPill}>
+                  <Text style={styles.productSpecText}>{label}</Text>
+                </View>
+              ))}
+          </View>
+        ) : null}
+
+        <View style={styles.quantityHeaderRow}>
+          <Text style={styles.fieldLabel}>Quantity</Text>
+          {selectedProduct ? (
+            <Text style={styles.quantityHelperText}>
+              Rate ₹{selectedProductRate} / {selectedProductUnit}
+            </Text>
+          ) : null}
+        </View>
         <View style={styles.quantityShell}>
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Decrease quantity"
             activeOpacity={0.88}
             onPress={() => handleQuantityStep(-1)}
             style={styles.quantityStepper}
@@ -2805,6 +3218,8 @@ const NewSalesOrderScreen = () => {
           </View>
 
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Increase quantity"
             activeOpacity={0.88}
             onPress={() => handleQuantityStep(1)}
             style={[styles.quantityStepper, styles.quantityStepperPrimary]}
@@ -2817,15 +3232,62 @@ const NewSalesOrderScreen = () => {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.quantityPresetRow}>
+          {[1, 2, 5, 10].map((option) => {
+            const active = quantity === String(option);
+
+            return (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                activeOpacity={0.88}
+                key={`quantity-${option}`}
+                onPress={() => {
+                  setQuantity(String(option));
+                  setQuantityError("");
+                }}
+                style={[
+                  styles.quantityPresetChip,
+                  active && styles.quantityPresetChipActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.quantityPresetText,
+                    active && styles.quantityPresetTextActive,
+                  ]}
+                >
+                  {option}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
         {quantityError ? <Text style={styles.quantityError}>{quantityError}</Text> : null}
 
+        <View style={styles.linePreviewStrip}>
+          <Text style={styles.linePreviewLabel}>Line value</Text>
+          <Text style={styles.linePreviewValue}>
+            {draftLineAmount
+              ? `₹${draftLineAmount}`
+              : selectedProduct
+              ? "Pick a quantity"
+              : "Choose a product"}
+          </Text>
+        </View>
+
         <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityState={{
+            disabled: !selectedProduct || !hasValidQuantity || !!quantityError,
+          }}
           activeOpacity={0.9}
-          disabled={!selectedProduct || !quantity || !!quantityError}
+          disabled={!selectedProduct || !hasValidQuantity || !!quantityError}
           onPress={addProduct}
           style={[
             styles.addLineButton,
-            (!selectedProduct || !quantity || !!quantityError) &&
+            (!selectedProduct || !hasValidQuantity || !!quantityError) &&
               styles.addLineButtonDisabled,
           ]}
         >
@@ -2834,7 +3296,7 @@ const NewSalesOrderScreen = () => {
             size={18}
             color={isDark ? colors.background : "#ffffff"}
           />
-          <Text style={styles.addLineButtonText}>Add line item</Text>
+          <Text style={styles.addLineButtonText}>{addLineButtonLabel}</Text>
         </TouchableOpacity>
       </View>
 
@@ -2858,8 +3320,8 @@ const NewSalesOrderScreen = () => {
           </View>
           <Text style={styles.emptyStateTitle}>Nothing in the draft yet</Text>
           <Text style={styles.emptyStateBody}>
-            Select a product, set the quantity, and add the first line to start
-            the live order.
+            Choose a product. Quantity starts at 1, then tap Add to order to
+            create the first line.
           </Text>
         </View>
       ) : (
@@ -2881,14 +3343,22 @@ const NewSalesOrderScreen = () => {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.lineItemTitle}>{product.productName}</Text>
                   <Text style={styles.lineItemMeta}>
-                    {product.productCode
-                      ? `Code ${product.productCode}`
-                      : "No product code"}
+                    {[
+                      product.productCode
+                        ? `Code ${product.productCode}`
+                        : "No product code",
+                      product.productBrand,
+                      product.productGroup,
+                    ]
+                      .filter(Boolean)
+                      .join(" • ")}
                   </Text>
                 </View>
               </View>
 
               <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${product.productName}`}
                 onPress={() => removeProduct(index)}
                 style={styles.lineItemRemoveButton}
               >
@@ -2897,7 +3367,7 @@ const NewSalesOrderScreen = () => {
             </View>
 
             <View style={styles.lineItemBottomRow}>
-              <Text style={styles.lineItemMeta}>
+              <Text style={styles.lineItemMeta} numberOfLines={1}>
                 {product.quantity} {product.unit} × ₹{product.formattedRate}
               </Text>
               <Text style={styles.lineItemAmount}>₹{product.orderAmount}</Text>
@@ -3143,10 +3613,29 @@ const NewSalesOrderScreen = () => {
           <View style={{ flex: 1 }}>
             <Text style={styles.customerName}>{customerName}</Text>
             <Text style={styles.customerCode}>
-              {selectedCustomerCode
-                ? `Customer code ${selectedCustomerCode}`
-                : "Customer code unavailable"}
+              {[
+                selectedCustomerCode
+                  ? `Customer code ${selectedCustomerCode}`
+                  : "Customer code unavailable",
+                selectedCustomerLocation,
+              ]
+                .filter(Boolean)
+                .join(" • ")}
             </Text>
+            {selectedCustomerProfile ? (
+              <Text style={styles.referenceClientSubMeta}>
+                {selectedCustomerProfile}
+              </Text>
+            ) : null}
+            <View style={styles.referenceClientInsightRow}>
+              {[selectedCustomerTerms, selectedCustomerRisk, selectedCustomerLimit]
+                .filter(Boolean)
+                .map((label) => (
+                  <View key={label} style={styles.referenceClientMiniPill}>
+                    <Text style={styles.referenceClientMiniText}>{label}</Text>
+                  </View>
+                ))}
+            </View>
           </View>
 
           <View style={styles.statusChip}>
