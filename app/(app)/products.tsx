@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Filter, RefreshCw } from "lucide-react-native";
 import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { ThemeContext } from "@/context/ThemeContext";
 import { useFeedback } from "@/context/FeedbackContext";
@@ -110,14 +111,43 @@ const ProductsScreen = () => {
         },
         headerShell: {
           width: contentWidth,
-          paddingTop: insets.top + 12,
-          paddingBottom: 4,
+          paddingTop: insets.top + 10,
+          paddingBottom: 6,
         },
         headerRow: {
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 18,
+          marginBottom: 22,
+        },
+        headerTitleCluster: {
+          flex: 1,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+        },
+        headerBackButton: {
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          backgroundColor: "#1C1C1E",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        headerActionButton: {
+          width: 42,
+          height: 42,
+          borderRadius: 21,
+          backgroundColor: "#F5F5F7",
+          alignItems: "center",
+          justifyContent: "center",
+          shadowColor: "#FFFFFF",
+          shadowOffset: { width: 0, height: 0 },
+          shadowOpacity: 0.18,
+          shadowRadius: 15,
+          elevation: 6,
         },
         iconButton: {
           width: 44,
@@ -134,19 +164,6 @@ const ProductsScreen = () => {
           shadowRadius: 24,
           elevation: 6,
         },
-        headerMeta: {
-          flex: 1,
-          alignItems: "flex-start",
-          paddingHorizontal: 14,
-          gap: 4,
-        },
-        eyebrow: {
-          color: "#8E8E93",
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
-          letterSpacing: 0.7,
-          textTransform: "uppercase",
-        },
         headerTitle: {
           color: "#F5F5F7",
           fontFamily: omaTypography.bold,
@@ -154,63 +171,63 @@ const ProductsScreen = () => {
           lineHeight: 34,
           letterSpacing: -0.8,
         },
-        headerSubtitle: {
-          color: "#A1A1AA",
-          fontFamily: omaTypography.medium,
-          fontSize: 13,
-          lineHeight: 18,
-        },
         summaryGrid: {
           flexDirection: "row",
           justifyContent: "space-between",
-          gap: 10,
-          marginBottom: 12,
+          gap: 12,
+          marginBottom: 24,
         },
         summaryCard: {
           flex: 1,
-          minHeight: 56,
-          backgroundColor: "#242426",
-          borderRadius: 16,
-          paddingHorizontal: 12,
-          paddingVertical: 9,
+          minHeight: 78,
+          backgroundColor: "#1C1C1E",
+          borderRadius: 20,
+          padding: 16,
           borderWidth: 1,
           borderColor: "rgba(255,255,255,0.04)",
           justifyContent: "center",
         },
+        summaryCardAccent: {
+          backgroundColor: "rgba(96,165,250,0.1)",
+          borderColor: "rgba(96,165,250,0.2)",
+        },
         summaryValue: {
           color: "#FFFFFF",
           fontFamily: omaTypography.extrabold,
-          fontSize: 20,
-          marginBottom: 2,
-          letterSpacing: -0.6,
+          fontSize: 24,
+          lineHeight: 27,
+          letterSpacing: -0.8,
+        },
+        summaryValueAccent: {
+          color: "#60A5FA",
         },
         summaryLabel: {
-          color: "#A1A1AA",
-          fontFamily: omaTypography.medium,
-          fontSize: 10,
-          lineHeight: 14,
+          color: "#71717A",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
+          letterSpacing: 1.1,
+          marginBottom: 7,
+          textTransform: "uppercase",
+        },
+        summaryLabelAccent: {
+          color: "#60A5FA",
         },
         searchRow: {
           flexDirection: "row",
-          gap: 10,
-          marginBottom: 10,
+          gap: 8,
+          marginBottom: 18,
         },
         searchShell: {
           flex: 1,
           flexDirection: "row",
           alignItems: "center",
           backgroundColor: "#1C1C1E",
-          borderRadius: 999,
+          borderRadius: 16,
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.08)",
+          borderColor: "rgba(255,255,255,0.04)",
           paddingHorizontal: 14,
           paddingVertical: 4,
-          minHeight: 50,
-          shadowColor: "#000000",
-          shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 0.22,
-          shadowRadius: 20,
-          elevation: 7,
+          minHeight: 52,
         },
         searchInput: {
           flex: 1,
@@ -221,36 +238,22 @@ const ProductsScreen = () => {
           paddingHorizontal: 10,
           letterSpacing: -0.35,
         },
-        controlPanel: {
-          backgroundColor: "#171718",
-          borderRadius: 22,
+        filterButton: {
+          width: 52,
+          height: 52,
+          flexShrink: 0,
+          backgroundColor: "#1C1C1E",
+          borderRadius: 16,
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.06)",
-          padding: 10,
-          marginBottom: 14,
-        },
-        controlPanelHeader: {
-          flexDirection: "row",
+          borderColor: "rgba(255,255,255,0.04)",
           alignItems: "center",
-          justifyContent: "space-between",
-          paddingHorizontal: 2,
-          marginBottom: 8,
+          justifyContent: "center",
         },
-        controlPanelTitle: {
-          color: "#F5F5F7",
-          fontFamily: omaTypography.semibold,
-          fontSize: 13,
-          letterSpacing: -0.25,
-        },
-        controlPanelMeta: {
-          color: "#8E8E93",
-          fontFamily: omaTypography.medium,
-          fontSize: 12,
-        },
-        chipRow: {
+        categoryRail: {
           flexDirection: "row",
           gap: 8,
-          paddingBottom: 8,
+          paddingBottom: 14,
+          marginBottom: 2,
         },
         chip: {
           minHeight: 36,
@@ -259,7 +262,7 @@ const ProductsScreen = () => {
           borderRadius: 999,
           backgroundColor: "#1C1C1E",
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.08)",
+          borderColor: "transparent",
         },
         chipActive: {
           backgroundColor: "#F5F5F7",
@@ -268,25 +271,37 @@ const ProductsScreen = () => {
         chipText: {
           color: "#A1A1AA",
           fontFamily: omaTypography.semibold,
-          fontSize: 12,
+          fontSize: 14,
+          letterSpacing: -0.2,
         },
         chipTextActive: {
           color: "#101011",
         },
+        sortRail: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 14,
+        },
+        sortRailMeta: {
+          color: "#8E8E93",
+          fontFamily: omaTypography.semibold,
+          fontSize: 12,
+          letterSpacing: -0.15,
+        },
         sortChipRow: {
           flexDirection: "row",
-          gap: 8,
-          paddingTop: 2,
+          gap: 7,
         },
         sortChip: {
-          minHeight: 34,
+          minHeight: 30,
           paddingHorizontal: 10,
-          paddingVertical: 7,
+          paddingVertical: 6,
           borderRadius: 999,
-          backgroundColor: "#242426",
+          backgroundColor: "#1C1C1E",
         },
         sortChipActive: {
-          backgroundColor: "#343436",
+          backgroundColor: "#2C2C2E",
         },
         sortChipText: {
           color: "#A1A1AA",
@@ -299,10 +314,10 @@ const ProductsScreen = () => {
         productCard: {
           width: contentWidth,
           backgroundColor: "#1C1C1E",
-          borderRadius: 22,
+          borderRadius: 24,
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
-          padding: 15,
+          borderColor: "rgba(255,255,255,0.02)",
+          padding: 16,
           marginBottom: 12,
           overflow: "hidden",
         },
@@ -311,7 +326,7 @@ const ProductsScreen = () => {
           alignItems: "flex-start",
           justifyContent: "space-between",
           gap: 12,
-          marginBottom: 10,
+          marginBottom: 12,
         },
         productTitleWrap: {
           flex: 1,
@@ -320,31 +335,19 @@ const ProductsScreen = () => {
         productBottomRow: {
           flexDirection: "row",
           alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
         },
         productStatusRow: {
           flexDirection: "row",
           alignItems: "center",
           flexWrap: "wrap",
-          gap: 7,
+          gap: 8,
           flex: 1,
-        },
-        productDetailButton: {
-          width: 34,
-          height: 34,
-          borderRadius: 17,
-          backgroundColor: "#242426",
-          alignItems: "center",
-          justifyContent: "center",
-          borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
         },
         productCode: {
           color: "#8E8E93",
           fontFamily: omaTypography.semibold,
-          fontSize: 12,
-          letterSpacing: -0.2,
+          fontSize: 13,
+          letterSpacing: -0.25,
           textTransform: "uppercase",
         },
         productName: {
@@ -356,22 +359,28 @@ const ProductsScreen = () => {
           marginBottom: 4,
         },
         metaTag: {
-          borderRadius: 999,
-          paddingHorizontal: 9,
+          borderRadius: 8,
+          paddingHorizontal: 8,
           paddingVertical: 5,
           backgroundColor: "#242426",
         },
+        metaTagCustomer: {
+          maxWidth: contentWidth - 32,
+        },
         metaTagText: {
           color: "#A1A1AA",
-          fontFamily: omaTypography.medium,
+          fontFamily: omaTypography.semibold,
           fontSize: 12,
+          letterSpacing: -0.15,
         },
         priceValue: {
           color: "#FFFFFF",
           fontFamily: omaTypography.bold,
           fontSize: 16,
+          lineHeight: 20,
           letterSpacing: -0.5,
           textAlign: "right",
+          maxWidth: 112,
         },
         emptyState: {
           width: contentWidth,
@@ -799,6 +808,13 @@ const ProductsScreen = () => {
     void loadProducts();
   }, [loadProducts]);
 
+  const resetCatalogControls = useCallback(() => {
+    setSearchQuery("");
+    setSelectedCategory("All");
+    setSortBy("name");
+    setSortDirection("asc");
+  }, []);
+
   const openProductDetails = useCallback((product: ProductRecord) => {
     setDetailTab("overview");
     setSelectedProduct(product);
@@ -838,26 +854,13 @@ const ProductsScreen = () => {
                 </Text>
               </View>
 
-              <View style={styles.metaTag}>
-                <Text numberOfLines={1} style={styles.metaTagText}>
-                  Base rate
-                </Text>
-              </View>
               {customerLabel ? (
-                <View style={styles.metaTag}>
+                <View style={[styles.metaTag, styles.metaTagCustomer]}>
                   <Text numberOfLines={1} style={styles.metaTagText}>
                     {customerLabel}
                   </Text>
                 </View>
               ) : null}
-            </View>
-
-            <View style={styles.productDetailButton}>
-              <Ionicons
-                color="#A1A1AA"
-                name="chevron-forward"
-                size={16}
-              />
             </View>
           </View>
         </TouchableOpacity>
@@ -876,40 +879,52 @@ const ProductsScreen = () => {
   const headerComponent = (
     <View style={styles.headerShell}>
       <View style={styles.headerRow}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => router.back()}
-          style={styles.iconButton}
-        >
-          <Ionicons color={colors.text} name="arrow-back" size={18} />
-        </TouchableOpacity>
-
-        <View style={styles.headerMeta}>
-          <Text style={styles.eyebrow}>OMA</Text>
+        <View style={styles.headerTitleCluster}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => router.back()}
+            style={styles.headerBackButton}
+          >
+            <Ionicons color="#F5F5F7" name="arrow-back" size={18} />
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Products</Text>
-          <Text style={styles.headerSubtitle}>
-            Live SKU search and pricing
-          </Text>
         </View>
 
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={handleRefresh}
-          style={styles.iconButton}
+          style={styles.headerActionButton}
         >
           {refreshing ? (
-            <ActivityIndicator color="#F5F5F7" size="small" />
+            <ActivityIndicator color="#101011" size="small" />
           ) : (
-            <Ionicons color="#F5F5F7" name="pulse-outline" size={18} />
+            <RefreshCw color="#101011" size={19} strokeWidth={2.5} />
           )}
         </TouchableOpacity>
       </View>
 
       <View style={styles.summaryGrid}>
-        {summaryCards.map((card) => (
-          <View key={card.label} style={styles.summaryCard}>
-            <Text style={styles.summaryValue}>{card.value}</Text>
-            <Text style={styles.summaryLabel}>{card.label}</Text>
+        {summaryCards.map((card, index) => (
+          <View
+            key={card.label}
+            style={[styles.summaryCard, index === 1 && styles.summaryCardAccent]}
+          >
+            <Text
+              style={[
+                styles.summaryLabel,
+                index === 1 && styles.summaryLabelAccent,
+              ]}
+            >
+              {card.label}
+            </Text>
+            <Text
+              style={[
+                styles.summaryValue,
+                index === 1 && styles.summaryValueAccent,
+              ]}
+            >
+              {card.value}
+            </Text>
           </View>
         ))}
       </View>
@@ -920,7 +935,7 @@ const ProductsScreen = () => {
 
           <TextInput
             onChangeText={setSearchQuery}
-            placeholder="Search SKU, name, customer, or category..."
+            placeholder="Search SKUs, names..."
             placeholderTextColor={colors.textPlaceholder}
             style={styles.searchInput}
             value={searchQuery}
@@ -936,38 +951,43 @@ const ProductsScreen = () => {
             </TouchableOpacity>
           ) : null}
         </View>
+
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onPress={resetCatalogControls}
+          style={styles.filterButton}
+        >
+          <Filter color="#A1A1AA" size={20} strokeWidth={2.25} />
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.controlPanel}>
-        <View style={styles.controlPanelHeader}>
-          <Text style={styles.controlPanelTitle}>Categories</Text>
-          <Text style={styles.controlPanelMeta}>
-            {linkedProductCount} linked · {activeSortLabel} {activeSortDirection}
-          </Text>
-        </View>
+      <ScrollView
+        contentContainerStyle={styles.categoryRail}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+      >
+        {categories.map((category) => {
+          const active = selectedCategory === category;
+          return (
+            <TouchableOpacity
+              key={category}
+              activeOpacity={0.88}
+              hitSlop={compactChipHitSlop}
+              onPress={() => setSelectedCategory(category)}
+              style={[styles.chip, active && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                {category}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
-        <ScrollView
-          contentContainerStyle={styles.chipRow}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-        >
-          {categories.map((category) => {
-            const active = selectedCategory === category;
-            return (
-              <TouchableOpacity
-                key={category}
-                activeOpacity={0.88}
-                hitSlop={compactChipHitSlop}
-                onPress={() => setSelectedCategory(category)}
-                style={[styles.chip, active && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                  {category}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+      <View style={styles.sortRail}>
+        <Text style={styles.sortRailMeta}>
+          {linkedProductCount} linked · {activeSortLabel} {activeSortDirection}
+        </Text>
 
         <ScrollView
           contentContainerStyle={styles.sortChipRow}
