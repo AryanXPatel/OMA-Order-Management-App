@@ -67,6 +67,40 @@ const formatIndianCurrency = (value: string | number) => {
 
 const compactChipHitSlop = { top: 4, bottom: 4, left: 2, right: 2 };
 
+const productAccentPalette = [
+  "#EAB308",
+  "#60A5FA",
+  "#10B981",
+  "#F87171",
+  "#818CF8",
+  "#FB923C",
+  "#C084FC",
+];
+
+const hexToRgba = (hex: string, alpha: number) => {
+  const normalized = hex.replace("#", "");
+  if (normalized.length !== 6) {
+    return hex;
+  }
+
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+};
+
+const getProductAccent = (value: string) => {
+  const normalized = (value || "catalog").trim().toLowerCase();
+  let hash = 0;
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    hash = (hash * 31 + normalized.charCodeAt(index)) % 9973;
+  }
+
+  return productAccentPalette[hash % productAccentPalette.length];
+};
+
 const ProductsScreen = () => {
   const { colors, isDark } = useContext(ThemeContext);
   const { showFeedback } = useFeedback();
@@ -180,19 +214,32 @@ const ProductsScreen = () => {
         summaryCard: {
           flex: 1,
           minHeight: 78,
-          backgroundColor: "#1C1C1E",
+          backgroundColor: "rgba(234,179,8,0.1)",
           borderRadius: 20,
           padding: 16,
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
+          borderColor: "rgba(234,179,8,0.22)",
           justifyContent: "center",
+          overflow: "hidden",
         },
         summaryCardAccent: {
           backgroundColor: "rgba(96,165,250,0.1)",
           borderColor: "rgba(96,165,250,0.2)",
         },
+        summaryAccentRail: {
+          position: "absolute",
+          left: 0,
+          top: 14,
+          bottom: 14,
+          width: 3,
+          borderRadius: 999,
+          backgroundColor: "#EAB308",
+        },
+        summaryAccentRailBlue: {
+          backgroundColor: "#60A5FA",
+        },
         summaryValue: {
-          color: "#FFFFFF",
+          color: "#FDE68A",
           fontFamily: omaTypography.extrabold,
           fontSize: 24,
           lineHeight: 27,
@@ -202,7 +249,7 @@ const ProductsScreen = () => {
           color: "#60A5FA",
         },
         summaryLabel: {
-          color: "#71717A",
+          color: "#EAB308",
           fontFamily: omaTypography.bold,
           fontSize: 12,
           letterSpacing: 1.1,
@@ -242,10 +289,10 @@ const ProductsScreen = () => {
           width: 52,
           height: 52,
           flexShrink: 0,
-          backgroundColor: "#1C1C1E",
+          backgroundColor: "rgba(234,179,8,0.1)",
           borderRadius: 16,
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.04)",
+          borderColor: "rgba(234,179,8,0.22)",
           alignItems: "center",
           justifyContent: "center",
         },
@@ -263,6 +310,9 @@ const ProductsScreen = () => {
           backgroundColor: "#1C1C1E",
           borderWidth: 1,
           borderColor: "transparent",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 7,
         },
         chipActive: {
           backgroundColor: "#F5F5F7",
@@ -277,10 +327,13 @@ const ProductsScreen = () => {
         chipTextActive: {
           color: "#101011",
         },
+        chipAccentDot: {
+          width: 6,
+          height: 6,
+          borderRadius: 3,
+        },
         sortRail: {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
+          alignItems: "flex-start",
           marginBottom: 14,
         },
         sortRailMeta: {
@@ -288,6 +341,7 @@ const ProductsScreen = () => {
           fontFamily: omaTypography.semibold,
           fontSize: 12,
           letterSpacing: -0.15,
+          marginBottom: 8,
         },
         sortChipRow: {
           flexDirection: "row",
@@ -301,7 +355,7 @@ const ProductsScreen = () => {
           backgroundColor: "#1C1C1E",
         },
         sortChipActive: {
-          backgroundColor: "#2C2C2E",
+          backgroundColor: "rgba(234,179,8,0.16)",
         },
         sortChipText: {
           color: "#A1A1AA",
@@ -309,7 +363,7 @@ const ProductsScreen = () => {
           fontSize: 12,
         },
         sortChipTextActive: {
-          color: "#FFFFFF",
+          color: "#FDE68A",
         },
         productCard: {
           width: contentWidth,
@@ -320,6 +374,15 @@ const ProductsScreen = () => {
           padding: 16,
           marginBottom: 12,
           overflow: "hidden",
+          position: "relative",
+        },
+        productAccentRail: {
+          position: "absolute",
+          left: 0,
+          top: 16,
+          bottom: 16,
+          width: 3,
+          borderRadius: 999,
         },
         productCardTop: {
           flexDirection: "row",
@@ -363,6 +426,8 @@ const ProductsScreen = () => {
           paddingHorizontal: 8,
           paddingVertical: 5,
           backgroundColor: "#242426",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
         },
         metaTagCustomer: {
           maxWidth: contentWidth - 32,
@@ -372,6 +437,13 @@ const ProductsScreen = () => {
           fontFamily: omaTypography.semibold,
           fontSize: 12,
           letterSpacing: -0.15,
+        },
+        pricePill: {
+          borderRadius: 12,
+          borderWidth: 1,
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+          maxWidth: 128,
         },
         priceValue: {
           color: "#FFFFFF",
@@ -824,13 +896,22 @@ const ProductsScreen = () => {
     ({ item }: { item: ProductRecord }) => {
       const categoryLabel = item.Category || "Uncategorized";
       const customerLabel = item["Customer NAME"] || item["Customer CODE"] || "";
+      const accent = getProductAccent(categoryLabel);
 
       return (
         <TouchableOpacity
           activeOpacity={0.92}
           onPress={() => openProductDetails(item)}
-          style={styles.productCard}
+          style={[
+            styles.productCard,
+            { borderColor: hexToRgba(accent, 0.18) },
+          ]}
         >
+          <View
+            pointerEvents="none"
+            style={[styles.productAccentRail, { backgroundColor: accent }]}
+          />
+
           <View style={styles.productCardTop}>
             <View style={styles.productTitleWrap}>
               <Text numberOfLines={2} style={styles.productName}>
@@ -841,15 +922,36 @@ const ProductsScreen = () => {
               </Text>
             </View>
 
-            <Text style={styles.priceValue}>
-              {formatIndianCurrency(item.Rate || "0")}
-            </Text>
+            <View
+              style={[
+                styles.pricePill,
+                {
+                  backgroundColor: hexToRgba(accent, 0.1),
+                  borderColor: hexToRgba(accent, 0.26),
+                },
+              ]}
+            >
+              <Text style={[styles.priceValue, { color: accent }]}>
+                {formatIndianCurrency(item.Rate || "0")}
+              </Text>
+            </View>
           </View>
 
           <View style={styles.productBottomRow}>
             <View style={styles.productStatusRow}>
-              <View style={styles.metaTag}>
-                <Text numberOfLines={1} style={styles.metaTagText}>
+              <View
+                style={[
+                  styles.metaTag,
+                  {
+                    backgroundColor: hexToRgba(accent, 0.12),
+                    borderColor: hexToRgba(accent, 0.26),
+                  },
+                ]}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={[styles.metaTagText, { color: accent }]}
+                >
                   {categoryLabel}
                 </Text>
               </View>
@@ -909,6 +1011,13 @@ const ProductsScreen = () => {
             key={card.label}
             style={[styles.summaryCard, index === 1 && styles.summaryCardAccent]}
           >
+            <View
+              pointerEvents="none"
+              style={[
+                styles.summaryAccentRail,
+                index === 1 && styles.summaryAccentRailBlue,
+              ]}
+            />
             <Text
               style={[
                 styles.summaryLabel,
@@ -957,7 +1066,7 @@ const ProductsScreen = () => {
           onPress={resetCatalogControls}
           style={styles.filterButton}
         >
-          <Filter color="#A1A1AA" size={20} strokeWidth={2.25} />
+          <Filter color="#EAB308" size={20} strokeWidth={2.25} />
         </TouchableOpacity>
       </View>
 
@@ -968,14 +1077,35 @@ const ProductsScreen = () => {
       >
         {categories.map((category) => {
           const active = selectedCategory === category;
+          const categoryAccent =
+            category === "All" ? "#F5F5F7" : getProductAccent(category);
+
           return (
             <TouchableOpacity
               key={category}
               activeOpacity={0.88}
               hitSlop={compactChipHitSlop}
               onPress={() => setSelectedCategory(category)}
-              style={[styles.chip, active && styles.chipActive]}
+              style={[
+                styles.chip,
+                !active &&
+                  category !== "All" && {
+                    backgroundColor: hexToRgba(categoryAccent, 0.1),
+                    borderColor: hexToRgba(categoryAccent, 0.2),
+                  },
+                active && styles.chipActive,
+              ]}
             >
+              {category !== "All" ? (
+                <View
+                  style={[
+                    styles.chipAccentDot,
+                    {
+                      backgroundColor: active ? "#101011" : categoryAccent,
+                    },
+                  ]}
+                />
+              ) : null}
               <Text style={[styles.chipText, active && styles.chipTextActive]}>
                 {category}
               </Text>
