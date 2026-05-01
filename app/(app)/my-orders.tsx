@@ -92,22 +92,22 @@ const STATUS_PRESENTATION: Record<
   StatusPresentation
 > = {
   pending: {
-    label: "Processing",
+    label: "Pending Approval",
     icon: "hourglass-outline",
     color: "#f59e0b",
   },
   approved: {
-    label: "Approved",
+    label: "Processing",
     icon: "checkmark-circle-outline",
-    color: "#0066FF",
+    color: "#60A5FA",
   },
   rejected: {
-    label: "Rejected",
+    label: "Incomplete",
     icon: "close-circle-outline",
-    color: "#ef4444",
+    color: "#EAB308",
   },
   dispatched: {
-    label: "Dispatched",
+    label: "Delivered",
     icon: "paper-plane-outline",
     color: "#22c55e",
   },
@@ -829,9 +829,7 @@ export default function MyOrdersScreen() {
       <View style={[styles.headerShell, { width: shellWidth }]}>
         <View style={styles.headingRow}>
           <View style={styles.titleWrap}>
-            <Text style={styles.title}>
-              {userRole === "User" ? "Dispatch Queue" : "Orders"}
-            </Text>
+            <Text style={styles.title}>Orders</Text>
           </View>
 
           <View style={styles.resultsPill}>
@@ -845,11 +843,7 @@ export default function MyOrdersScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             onChangeText={setSearchQuery}
-            placeholder={
-              userRole === "User"
-                ? "Scan picking barcode or search..."
-                : "Search order ID or client..."
-            }
+            placeholder="Scan barcode, order ID, or client..."
             placeholderTextColor="#71717a"
             style={styles.searchInput}
             value={searchQuery}
@@ -913,7 +907,7 @@ export default function MyOrdersScreen() {
     const status = STATUS_PRESENTATION[item.status];
     const dispatchedCount = item.items.filter((line) => line.dispatched).length;
 
-    let progressLabel = `${item.items.length} Items • Expected dispatch tomorrow`;
+    let progressLabel = `${item.items.length} Items • Awaiting manager approval`;
     if (item.status === "approved") {
       progressLabel =
         dispatchedCount > 0
@@ -922,7 +916,7 @@ export default function MyOrdersScreen() {
     } else if (item.status === "dispatched") {
       progressLabel = `${item.items.length}/${item.items.length} line items dispatched`;
     } else if (item.status === "rejected") {
-      progressLabel = item.managerComments || "Rejected during manager review";
+      progressLabel = item.managerComments || "Exception: manager review blocked";
     }
 
     return (

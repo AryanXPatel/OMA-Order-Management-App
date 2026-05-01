@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { router } from "expo-router";
 import {
+  Alert,
   ScrollView,
   Share,
   StatusBar,
@@ -18,6 +19,14 @@ import { useFeedback } from "@/context/FeedbackContext";
 import { ThemeContext } from "@/context/ThemeContext";
 import { omaTypography } from "@/utils/typography";
 import { APP_VERSION } from "@/utils/appConfig";
+import {
+  BACKEND_URL,
+  apiCache,
+  batchUpdateSheetRanges,
+  fetchWithRetry,
+} from "@/utils/apiManager";
+import { formatCompactOrderId } from "@/utils/orderDisplay";
+import { buildDispatchSheetUpdates } from "@/utils/orderSheetSerializer";
 
 type DetailTab = "details" | "logistics" | "notes";
 
@@ -159,6 +168,18 @@ const formatDateTimeLabel = (value: string) => {
   return `${displayDate}, ${timePart}${meridiem ? ` ${meridiem}` : ""}`;
 };
 
+const formatSheetDateTime = (date: Date) => {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const hours = date.getHours();
+  const meridiem = hours >= 12 ? "PM" : "AM";
+  const hours12 = hours % 12 || 12;
+
+  return `${day}/${month}/${year} ${hours12}:${minutes} ${meridiem}`;
+};
+
 const getSourceLabel = (source: string) => {
   switch ((source || "").trim().toLowerCase()) {
     case "whatsapp":
@@ -198,8 +219,33 @@ export default function OrderDetailsScreen() {
   const [order, setOrder] = useState<SelectedOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<DetailTab>("details");
+  const [pickedRows, setPickedRows] = useState<Record<number, boolean>>({});
+  const [dispatching, setDispatching] = useState(false);
 
   const shellWidth = Math.min(width - 32, 460);
+
+  const runSheetUpdates = useCallback(
+    async (updates: { range: string; values: string[][] }[]) => {
+      try {
+        await batchUpdateSheetRanges(updates, 1000);
+        return;
+      } catch {
+        for (const update of updates) {
+          await fetchWithRetry(
+            `${BACKEND_URL}/api/sheets/${update.range}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              data: { values: update.values },
+            },
+            3,
+            1000
+          );
+        }
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const loadOrderDetails = async () => {
@@ -219,6 +265,7 @@ export default function OrderDetailsScreen() {
         }
 
         setOrder(JSON.parse(storedOrder));
+        setPickedRows({});
       } catch (error) {
         console.error("Failed to load order details", error);
         showFeedback({
@@ -315,7 +362,7 @@ export default function OrderDetailsScreen() {
       return [];
     }
 
-    return [
+    const noteEntries: NoteEntry[] = [
       {
         id: "order-note",
         label: "O.NOTE",
@@ -334,7 +381,9 @@ export default function OrderDetailsScreen() {
         icon: "paper-plane-outline",
         text: order.dispatchComments,
       },
-    ].filter((entry) => entry.text);
+    ];
+
+    return noteEntries.filter((entry) => entry.text);
   }, [order]);
 
   const lineItemNotes = useMemo(
@@ -360,10 +409,115 @@ export default function OrderDetailsScreen() {
     [order]
   );
 
+  const pendingDispatchItems = useMemo(
+    () =>
+      (order?.items || []).filter(
+        (item) => item.approved === "Y" && !item.rejected && !item.dispatched
+      ),
+    [order]
+  );
+
+  const pickedCount = pendingDispatchItems.filter(
+    (item) => pickedRows[item.actualRowIndex]
+  ).length;
+
+  const isDispatchWorkspace =
+    !!order && order.status === "approved" && pendingDispatchItems.length > 0;
+
   const firstDispatchTime = useMemo(
     () => order?.items.find((item) => item.dispatchTime)?.dispatchTime || "",
     [order]
   );
+
+  const togglePickedRow = useCallback((rowIndex: number) => {
+    setPickedRows((current) => ({
+      ...current,
+      [rowIndex]: !current[rowIndex],
+    }));
+  }, []);
+
+  const handleDispatchPicked = useCallback(async () => {
+    if (!order) {
+      return;
+    }
+
+    const selectedItems = pendingDispatchItems.filter(
+      (item) => pickedRows[item.actualRowIndex]
+    );
+
+    if (selectedItems.length === 0) {
+      return;
+    }
+
+    try {
+      setDispatching(true);
+      const dispatchMoment = new Date();
+      const dispatchDisplayTime = formatSheetDateTime(dispatchMoment);
+      const dispatchAtIso = dispatchMoment.toISOString();
+
+      const updates = selectedItems.flatMap((item) =>
+        buildDispatchSheetUpdates({
+          rowIndex: item.actualRowIndex,
+          dispatchRemark: order.dispatchComments || order.orderComments || "",
+          dispatchDisplayTime,
+          dispatchAtIso,
+        })
+      );
+
+      await runSheetUpdates(updates);
+
+      const dispatchedRows = new Set(
+        selectedItems.map((item) => item.actualRowIndex)
+      );
+      const nextItems = order.items.map((item) =>
+        dispatchedRows.has(item.actualRowIndex)
+          ? {
+              ...item,
+              dispatched: true,
+              dispatchTime: dispatchDisplayTime,
+              comments: order.dispatchComments || item.comments,
+            }
+          : item
+      );
+      const nextStatus = nextItems.every((item) => item.dispatched)
+        ? "dispatched"
+        : order.status;
+      const nextOrder: SelectedOrder = {
+        ...order,
+        items: nextItems,
+        status: nextStatus,
+      };
+
+      setOrder(nextOrder);
+      setPickedRows({});
+      apiCache.set("myOrders", null);
+      apiCache.set("approvedOrders", null);
+      await AsyncStorage.setItem("selectedOrder", JSON.stringify(nextOrder));
+
+      showFeedback({
+        type: "success",
+        title: nextStatus === "dispatched" ? "Order Dispatched" : "Items Dispatched",
+        message:
+          nextStatus === "dispatched"
+            ? "All line items have been marked as dispatched."
+            : `${selectedItems.length} line item(s) dispatched. Remaining items stay in Processing.`,
+        autoDismiss: true,
+      });
+    } catch (error: any) {
+      Alert.alert(
+        "Dispatch Failed",
+        error?.message || "Could not dispatch the selected items. Please try again."
+      );
+    } finally {
+      setDispatching(false);
+    }
+  }, [
+    order,
+    pendingDispatchItems,
+    pickedRows,
+    runSheetUpdates,
+    showFeedback,
+  ]);
 
   const timelineEntries = useMemo<TimelineEntry[]>(() => {
     if (!order) {
@@ -941,6 +1095,239 @@ export default function OrderDetailsScreen() {
           lineHeight: 18,
           fontFamily: omaTypography.medium,
         },
+        dispatchHeaderShell: {
+          paddingTop: insets.top + 14,
+          paddingHorizontal: 20,
+          paddingBottom: 16,
+          borderBottomWidth: 1,
+          borderBottomColor: "rgba(255,255,255,0.06)",
+          backgroundColor: "#1C1C1E",
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        },
+        dispatchHeaderButton: {
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          backgroundColor: "#242426",
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        dispatchHeaderText: {
+          flex: 1,
+          alignItems: "center",
+          paddingHorizontal: 12,
+        },
+        dispatchHeaderTitle: {
+          color: "#ffffff",
+          fontSize: 18,
+          lineHeight: 22,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -0.4,
+        },
+        dispatchHeaderSubtitle: {
+          color: "#a1a1aa",
+          fontSize: 13,
+          lineHeight: 18,
+          fontFamily: omaTypography.medium,
+          marginTop: 2,
+        },
+        dispatchScrollContent: {
+          paddingTop: 24,
+          paddingBottom: 136 + Math.max(insets.bottom, 12),
+          alignItems: "center",
+        },
+        dispatchSectionTitleRow: {
+          width: "100%",
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 14,
+          paddingHorizontal: 2,
+        },
+        dispatchSectionTitle: {
+          color: "#ffffff",
+          fontSize: 18,
+          lineHeight: 23,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -0.45,
+        },
+        pickCounter: {
+          borderRadius: 9,
+          backgroundColor: "rgba(96,165,250,0.12)",
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+        },
+        pickCounterText: {
+          color: "#60A5FA",
+          fontSize: 14,
+          fontFamily: omaTypography.extrabold,
+        },
+        dispatchTimelineCard: {
+          borderRadius: 24,
+          backgroundColor: "#1C1C1E",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
+          padding: 24,
+          marginBottom: 24,
+        },
+        dispatchTimelineTitle: {
+          color: "#ffffff",
+          fontSize: 17,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -0.35,
+          marginBottom: 24,
+        },
+        dispatchStep: {
+          flexDirection: "row",
+          gap: 16,
+        },
+        dispatchStepRail: {
+          width: 32,
+          alignItems: "center",
+        },
+        dispatchStepDot: {
+          width: 32,
+          height: 32,
+          borderRadius: 16,
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 2,
+        },
+        dispatchStepLine: {
+          width: 2,
+          flex: 1,
+          minHeight: 28,
+          marginVertical: -1,
+          backgroundColor: "#2C2C2E",
+        },
+        dispatchStepContent: {
+          flex: 1,
+          paddingBottom: 18,
+        },
+        dispatchStepTitle: {
+          color: "#ffffff",
+          fontSize: 15,
+          lineHeight: 20,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -0.3,
+        },
+        dispatchStepMeta: {
+          color: "#71717a",
+          fontSize: 13,
+          lineHeight: 18,
+          fontFamily: omaTypography.medium,
+          marginTop: 2,
+        },
+        dispatchNoteCard: {
+          borderRadius: 24,
+          backgroundColor: "#1C1C1E",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
+          padding: 24,
+          marginBottom: 28,
+        },
+        dispatchNoteEyebrow: {
+          color: "#EAB308",
+          fontSize: 14,
+          lineHeight: 18,
+          textTransform: "uppercase",
+          letterSpacing: 1.6,
+          fontFamily: omaTypography.extrabold,
+          marginBottom: 14,
+        },
+        dispatchNoteText: {
+          color: "#ffffff",
+          fontSize: 15,
+          lineHeight: 25,
+          fontFamily: omaTypography.semibold,
+          letterSpacing: -0.25,
+        },
+        pickListCard: {
+          borderRadius: 24,
+          backgroundColor: "#1C1C1E",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.04)",
+          padding: 8,
+        },
+        pickItem: {
+          minHeight: 78,
+          borderRadius: 20,
+          backgroundColor: "#242426",
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.02)",
+          paddingHorizontal: 16,
+          paddingVertical: 14,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 6,
+        },
+        pickedItem: {
+          backgroundColor: "rgba(16,185,129,0.1)",
+          borderColor: "rgba(16,185,129,0.24)",
+        },
+        pickCircle: {
+          width: 28,
+          height: 28,
+          borderRadius: 14,
+          borderWidth: 2,
+          borderColor: "#71717a",
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        pickedCircle: {
+          backgroundColor: "#10B981",
+          borderColor: "#10B981",
+        },
+        pickItemName: {
+          color: "#ffffff",
+          fontSize: 15,
+          lineHeight: 20,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -0.35,
+        },
+        pickItemMeta: {
+          color: "#71717a",
+          fontSize: 13,
+          lineHeight: 18,
+          fontFamily: omaTypography.medium,
+          marginTop: 2,
+        },
+        dispatchBottomBar: {
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          paddingHorizontal: 20,
+          paddingTop: 18,
+          paddingBottom: 20 + Math.max(insets.bottom, 0),
+          borderTopWidth: 1,
+          borderTopColor: "rgba(255,255,255,0.06)",
+          backgroundColor: "rgba(18,18,18,0.96)",
+        },
+        dispatchPrimaryButton: {
+          minHeight: 58,
+          borderRadius: 20,
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "row",
+          gap: 10,
+          backgroundColor: "#60A5FA",
+        },
+        disabledDispatchButton: {
+          backgroundColor: "#242426",
+        },
+        dispatchPrimaryText: {
+          color: "#121212",
+          fontSize: 16,
+          fontFamily: omaTypography.extrabold,
+          letterSpacing: -0.35,
+        },
+        disabledDispatchText: {
+          color: "#71717a",
+        },
         noteCard: {
           borderRadius: 22,
           backgroundColor: colors.card,
@@ -1007,6 +1394,7 @@ export default function OrderDetailsScreen() {
       activeContentColor,
       activeSurfaceColor,
       colors,
+      insets.bottom,
       insets.top,
       isDark,
       status,
@@ -1264,6 +1652,201 @@ export default function OrderDetailsScreen() {
     );
   };
 
+  const renderDispatchWorkspace = () => {
+    if (!order || !status) {
+      return null;
+    }
+
+    const compactId = formatCompactOrderId(order.orderId);
+    const noteText =
+      order.orderComments ||
+      order.managerComments ||
+      "No special handling notes have been recorded for this order.";
+    const allPicked = pickedCount === pendingDispatchItems.length;
+    const actionDisabled = pickedCount === 0 || dispatching;
+    const dispatchSteps = [
+      {
+        id: "approved",
+        title: "Order Approved",
+        meta: order.managerComments || formatDateTimeLabel(order.date),
+        color: "#10B981",
+        icon: "checkmark" as const,
+      },
+      {
+        id: "processing",
+        title: "Warehouse Processing",
+        meta: `${pickedCount} of ${pendingDispatchItems.length} items picked`,
+        color: "#60A5FA",
+        icon: "cube-outline" as const,
+      },
+      {
+        id: "delivery",
+        title: "Out for Delivery",
+        meta:
+          dispatchedCount > 0
+            ? `${dispatchedCount}/${order.items.length} line items dispatched`
+            : "Pending dispatch",
+        color: dispatchedCount > 0 ? "#10B981" : "#3f3f46",
+        icon: "paper-plane-outline" as const,
+      },
+    ];
+
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" />
+
+        <View style={styles.dispatchHeaderShell}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.dispatchHeaderButton}
+          >
+            <Ionicons color="#ffffff" name="arrow-back" size={22} />
+          </TouchableOpacity>
+
+          <View style={styles.dispatchHeaderText}>
+            <Text style={styles.dispatchHeaderTitle}>Order #{compactId}</Text>
+            <Text numberOfLines={1} style={styles.dispatchHeaderSubtitle}>
+              {order.customerName}
+            </Text>
+          </View>
+
+          <TouchableOpacity onPress={shareOrder} style={styles.dispatchHeaderButton}>
+            <Ionicons color="#ffffff" name="ellipsis-horizontal" size={21} />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          contentContainerStyle={styles.dispatchScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.dispatchTimelineCard, { width: shellWidth }]}>
+            <Text style={styles.dispatchTimelineTitle}>Fulfillment Timeline</Text>
+            {dispatchSteps.map((step, index) => (
+              <View key={step.id} style={styles.dispatchStep}>
+                <View style={styles.dispatchStepRail}>
+                  <View
+                    style={[
+                      styles.dispatchStepDot,
+                      { backgroundColor: step.color },
+                    ]}
+                  >
+                    <Ionicons
+                      color={step.id === "delivery" && dispatchedCount === 0 ? "#71717a" : "#121212"}
+                      name={step.icon}
+                      size={16}
+                    />
+                  </View>
+                  {index < dispatchSteps.length - 1 ? (
+                    <View
+                      style={[
+                        styles.dispatchStepLine,
+                        {
+                          backgroundColor:
+                            index === 0 ? "#10B981" : "rgba(255,255,255,0.08)",
+                        },
+                      ]}
+                    />
+                  ) : null}
+                </View>
+                <View style={styles.dispatchStepContent}>
+                  <Text
+                    style={[
+                      styles.dispatchStepTitle,
+                      step.id === "processing" && { color: "#60A5FA" },
+                      step.id === "delivery" &&
+                        dispatchedCount === 0 && { color: "#52525b" },
+                    ]}
+                  >
+                    {step.title}
+                  </Text>
+                  <Text style={styles.dispatchStepMeta}>{step.meta}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <View style={[styles.dispatchNoteCard, { width: shellWidth }]}>
+            <Text style={styles.dispatchNoteEyebrow}>Order Notes</Text>
+            <Text style={styles.dispatchNoteText}>"{noteText}"</Text>
+          </View>
+
+          <View style={[styles.dispatchSectionTitleRow, { width: shellWidth }]}>
+            <Text style={styles.dispatchSectionTitle}>Interactive Pick List</Text>
+            <View style={styles.pickCounter}>
+              <Text style={styles.pickCounterText}>
+                {pickedCount} / {pendingDispatchItems.length}
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.pickListCard, { width: shellWidth }]}>
+            {pendingDispatchItems.map((item, index) => {
+              const picked = !!pickedRows[item.actualRowIndex];
+
+              return (
+                <TouchableOpacity
+                  activeOpacity={0.86}
+                  key={`${item.actualRowIndex}-${index}`}
+                  onPress={() => togglePickedRow(item.actualRowIndex)}
+                  style={[styles.pickItem, picked && styles.pickedItem]}
+                >
+                  <View style={[styles.pickCircle, picked && styles.pickedCircle]}>
+                    {picked ? (
+                      <Ionicons color="#121212" name="checkmark" size={16} />
+                    ) : null}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pickItemName}>
+                      {item.quantity}x {item.productName}
+                    </Text>
+                    <Text style={styles.pickItemMeta}>
+                      Location: Warehouse queue
+                      {item.unit ? ` • Unit ${item.unit}` : ""}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ScrollView>
+
+        <View style={styles.dispatchBottomBar}>
+          <TouchableOpacity
+            activeOpacity={actionDisabled ? 1 : 0.86}
+            disabled={actionDisabled}
+            onPress={handleDispatchPicked}
+            style={[
+              styles.dispatchPrimaryButton,
+              actionDisabled && styles.disabledDispatchButton,
+              allPicked && !actionDisabled && { backgroundColor: "#60A5FA" },
+              !allPicked && !actionDisabled && { backgroundColor: "#EAB308" },
+            ]}
+          >
+            <Text
+              style={[
+                styles.dispatchPrimaryText,
+                actionDisabled && styles.disabledDispatchText,
+              ]}
+            >
+              {dispatching
+                ? "Dispatching..."
+                : pickedCount === 0
+                ? "Pick items to dispatch"
+                : allPicked
+                ? "Dispatch full order"
+                : "Dispatch selected items"}
+            </Text>
+            <Ionicons
+              color={actionDisabled ? "#71717a" : "#121212"}
+              name="paper-plane-outline"
+              size={19}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.container}>
@@ -1311,6 +1894,10 @@ export default function OrderDetailsScreen() {
     );
   }
 
+  if (isDispatchWorkspace) {
+    return renderDispatchWorkspace();
+  }
+
   const tabs: {
     id: DetailTab;
     label: string;
@@ -1334,7 +1921,7 @@ export default function OrderDetailsScreen() {
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerEyebrow}>Order history</Text>
           <Text numberOfLines={1} style={styles.headerTitle}>
-            {order.orderId}
+            Order #{formatCompactOrderId(order.orderId)}
           </Text>
         </View>
 
@@ -1355,7 +1942,9 @@ export default function OrderDetailsScreen() {
             <View style={styles.heroTopRow}>
               <View>
                 <Text style={styles.heroEyebrow}>Live order profile</Text>
-                <Text style={styles.heroOrderId}>{order.orderId}</Text>
+                <Text style={styles.heroOrderId}>
+                  {formatCompactOrderId(order.orderId)}
+                </Text>
               </View>
 
               <View
