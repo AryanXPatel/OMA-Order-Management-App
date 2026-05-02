@@ -27,6 +27,7 @@ import {
 } from "@/utils/apiManager";
 import LoadingIndicator from "@/components/LoadingIndicator";
 import { buildDispatchSheetUpdates } from "@/utils/orderSheetSerializer";
+import { formatRoleLabel } from "@/utils/roles";
 
 type DispatchItem = {
   productName: string;
@@ -287,7 +288,7 @@ export default function ProcessOrdersScreen() {
           actualRowIndex: index + 2,
           sysTime: row[0] || "",
           orderTime: row[1] || "",
-          user: row[2] || "",
+          user: formatRoleLabel(row[2]) || "",
           orderComments: row[3] || "",
           customerName: row[4] || "",
           orderId: row[5] || "",
@@ -1620,7 +1621,9 @@ export default function ProcessOrdersScreen() {
                             name="person-outline"
                             size={12}
                           />
-                          <Text style={styles.metaChipText}>{order.user}</Text>
+                          <Text style={styles.metaChipText}>
+                            {formatRoleLabel(order.user)}
+                          </Text>
                         </View>
                       </View>
 
@@ -1830,7 +1833,9 @@ export default function ProcessOrdersScreen() {
                         name="person-outline"
                         size={12}
                       />
-                      <Text style={styles.metaChipText}>{selectedOrder.user}</Text>
+                      <Text style={styles.metaChipText}>
+                        {formatRoleLabel(selectedOrder.user)}
+                      </Text>
                     </View>
                   </View>
                 </View>

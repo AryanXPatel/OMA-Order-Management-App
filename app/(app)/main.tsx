@@ -26,6 +26,7 @@ import {
   wakeUpServer,
 } from "@/utils/apiManager";
 import { formatCompactOrderId } from "@/utils/orderDisplay";
+import { formatRoleLabel, isManagerRole, normalizeAppRole } from "@/utils/roles";
 import { omaTypography } from "@/utils/typography";
 
 type OrderRow = {
@@ -718,8 +719,10 @@ export default function MainScreen() {
     string[]
   >([]);
 
-  const displayName = userRole === "Manager" ? "Alex Carter" : "Sales Workspace";
-  const displayRole = userRole === "Manager" ? "Owner" : "User";
+  const displayName = isManagerRole(userRole)
+    ? "Alex Carter"
+    : "Worker Workspace";
+  const displayRole = isManagerRole(userRole) ? "Manager" : "Worker";
   const isDesktop = width >= 900;
   const todayLabel = todayFormatter.format(new Date()).toUpperCase();
 
@@ -781,13 +784,18 @@ export default function MainScreen() {
         }
 
         const storedRole = await AsyncStorage.getItem("userRole");
+        const activeRole = normalizeAppRole(storedRole);
 
-        if (!storedRole) {
+        if (!activeRole) {
           router.replace("/(auth)/login");
           return;
         }
 
-        setUserRole(storedRole);
+        setUserRole(activeRole);
+
+        if (storedRole !== activeRole) {
+          await AsyncStorage.setItem("userRole", activeRole);
+        }
 
         const cachedPayload = apiCache.get("dashboardPayload");
         if (!forceRefresh && cachedPayload) {
@@ -825,7 +833,7 @@ export default function MainScreen() {
         const rows: OrderRow[] = (response.data?.values || []).map((row: string[]) => ({
           sysTime: row[0] || "",
           orderTime: row[1] || "",
-          user: row[2] || "",
+          user: formatRoleLabel(row[2]) || "",
           orderComments: row[3] || "",
           customerName: row[4] || "",
           orderId: row[5] || "",
@@ -1583,7 +1591,7 @@ export default function MainScreen() {
 
           <View style={styles.utilityPillWrap}>
             <View style={styles.utilityPill}>
-              {userRole === "Manager" ? (
+              {isManagerRole(userRole) ? (
                 <TouchableOpacity
                   accessibilityLabel="Open analytics"
                   accessibilityRole="button"
@@ -2052,9 +2060,9 @@ export default function MainScreen() {
           <View style={styles.profileIdentity}>
             <View style={styles.profileRoleLine}>
               <Text style={styles.profileRoleText}>{displayRole}</Text>
-              {userRole === "Manager" ? (
+              {isManagerRole(userRole) ? (
                 <View style={styles.profileBadge}>
-                  <Text style={styles.profileBadgeText}>Owner exclusive</Text>
+                  <Text style={styles.profileBadgeText}>Manager tools</Text>
                 </View>
               ) : null}
             </View>
@@ -2087,10 +2095,10 @@ export default function MainScreen() {
             {
               id: "analytics",
               label: "Analytics",
-              description: "Owner command center",
+              description: "Manager command center",
               icon: "stats-chart-outline" as const,
               color: colors.accentGold,
-              hidden: userRole !== "Manager",
+              hidden: !isManagerRole(userRole),
               onPress: () => {
                 setActiveOverlay(null);
                 router.push("/(app)/analytics");

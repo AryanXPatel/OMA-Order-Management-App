@@ -1745,7 +1745,7 @@ const CustomersScreen = () => {
                 size={16}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.metaLabel}>Owner</Text>
+                <Text style={styles.metaLabel}>Account rep</Text>
                 <Text numberOfLines={2} style={styles.metaValue}>
                   {item.salesOwner || item.collectorOwner || "Unassigned"}
                 </Text>
@@ -2100,7 +2100,7 @@ const CustomersScreen = () => {
                     selectedCustomer.state ||
                     "Location not set"}
                   {" · "}
-                  {selectedCustomer.salesOwner || "Owner not assigned"}
+                  {selectedCustomer.salesOwner || "Rep not assigned"}
                 </Text>
 
                 <View style={styles.detailHeroStatsRow}>
@@ -2220,7 +2220,7 @@ const CustomersScreen = () => {
                       </View>
 
                       <View style={styles.detailStatCard}>
-                        <Text style={styles.detailStatLabel}>Sales owner</Text>
+                        <Text style={styles.detailStatLabel}>Sales rep</Text>
                         <Text
                           style={[
                             styles.detailStatValue,

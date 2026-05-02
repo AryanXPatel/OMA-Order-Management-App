@@ -27,12 +27,13 @@ import {
 import { useFeedback } from "@/context/FeedbackContext";
 import { ThemeContext } from "@/context/ThemeContext";
 import { wakeUpServer, preloadData } from "@/utils/apiManager";
+import { MANAGER_ROLE, WORKER_ROLE } from "@/utils/roles";
 import { omaTypography } from "@/utils/typography";
 
 const APP_VERSION = "2.4.0";
 
 type FieldName = "username" | "password" | null;
-type DemoRole = "manager" | "user";
+type DemoRole = "manager" | "worker";
 
 const LoginScreen = () => {
   const { width, height } = useWindowDimensions();
@@ -92,12 +93,12 @@ const LoginScreen = () => {
       MANAGER: {
         username: "1",
         password: "1",
-        role: "Manager",
+        role: MANAGER_ROLE,
       },
-      USER: {
+      WORKER: {
         username: "0",
         password: "0",
-        role: "User",
+        role: WORKER_ROLE,
       },
     }),
     []
@@ -114,10 +115,10 @@ const LoginScreen = () => {
     }
 
     if (
-      username.trim() === VALID_CREDENTIALS.USER.username &&
-      password.trim() === VALID_CREDENTIALS.USER.password
+      username.trim() === VALID_CREDENTIALS.WORKER.username &&
+      password.trim() === VALID_CREDENTIALS.WORKER.password
     ) {
-      return "user";
+      return "worker";
     }
 
     return null;
@@ -136,7 +137,7 @@ const LoginScreen = () => {
   const fillDemoCredentials = useCallback(
     (role: DemoRole) => {
       const credentials =
-        role === "manager" ? VALID_CREDENTIALS.MANAGER : VALID_CREDENTIALS.USER;
+        role === "manager" ? VALID_CREDENTIALS.MANAGER : VALID_CREDENTIALS.WORKER;
 
       setUsername(credentials.username);
       setPassword(credentials.password);
@@ -179,10 +180,10 @@ const LoginScreen = () => {
     ) {
       userRole = VALID_CREDENTIALS.MANAGER.role;
     } else if (
-      trimmedUsername === VALID_CREDENTIALS.USER.username &&
-      trimmedPassword === VALID_CREDENTIALS.USER.password
+      trimmedUsername === VALID_CREDENTIALS.WORKER.username &&
+      trimmedPassword === VALID_CREDENTIALS.WORKER.password
     ) {
-      userRole = VALID_CREDENTIALS.USER.role;
+      userRole = VALID_CREDENTIALS.WORKER.role;
     } else {
       setIsLoading(false);
       setFormError("Credentials do not match a demo role.");
@@ -626,13 +627,13 @@ const LoginScreen = () => {
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    accessibilityLabel="Fill user demo credentials"
+                    accessibilityLabel="Fill worker demo credentials"
                     accessibilityRole="button"
                     activeOpacity={0.86}
-                    onPress={() => fillDemoCredentials("user")}
+                    onPress={() => fillDemoCredentials("worker")}
                     style={[
                       styles.demoRow,
-                      selectedDemoRole === "user" && styles.demoRowSelected,
+                      selectedDemoRole === "worker" && styles.demoRowSelected,
                     ]}
                   >
                     <View style={styles.demoRoleWrap}>
@@ -644,7 +645,7 @@ const LoginScreen = () => {
                         />
                       </View>
                       <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={styles.demoRoleTitle}>User</Text>
+                        <Text style={styles.demoRoleTitle}>Worker</Text>
                         <Text numberOfLines={1} style={styles.demoRoleHint}>
                           New orders and daily execution
                         </Text>
@@ -677,7 +678,7 @@ const LoginScreen = () => {
                         />
                       </View>
                       <TextInput
-                        accessibilityHint="Use 1 for manager or 0 for user."
+                        accessibilityHint="Use 1 for manager or 0 for worker."
                         accessibilityLabel="Username"
                         autoCapitalize="none"
                         autoCorrect={false}
@@ -698,7 +699,7 @@ const LoginScreen = () => {
                       />
                     </View>
                     <Text style={styles.fieldHelp}>
-                      Manager uses 1. User uses 0.
+                      Manager uses 1. Worker uses 0.
                     </Text>
                   </View>
 
@@ -763,7 +764,7 @@ const LoginScreen = () => {
                       </TouchableOpacity>
                     </View>
                     <Text style={styles.fieldHelp}>
-                      Password matches the role: 1 for manager, 0 for user.
+                      Password matches the role: 1 for manager, 0 for worker.
                     </Text>
                   </View>
                 </View>

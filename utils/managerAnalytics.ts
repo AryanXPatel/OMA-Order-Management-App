@@ -6,6 +6,7 @@ import type {
   CommandCenterPayload,
   CommandCenterTargetRow,
 } from "./commandCenterRepository";
+import { formatRoleLabel } from "./roles";
 
 export type Timeframe = "MTD" | "QTD" | "YTD";
 export type ViewMode = "overview" | "revenue" | "execution";
@@ -592,7 +593,7 @@ const buildOrderLines = (
       return {
         sysTime: row[0] || "",
         orderTime: row[1] || "",
-        user: row[2] || "Unassigned",
+        user: formatRoleLabel(row[2]) || "Unassigned",
         orderComments: row[3] || "",
         customerName,
         customerCode: customerInfo?.code || "",

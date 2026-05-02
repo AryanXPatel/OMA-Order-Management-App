@@ -48,6 +48,7 @@ import {
   buildApprovalSheetUpdates,
   buildRejectionSheetUpdates,
 } from "@/utils/orderSheetSerializer";
+import { formatRoleLabel, isManagerRole, normalizeAppRole } from "@/utils/roles";
 import { omaTypography } from "@/utils/typography";
 
 type ApprovalItem = {
@@ -288,7 +289,7 @@ export default function OrderApprovalScreen() {
         .map((row: string[], index: number) => ({
           sysTime: row[0] || "",
           orderTime: row[1] || "",
-          user: row[2] || "",
+          user: formatRoleLabel(row[2]) || "",
           orderComments: row[3] || "",
           customerName: row[4] || "",
           orderId: row[5] || "",
@@ -370,7 +371,8 @@ export default function OrderApprovalScreen() {
   const checkUserRole = useCallback(async () => {
     try {
       const userRole = await AsyncStorage.getItem("userRole");
-      if (userRole !== "Manager") {
+      const activeRole = normalizeAppRole(userRole);
+      if (!isManagerRole(activeRole)) {
         showFeedback({
           type: "error",
           title: "Access Denied",
@@ -379,6 +381,11 @@ export default function OrderApprovalScreen() {
           onAction: () => router.replace("/(app)/main"),
           autoDismiss: false,
         });
+        return;
+      }
+
+      if (userRole !== activeRole) {
+        await AsyncStorage.setItem("userRole", activeRole);
       }
     } catch {
       showFeedback({
@@ -773,7 +780,7 @@ export default function OrderApprovalScreen() {
                             `${order.items.length} line${
                               order.items.length === 1 ? "" : "s"
                             } from ${
-                              order.user || "field sales"
+                              formatRoleLabel(order.user) || "field sales"
                             } requires manager approval before dispatch.`}
                         </Text>
                       </View>

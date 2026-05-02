@@ -21,6 +21,12 @@ import { FLOATING_NAV_SPACE } from "@/components/oma/OmaFloatingNav";
 import { ThemeContext } from "@/context/ThemeContext";
 import { BACKEND_URL, apiCache, fetchWithRetry } from "@/utils/apiManager";
 import { formatCompactOrderId } from "@/utils/orderDisplay";
+import {
+  formatRoleLabel,
+  isManagerRole,
+  isWorkerOrderUser,
+  normalizeAppRole,
+} from "@/utils/roles";
 import { omaTypography } from "@/utils/typography";
 
 type FilterStatus = "all" | "pending" | "approved" | "rejected" | "dispatched";
@@ -287,8 +293,9 @@ export default function MyOrdersScreen() {
   useEffect(() => {
     const initialize = async () => {
       const storedRole = await AsyncStorage.getItem("userRole");
-      setUserRole(storedRole || "");
-      await loadOrders(storedRole);
+      const activeRole = normalizeAppRole(storedRole);
+      setUserRole(activeRole);
+      await loadOrders(activeRole);
     };
 
     initialize();
@@ -304,11 +311,16 @@ export default function MyOrdersScreen() {
         setLoading(false);
       }
 
-      const activeRole = roleOverride ?? (await AsyncStorage.getItem("userRole"));
-      setUserRole(activeRole || "");
+      const storedRole = roleOverride ?? (await AsyncStorage.getItem("userRole"));
+      const activeRole = normalizeAppRole(storedRole);
+      setUserRole(activeRole);
 
       if (!activeRole) {
-        throw new Error("User not found. Please log in again.");
+        throw new Error("Session not found. Please log in again.");
+      }
+
+      if (storedRole !== activeRole) {
+        await AsyncStorage.setItem("userRole", activeRole);
       }
 
       const response = await fetchWithRetry<{ values?: string[][] }>(
@@ -322,7 +334,7 @@ export default function MyOrdersScreen() {
         actualRowIndex: index + 2,
         sysTime: row[0] || "",
         orderTime: row[1] || "",
-        user: row[2] || "",
+        user: formatRoleLabel(row[2]) || "",
         orderComments: row[3] || "",
         customerName: row[4] || "",
         orderId: row[5] || "",
@@ -340,9 +352,9 @@ export default function MyOrdersScreen() {
       }));
 
       const visibleRows =
-        activeRole === "Manager"
+        isManagerRole(activeRole)
           ? rows
-          : rows.filter((row) => row.user === activeRole);
+          : rows.filter((row) => isWorkerOrderUser(row.user));
 
       const groupedMap: Record<string, GroupedOrder> = {};
 

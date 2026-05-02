@@ -1,6 +1,7 @@
 import { BACKEND_URL, apiCache, fetchWithRetry } from "./apiManager";
 import { fetchSheetObjects, type SheetObject } from "./fetchSheetObjects";
 import type { Timeframe } from "./managerAnalytics";
+import { formatRoleLabel } from "./roles";
 
 const ORDER_HEADER_RANGE = "Order_Header_Fact!A1:Z";
 const CUSTOMER_SNAPSHOT_RANGE = "Customer_Account_Snapshot!A1:Z";
@@ -258,7 +259,7 @@ const mapOrderHeaderRow = (row: SheetObject): CommandCenterOrderHeaderRow => ({
   customerName: row.customer_name || "",
   customerCode: row.customer_code || "",
   customerContact: row.customer_contact || "",
-  user: row.user || "",
+  user: formatRoleLabel(row.user) || "",
   source: row.source || "",
   createdAt: row.created_at || "",
   dispatchAt: row.dispatch_at || "",
@@ -348,13 +349,13 @@ const mapAttentionQueueRow = (
   headline: row.headline || "",
   amount: toRequiredNumber(row.amount),
   ageHours: toNullableNumber(row.age_hours),
-  owner: row.owner || "",
+  owner: formatRoleLabel(row.owner) || "",
 });
 
 const mapTargetRow = (row: SheetObject): CommandCenterTargetRow => ({
   period: row.period || "",
-  ownerType: row.owner_type || "",
-  ownerName: row.owner_name || "",
+  ownerType: formatRoleLabel(row.owner_type) || "",
+  ownerName: formatRoleLabel(row.owner_name) || "",
   bookingTarget: toRequiredNumber(row.booking_target),
   dispatchTarget: toRequiredNumber(row.dispatch_target),
   collectionTarget: toRequiredNumber(row.collection_target),
@@ -428,11 +429,10 @@ export const createCommandCenterRepository = (
     dependencies.fetchSheetRangeObjects ?? defaultFetchSheetRangeObjects;
 
   const getPayload = async (
-    persona: "manager" | "owner",
     timeframe: Timeframe,
     options: PayloadOptions = {}
   ): Promise<CommandCenterPayload> => {
-    const cacheKey = `commandCenter.${persona}.${timeframe}`;
+    const cacheKey = `commandCenter.manager.${timeframe}`;
     const cached = cache.get(cacheKey) as CommandCenterPayload | null;
     if (cached && !options.skipCache) {
       return cached;
@@ -482,14 +482,7 @@ export const createCommandCenterRepository = (
       timeframe: Timeframe,
       options?: PayloadOptions
     ): Promise<CommandCenterPayload> {
-      return getPayload("manager", timeframe, options);
-    },
-
-    async getOwnerPayload(
-      timeframe: Timeframe,
-      options?: PayloadOptions
-    ): Promise<CommandCenterPayload> {
-      return getPayload("owner", timeframe, options);
+      return getPayload(timeframe, options);
     },
   };
 };

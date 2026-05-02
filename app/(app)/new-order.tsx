@@ -38,6 +38,7 @@ import { router } from "expo-router";
 import { ThemeContext } from "@/context/ThemeContext";
 import { AppIcon as Ionicons } from "@/components/AppIcon";
 import NetInfo from "@react-native-community/netinfo";
+import { isManagerRole, normalizeAppRole } from "@/utils/roles";
 import { omaTypography } from "@/utils/typography";
 registerTranslation("en", {}); // English locale
 
@@ -956,11 +957,16 @@ const NewSalesOrderScreen = () => {
     setIsLoading(true);
     try {
       const userRole = await AsyncStorage.getItem("userRole");
-      if (!userRole) {
-        throw new Error("User not logged in");
+      const activeRole = normalizeAppRole(userRole);
+      if (!activeRole) {
+        throw new Error("Session not found");
       }
 
-      const approvalStatus = userRole === "Manager" ? "Y" : "R"; // If manager is creating order, auto-approve
+      if (userRole !== activeRole) {
+        await AsyncStorage.setItem("userRole", activeRole);
+      }
+
+      const approvalStatus = isManagerRole(activeRole) ? "Y" : "R"; // Manager-created orders are auto-approved.
 
       const currentTimestamp = new Date();
       const sysTime = formatDate(currentTimestamp);
@@ -971,7 +977,7 @@ const NewSalesOrderScreen = () => {
         serializeOrderLineForSheet({
           sysTime,
           orderTime,
-          user: userRole,
+          user: activeRole,
           orderComments,
           customerName,
           orderId,
@@ -2635,7 +2641,7 @@ const NewSalesOrderScreen = () => {
                 <Text style={styles.modalEyebrow}>Customer selection</Text>
                 <Text style={styles.modalTitle}>Choose client account</Text>
                 <Text style={styles.modalSubtitle}>
-                  Search by customer name, code, city, owner, or channel.
+                  Search by customer name, code, city, rep, or channel.
                 </Text>
               </View>
 
@@ -2772,8 +2778,8 @@ const NewSalesOrderScreen = () => {
                     <Text style={styles.modalEmptyTitle}>No customer results</Text>
                     <Text style={styles.modalEmptyBody}>
                       {customerSearchQuery
-                        ? `Nothing matched "${customerSearchQuery}". Try a broader customer name, city, owner, or code.`
-                        : "Type a customer name, city, owner, or code to search the live account list."}
+                        ? `Nothing matched "${customerSearchQuery}". Try a broader customer name, city, rep, or code.`
+                        : "Type a customer name, city, rep, or code to search the live account list."}
                     </Text>
                   </View>
                 }

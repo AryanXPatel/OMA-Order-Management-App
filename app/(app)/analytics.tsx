@@ -27,6 +27,7 @@ import {
   preloadData,
   wakeUpServer,
 } from "@/utils/apiManager";
+import { normalizeAppRole } from "@/utils/roles";
 import { omaTypography } from "@/utils/typography";
 import {
   AnalyticsPayload,
@@ -75,7 +76,7 @@ type MetricTile = {
   tone: ToneKey;
 };
 
-type OwnerAction = {
+type ManagerAction = {
   id: string;
   icon: string;
   label: string;
@@ -291,8 +292,13 @@ function AnalyticsScreen() {
         }
 
         const storedRole = await AsyncStorage.getItem("userRole");
-        if (storedRole) {
-          setUserRole(storedRole);
+        const activeRole = normalizeAppRole(storedRole);
+        if (activeRole) {
+          setUserRole(activeRole);
+
+          if (storedRole !== activeRole) {
+            await AsyncStorage.setItem("userRole", activeRole);
+          }
         }
 
         await wakeUpServer();
@@ -571,7 +577,7 @@ function AnalyticsScreen() {
 
   const primaryAttention = model.attentionItems[0] || null;
 
-  const ownerActions = useMemo<OwnerAction[]>(
+  const managerActions = useMemo<ManagerAction[]>(
     () => [
       {
         id: "attention",
@@ -595,7 +601,7 @@ function AnalyticsScreen() {
         label: "Protect cash",
         headline:
           model.financial.ninetyExposure > 0
-            ? "90+ receivables need owner follow-up"
+            ? "90+ receivables need manager follow-up"
             : "No 90+ receivable exposure",
         detail: model.financial.topCustomers[0]
           ? `${model.financial.topCustomers[0].name} leads exposure at ${formatCurrencyLabel(
@@ -867,14 +873,14 @@ function AnalyticsScreen() {
           gap: 12,
           marginBottom: 4,
         },
-        ownerIdentityRow: {
+        managerIdentityRow: {
           flex: 1,
           flexDirection: "row",
           alignItems: "center",
           gap: 12,
           minHeight: 44,
         },
-        ownerAvatar: {
+        managerAvatar: {
           width: 38,
           height: 38,
           borderRadius: 19,
@@ -884,30 +890,30 @@ function AnalyticsScreen() {
           borderWidth: 1,
           borderColor: isDark ? "rgba(255,255,255,0.07)" : colors.border,
         },
-        ownerAvatarImage: {
+        managerAvatarImage: {
           width: 38,
           height: 38,
           borderRadius: 19,
           borderWidth: 1,
           borderColor: "rgba(255,255,255,0.08)",
         },
-        ownerAvatarText: {
+        managerAvatarText: {
           color: "#EAB308",
           fontFamily: omaTypography.bold,
           fontSize: 14,
         },
-        ownerRoleText: {
+        managerRoleText: {
           color: "#a1a1aa",
           fontFamily: omaTypography.medium,
           fontSize: 13,
           marginBottom: 1,
         },
-        ownerRoleRow: {
+        managerRoleRow: {
           flexDirection: "row",
           alignItems: "center",
           gap: 6,
         },
-        ownerNameText: {
+        managerNameText: {
           color: "#ffffff",
           fontFamily: omaTypography.semibold,
           fontSize: 17,
@@ -1202,7 +1208,7 @@ function AnalyticsScreen() {
         actionDeck: {
           gap: 10,
         },
-        ownerActionCard: {
+        managerActionCard: {
           borderRadius: 22,
           padding: 16,
           borderWidth: 1,
@@ -1210,27 +1216,27 @@ function AnalyticsScreen() {
           backgroundColor: isDark ? "#242426" : colors.cardMuted,
           minHeight: 116,
         },
-        ownerActionTop: {
+        managerActionTop: {
           flexDirection: "row",
           justifyContent: "space-between",
           alignItems: "flex-start",
           gap: 12,
           marginBottom: 12,
         },
-        ownerActionIdentity: {
+        managerActionIdentity: {
           flexDirection: "row",
           alignItems: "center",
           gap: 10,
           flex: 1,
         },
-        ownerActionIcon: {
+        managerActionIcon: {
           width: 34,
           height: 34,
           borderRadius: 17,
           alignItems: "center",
           justifyContent: "center",
         },
-        ownerActionLabel: {
+        managerActionLabel: {
           color: "#71717a",
           fontFamily: omaTypography.bold,
           fontSize: 12,
@@ -1238,7 +1244,7 @@ function AnalyticsScreen() {
           lineHeight: 18,
           textTransform: "uppercase",
         },
-        ownerActionValue: {
+        managerActionValue: {
           color: colors.text,
           fontFamily: omaTypography.bold,
           fontSize: 15,
@@ -1246,7 +1252,7 @@ function AnalyticsScreen() {
           lineHeight: 24,
           textAlign: "right",
         },
-        ownerActionHeadline: {
+        managerActionHeadline: {
           color: colors.text,
           fontFamily: omaTypography.regular,
           fontSize: 17,
@@ -1254,7 +1260,7 @@ function AnalyticsScreen() {
           lineHeight: 21,
           marginBottom: 5,
         },
-        ownerActionDetail: {
+        managerActionDetail: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
           fontSize: 13,
@@ -2172,8 +2178,8 @@ function AnalyticsScreen() {
     </View>
   );
 
-  const renderOwnerActions = () => {
-    const primaryAction = ownerActions[0];
+  const renderManagerActions = () => {
+    const primaryAction = managerActions[0];
     const primaryTone = toneStyles[primaryAction.tone];
 
     return (
@@ -2218,7 +2224,7 @@ function AnalyticsScreen() {
         </TouchableOpacity>
 
         <View style={styles.shortcutRow}>
-          {ownerActions.slice(1).map((action) => {
+          {managerActions.slice(1).map((action) => {
             const tone = toneStyles[action.tone];
             return (
               <TouchableOpacity
@@ -2700,7 +2706,7 @@ function AnalyticsScreen() {
     <>
       {renderHero(overviewHero)}
       {renderMetrics(overviewMetrics.slice(0, 2))}
-      {renderOwnerActions()}
+      {renderManagerActions()}
       {renderTeamExecution(model.reps)}
       {renderActivityFeed()}
     </>
@@ -2765,25 +2771,25 @@ function AnalyticsScreen() {
           <View style={styles.commandHeader}>
             <View style={styles.commandTopRow}>
               <TouchableOpacity
-                accessibilityLabel="Open owner profile"
+                accessibilityLabel="Open manager profile"
                 accessibilityRole="button"
                 activeOpacity={0.88}
-                style={styles.ownerIdentityRow}
+                style={styles.managerIdentityRow}
               >
                 <Image
                   source={{ uri: "https://i.pravatar.cc/150?img=11" }}
-                  style={styles.ownerAvatarImage}
+                  style={styles.managerAvatarImage}
                 />
                 <View style={{ flex: 1 }}>
-                  <View style={styles.ownerRoleRow}>
-                    <Text style={styles.ownerRoleText}>{userRole}</Text>
+                  <View style={styles.managerRoleRow}>
+                    <Text style={styles.managerRoleText}>{userRole}</Text>
                     <Ionicons
                       color="rgba(255,255,255,0.48)"
                       name="chevron-down"
                       size={14}
                     />
                   </View>
-                  <Text style={styles.ownerNameText}>
+                  <Text style={styles.managerNameText}>
                     {userRole === "Manager" ? "Alex Carter" : `${userRole} Workspace`}
                   </Text>
                 </View>
@@ -2836,7 +2842,7 @@ function AnalyticsScreen() {
 
             <View style={styles.analyticsTitleRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.commandEyebrow}>Owner exclusive</Text>
+                <Text style={styles.commandEyebrow}>Manager tools</Text>
                 <Text style={styles.commandTitle}>Analytics</Text>
               </View>
               <TouchableOpacity

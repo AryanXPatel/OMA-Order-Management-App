@@ -75,7 +75,7 @@ describe("orderSheetSerializer", () => {
     const row = serializeOrderLineForSheet({
       sysTime: "21/05/2025 10:40 AM",
       orderTime: "21/05/2025 10:39 AM",
-      user: "User",
+      user: "Worker",
       orderComments: "Reliance order",
       customerName: "Reliance Digital Mumbai",
       orderId: "2025-2026_00074",
