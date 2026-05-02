@@ -11,7 +11,6 @@ import { AppIcon as Ionicons } from "@/components/AppIcon";
 import { router } from "expo-router";
 import {
   ActivityIndicator,
-  Animated,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -33,28 +32,23 @@ import { omaTypography } from "@/utils/typography";
 const APP_VERSION = "2.4.0";
 
 type FieldName = "username" | "password" | null;
+type DemoRole = "manager" | "user";
 
 const LoginScreen = () => {
   const { width, height } = useWindowDimensions();
-  const { theme, toggleTheme, colors } = useContext(ThemeContext);
+  const { colors } = useContext(ThemeContext);
   const { showFeedback } = useFeedback();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [showForm, setShowForm] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [focusedField, setFocusedField] = useState<FieldName>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const isDark = theme === "dark";
   const isWide = width >= 768;
-  const shellWidth = Math.min(Math.max(width - 24, 0), 460);
-
-  const fadeAnim = React.useRef(new Animated.Value(0)).current;
-  const slideAnim = React.useRef(new Animated.Value(50)).current;
-  const formOpacity = React.useRef(new Animated.Value(0)).current;
-  const shouldUseNativeDriver = Platform.OS !== "web";
+  const shellWidth = Math.min(Math.max(width - 24, 0), 430);
 
   useEffect(() => {
     const checkConnectivity = async () => {
@@ -88,34 +82,10 @@ const LoginScreen = () => {
   }, []);
 
   useEffect(() => {
-    wakeUpServer().then(() => {
+    void wakeUpServer().then(() => {
       preloadData();
     });
-
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 900,
-        useNativeDriver: shouldUseNativeDriver,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 900,
-        useNativeDriver: shouldUseNativeDriver,
-      }),
-    ]).start();
-
-    const timer = setTimeout(() => {
-      Animated.timing(formOpacity, {
-        toValue: 1,
-        duration: 700,
-        useNativeDriver: shouldUseNativeDriver,
-      }).start();
-      setShowForm(true);
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [fadeAnim, formOpacity, slideAnim, shouldUseNativeDriver]);
+  }, []);
 
   const VALID_CREDENTIALS = useMemo(
     () => ({
@@ -131,6 +101,48 @@ const LoginScreen = () => {
       },
     }),
     []
+  );
+
+  const isFormReady = username.trim().length > 0 && password.trim().length > 0;
+
+  const selectedDemoRole: DemoRole | null = useMemo(() => {
+    if (
+      username.trim() === VALID_CREDENTIALS.MANAGER.username &&
+      password.trim() === VALID_CREDENTIALS.MANAGER.password
+    ) {
+      return "manager";
+    }
+
+    if (
+      username.trim() === VALID_CREDENTIALS.USER.username &&
+      password.trim() === VALID_CREDENTIALS.USER.password
+    ) {
+      return "user";
+    }
+
+    return null;
+  }, [VALID_CREDENTIALS, password, username]);
+
+  const handleUsernameChange = useCallback((value: string) => {
+    setUsername(value);
+    setFormError(null);
+  }, []);
+
+  const handlePasswordChange = useCallback((value: string) => {
+    setPassword(value);
+    setFormError(null);
+  }, []);
+
+  const fillDemoCredentials = useCallback(
+    (role: DemoRole) => {
+      const credentials =
+        role === "manager" ? VALID_CREDENTIALS.MANAGER : VALID_CREDENTIALS.USER;
+
+      setUsername(credentials.username);
+      setPassword(credentials.password);
+      setFormError(null);
+    },
+    [VALID_CREDENTIALS]
   );
 
   const cacheCredentials = async (
@@ -153,15 +165,11 @@ const LoginScreen = () => {
     const trimmedPassword = password.trim();
 
     if (!trimmedUsername || !trimmedPassword) {
-      showFeedback({
-        type: "error",
-        title: "Missing Information",
-        message: "Please enter both username and password",
-        autoDismiss: true,
-      });
+      setFormError("Enter both username and password.");
       return;
     }
 
+    setFormError(null);
     setIsLoading(true);
     let userRole: string | null = null;
 
@@ -177,12 +185,7 @@ const LoginScreen = () => {
       userRole = VALID_CREDENTIALS.USER.role;
     } else {
       setIsLoading(false);
-      showFeedback({
-        type: "error",
-        title: "Login Failed",
-        message: "Please check your username and password and try again.",
-        autoDismiss: true,
-      });
+      setFormError("Credentials do not match a demo role.");
       return;
     }
 
@@ -221,506 +224,331 @@ const LoginScreen = () => {
       StyleSheet.create({
         container: {
           flex: 1,
-          backgroundColor: colors.background,
-        },
-        ambientOrbPrimary: {
-          position: "absolute",
-          top: -110,
-          right: -80,
-          width: 260,
-          height: 260,
-          borderRadius: 130,
-          backgroundColor: isDark
-            ? "rgba(0, 102, 255, 0.24)"
-            : "rgba(0, 102, 255, 0.12)",
-        },
-        ambientOrbSecondary: {
-          position: "absolute",
-          bottom: -140,
-          left: -90,
-          width: 280,
-          height: 280,
-          borderRadius: 140,
-          backgroundColor: isDark
-            ? "rgba(34, 197, 94, 0.14)"
-            : "rgba(12, 26, 46, 0.05)",
-        },
-        ambientHalo: {
-          position: "absolute",
-          top: 120,
-          left: "10%",
-          width: "80%",
-          height: 180,
-          borderRadius: 90,
-          backgroundColor: isDark
-            ? "rgba(255,255,255,0.03)"
-            : "rgba(255,255,255,0.55)",
-        },
-        themeToggle: {
-          position: "absolute",
-          top: Platform.OS === "web" ? 22 : 54,
-          right: isWide ? 28 : 18,
-          width: 46,
-          height: 46,
-          borderRadius: 23,
-          backgroundColor: isDark
-            ? "rgba(16, 26, 43, 0.76)"
-            : "rgba(255, 255, 255, 0.8)",
-          borderWidth: 1,
-          borderColor: isDark
-            ? "rgba(255,255,255,0.08)"
-            : "rgba(255,255,255,0.92)",
-          justifyContent: "center",
-          alignItems: "center",
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 10 },
-          shadowOpacity: 1,
-          shadowRadius: 24,
-          elevation: 10,
-          zIndex: 5,
+          backgroundColor: colors.appChrome,
         },
         scrollContent: {
           flexGrow: 1,
           justifyContent: "center",
-          paddingTop: isWide ? 48 : 28,
-          paddingBottom: 24,
-          paddingHorizontal: 12,
+          paddingBottom: 18,
+          paddingHorizontal: isWide ? 28 : 16,
+          paddingTop: Platform.OS === "web" ? 18 : 34,
           minHeight: height,
         },
         keyboardFrame: {
           width: "100%",
         },
         shell: {
-          width: "100%",
-          maxWidth: shellWidth,
           alignSelf: "center",
-          minHeight: isWide ? 760 : 700,
           justifyContent: "center",
+          maxWidth: shellWidth,
+          width: "100%",
         },
-        heroSurface: {
-          backgroundColor: isDark
-            ? "rgba(16, 26, 43, 0.84)"
-            : "rgba(255, 255, 255, 0.88)",
-          borderRadius: 32,
-          paddingHorizontal: width < 390 ? 20 : 24,
-          paddingVertical: width < 390 ? 22 : 26,
-          borderWidth: 1,
-          borderColor: isDark
-            ? "rgba(255,255,255,0.08)"
-            : "rgba(255,255,255,0.94)",
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 18 },
-          shadowOpacity: 1,
-          shadowRadius: 32,
-          elevation: 14,
-          overflow: "hidden",
-        },
-        heroGlowPrimary: {
-          position: "absolute",
-          top: -44,
-          right: -28,
-          width: 180,
-          height: 180,
-          borderRadius: 90,
-          backgroundColor: isDark
-            ? "rgba(0, 102, 255, 0.28)"
-            : "rgba(0, 102, 255, 0.14)",
-        },
-        heroGlowSecondary: {
-          position: "absolute",
-          bottom: -70,
-          left: -30,
-          width: 160,
-          height: 160,
-          borderRadius: 80,
-          backgroundColor: isDark
-            ? "rgba(255,255,255,0.05)"
-            : "rgba(12, 26, 46, 0.06)",
-        },
-        heroBadge: {
-          alignSelf: "flex-start",
-          flexDirection: "row",
+        brandRow: {
           alignItems: "center",
-          backgroundColor: isDark
-            ? "rgba(255,255,255,0.06)"
-            : "rgba(255,255,255,0.72)",
-          borderWidth: 1,
-          borderColor: isDark
-            ? "rgba(255,255,255,0.08)"
-            : "rgba(255,255,255,0.94)",
-          borderRadius: 999,
-          paddingHorizontal: 12,
-          paddingVertical: 8,
-          marginBottom: 18,
-          gap: 8,
-        },
-        heroBadgeText: {
-          color: colors.text,
-          fontSize: 11,
-          fontFamily: omaTypography.semibold,
-          textTransform: "uppercase",
-          letterSpacing: 1.2,
-        },
-        logoLockup: {
-          width: width < 390 ? 150 : 176,
-          height: 42,
-          marginBottom: 18,
-        },
-        heroEyebrow: {
-          color: colors.textSecondary,
-          fontSize: 12,
-          fontFamily: omaTypography.semibold,
-          textTransform: "uppercase",
-          letterSpacing: 1.8,
-          marginBottom: 10,
-        },
-        heroTitle: {
-          color: colors.text,
-          fontSize: isWide ? 36 : width < 390 ? 29 : 32,
-          lineHeight: isWide ? 42 : width < 390 ? 34 : 38,
-          fontFamily: omaTypography.extrabold,
-          letterSpacing: -1,
-          marginBottom: 12,
-          maxWidth: 320,
-        },
-        heroCopy: {
-          color: colors.textSecondary,
-          fontSize: 15,
-          lineHeight: 23,
-          fontFamily: omaTypography.medium,
-          marginBottom: 18,
-          maxWidth: 320,
-        },
-        heroHighlights: {
-          flexDirection: "row",
-          flexWrap: "wrap",
-          gap: 10,
-        },
-        heroChip: {
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          paddingHorizontal: 12,
-          paddingVertical: 10,
-          borderRadius: 18,
-          backgroundColor: isDark
-            ? "rgba(9, 17, 31, 0.54)"
-            : "rgba(255,255,255,0.78)",
-          borderWidth: 1,
-          borderColor: isDark
-            ? "rgba(255,255,255,0.06)"
-            : "rgba(231,236,243,0.9)",
-        },
-        heroChipText: {
-          color: colors.text,
-          fontSize: 12,
-          fontFamily: omaTypography.semibold,
-        },
-        formSurface: {
-          backgroundColor: isDark
-            ? "rgba(16, 26, 43, 0.9)"
-            : "rgba(255, 255, 255, 0.94)",
-          borderRadius: 32,
-          paddingHorizontal: width < 390 ? 20 : 24,
-          paddingTop: width < 390 ? 22 : 26,
-          paddingBottom: 20,
-          borderWidth: 1,
-          borderColor: isDark
-            ? "rgba(255,255,255,0.08)"
-            : "rgba(255,255,255,0.96)",
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 18 },
-          shadowOpacity: 1,
-          shadowRadius: 32,
-          elevation: 14,
-          overflow: "hidden",
-        },
-        formGlow: {
-          position: "absolute",
-          top: -40,
-          right: -25,
-          width: 150,
-          height: 150,
-          borderRadius: 75,
-          backgroundColor: isDark
-            ? "rgba(0, 102, 255, 0.18)"
-            : "rgba(0, 102, 255, 0.1)",
-        },
-        formHeaderRow: {
           flexDirection: "row",
           justifyContent: "space-between",
+          marginBottom: 12,
+          paddingHorizontal: 2,
+        },
+        brandLogo: {
+          height: 34,
+          width: 132,
+        },
+        statusPill: {
+          alignItems: "center",
+          backgroundColor: "rgba(234,179,8,0.12)",
+          borderRadius: 999,
+          flexDirection: "row",
+          gap: 8,
+          minHeight: 32,
+          paddingHorizontal: 10,
+        },
+        statusDot: {
+          backgroundColor: colors.accentGreen,
+          borderRadius: 4,
+          height: 8,
+          width: 8,
+        },
+        statusText: {
+          color: colors.accentGold,
+          fontFamily: omaTypography.bold,
+          fontSize: 10,
+          letterSpacing: 0.6,
+          textTransform: "uppercase",
+        },
+        formSurface: {
+          backgroundColor: colors.appChromeElevated,
+          borderColor: colors.border,
+          borderRadius: 28,
+          borderWidth: 1,
+          overflow: "hidden",
+          padding: width < 390 ? 16 : 18,
+        },
+        formHeaderRow: {
           alignItems: "flex-start",
-          gap: 16,
-          marginBottom: 20,
+          flexDirection: "row",
+          gap: 14,
+          justifyContent: "space-between",
+          marginBottom: 16,
         },
         formBadge: {
-          flexDirection: "row",
           alignItems: "center",
           alignSelf: "flex-start",
-          backgroundColor: isDark
-            ? "rgba(0, 102, 255, 0.14)"
-            : "rgba(0, 102, 255, 0.08)",
-          paddingHorizontal: 10,
-          paddingVertical: 7,
+          backgroundColor: "rgba(234,179,8,0.12)",
           borderRadius: 999,
+          flexDirection: "row",
           gap: 6,
           marginBottom: 14,
+          paddingHorizontal: 10,
+          paddingVertical: 7,
         },
         formBadgeText: {
-          color: colors.primary,
-          fontSize: 11,
-          fontFamily: omaTypography.semibold,
-          textTransform: "uppercase",
+          color: colors.accentGold,
+          fontFamily: omaTypography.bold,
+          fontSize: 10,
           letterSpacing: 1.1,
+          textTransform: "uppercase",
         },
         formTitle: {
           color: colors.text,
-          fontSize: width < 390 ? 26 : 28,
-          lineHeight: width < 390 ? 30 : 34,
-          fontFamily: omaTypography.extrabold,
+          fontFamily: omaTypography.bold,
+          fontSize: width < 390 ? 28 : 30,
           letterSpacing: -0.8,
+          lineHeight: width < 390 ? 32 : 35,
           marginBottom: 8,
         },
         formCopy: {
           color: colors.textSecondary,
-          fontSize: 14,
-          lineHeight: 22,
           fontFamily: omaTypography.medium,
-          maxWidth: 260,
-        },
-        formLogo: {
-          width: 112,
-          height: 28,
-          marginTop: 4,
-          opacity: isDark ? 0.95 : 0.9,
+          fontSize: 14,
+          letterSpacing: -0.25,
+          lineHeight: 20,
+          maxWidth: 280,
         },
         demoCard: {
-          backgroundColor: isDark
-            ? "rgba(9, 17, 31, 0.52)"
-            : "rgba(247, 248, 249, 0.96)",
-          borderRadius: 24,
-          padding: 16,
-          borderWidth: 1,
+          backgroundColor: "rgba(255,255,255,0.05)",
           borderColor: colors.border,
+          borderRadius: 22,
+          borderWidth: 1,
           marginBottom: 18,
-          gap: 10,
+          overflow: "hidden",
         },
         demoCardLabel: {
-          color: colors.textSecondary,
-          fontSize: 11,
-          fontFamily: omaTypography.semibold,
-          textTransform: "uppercase",
+          color: "rgba(255,255,255,0.42)",
+          fontFamily: omaTypography.bold,
+          fontSize: 10,
           letterSpacing: 1.1,
+          paddingHorizontal: 14,
+          paddingTop: 14,
+          textTransform: "uppercase",
         },
         demoRow: {
-          flexDirection: "row",
-          justifyContent: "space-between",
           alignItems: "center",
+          borderTopColor: "rgba(255,255,255,0.07)",
+          borderTopWidth: 1,
+          flexDirection: "row",
           gap: 12,
+          minHeight: 60,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+        },
+        demoRowSelected: {
+          backgroundColor: "rgba(234,179,8,0.08)",
+          borderTopColor: "rgba(234,179,8,0.16)",
         },
         demoRoleWrap: {
-          flexDirection: "row",
           alignItems: "center",
-          gap: 10,
           flex: 1,
+          flexDirection: "row",
+          gap: 12,
+          minWidth: 0,
         },
         demoIconWrap: {
-          width: 34,
-          height: 34,
-          borderRadius: 17,
-          justifyContent: "center",
           alignItems: "center",
-          backgroundColor: isDark
-            ? "rgba(255,255,255,0.06)"
-            : "rgba(255,255,255,0.82)",
+          backgroundColor: "rgba(255,255,255,0.07)",
+          borderRadius: 18,
+          height: 36,
+          justifyContent: "center",
+          width: 36,
         },
         demoRoleTitle: {
           color: colors.text,
-          fontSize: 14,
           fontFamily: omaTypography.semibold,
+          fontSize: 15,
+          letterSpacing: -0.25,
         },
         demoRoleHint: {
           color: colors.textSecondary,
-          fontSize: 12,
           fontFamily: omaTypography.medium,
+          fontSize: 13,
+          letterSpacing: -0.2,
+          lineHeight: 18,
           marginTop: 2,
         },
         demoValueChip: {
-          backgroundColor: isDark
-            ? "rgba(255,255,255,0.06)"
-            : "rgba(255,255,255,0.86)",
-          borderWidth: 1,
+          backgroundColor: "rgba(255,255,255,0.06)",
           borderColor: colors.border,
-          paddingHorizontal: 12,
-          paddingVertical: 8,
           borderRadius: 14,
+          borderWidth: 1,
+          paddingHorizontal: 12,
+          paddingVertical: 7,
         },
         demoValueText: {
           color: colors.text,
-          fontSize: 13,
           fontFamily: omaTypography.semibold,
+          fontSize: 13,
         },
         fieldGroup: {
-          gap: 14,
+          gap: 12,
         },
         fieldBlock: {
-          gap: 8,
+          gap: 6,
         },
         fieldLabel: {
-          color: colors.textSecondary,
-          fontSize: 12,
+          color: "rgba(255,255,255,0.78)",
           fontFamily: omaTypography.semibold,
-          textTransform: "uppercase",
-          letterSpacing: 1.1,
+          fontSize: 13,
+          letterSpacing: -0.2,
           paddingHorizontal: 2,
         },
         inputShell: {
-          minHeight: 58,
+          alignItems: "center",
+          backgroundColor: colors.appChromeMuted,
+          borderColor: "rgba(255,255,255,0.08)",
           borderRadius: 18,
           borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: isDark
-            ? "rgba(9, 17, 31, 0.64)"
-            : "rgba(247, 248, 249, 0.98)",
           flexDirection: "row",
-          alignItems: "center",
-          paddingLeft: 16,
-          paddingRight: 10,
           gap: 12,
+          minHeight: 54,
+          paddingLeft: 15,
+          paddingRight: 8,
         },
         inputShellFocused: {
-          borderColor: colors.primary,
-          backgroundColor: isDark
-            ? "rgba(0, 102, 255, 0.1)"
-            : "rgba(0, 102, 255, 0.04)",
+          backgroundColor: "rgba(234,179,8,0.08)",
+          borderColor: colors.accentGold,
         },
         inputIconWrap: {
-          width: 26,
           alignItems: "center",
+          width: 26,
         },
         input: {
-          flex: 1,
-          minHeight: 56,
           color: colors.text,
-          fontSize: 16,
+          flex: 1,
           fontFamily: omaTypography.medium,
+          fontSize: 16,
+          minHeight: 52,
           paddingVertical: 0,
         },
+        fieldHelp: {
+          color: "rgba(255,255,255,0.44)",
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+          letterSpacing: -0.15,
+          lineHeight: 16,
+          paddingHorizontal: 2,
+        },
         passwordAction: {
-          width: 40,
-          height: 40,
-          borderRadius: 20,
-          justifyContent: "center",
           alignItems: "center",
+          borderRadius: 20,
+          height: 40,
+          justifyContent: "center",
+          width: 40,
+        },
+        formError: {
+          alignItems: "center",
+          backgroundColor: "rgba(248,113,113,0.12)",
+          borderRadius: 16,
+          flexDirection: "row",
+          gap: 10,
+          marginTop: 14,
+          paddingHorizontal: 12,
+          paddingVertical: 11,
+        },
+        formErrorText: {
+          color: colors.accentRed,
+          flex: 1,
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+          letterSpacing: -0.2,
+          lineHeight: 18,
         },
         rememberRow: {
-          flexDirection: "row",
           alignItems: "center",
+          flexDirection: "row",
           justifyContent: "space-between",
-          paddingTop: 6,
-          marginBottom: 18,
+          marginBottom: 14,
+          paddingTop: 10,
         },
         rememberTouch: {
-          flexDirection: "row",
           alignItems: "center",
+          flexDirection: "row",
           gap: 10,
-          paddingVertical: 6,
+          minHeight: 44,
           paddingRight: 16,
         },
         rememberIconWrap: {
-          width: 24,
+          alignItems: "center",
           height: 24,
           justifyContent: "center",
-          alignItems: "center",
+          width: 24,
         },
         rememberText: {
           color: colors.text,
-          fontSize: 14,
           fontFamily: omaTypography.medium,
+          fontSize: 14,
         },
         rememberHint: {
-          color: colors.textSecondary,
-          fontSize: 12,
+          color: "rgba(255,255,255,0.42)",
           fontFamily: omaTypography.medium,
+          fontSize: 12,
         },
         loginButton: {
-          minHeight: 58,
-          borderRadius: 20,
-          backgroundColor: isDark ? colors.primary : "#111111",
-          justifyContent: "center",
           alignItems: "center",
-          shadowColor: isDark ? colors.primary : colors.shadow,
-          shadowOffset: { width: 0, height: 12 },
-          shadowOpacity: 0.35,
-          shadowRadius: 24,
-          elevation: 8,
+          backgroundColor: "#ffffff",
+          borderRadius: 20,
+          justifyContent: "center",
+          minHeight: 54,
         },
         loginButtonDisabled: {
-          opacity: 0.72,
+          opacity: 0.42,
         },
         loginButtonContent: {
-          flexDirection: "row",
           alignItems: "center",
-          justifyContent: "center",
+          flexDirection: "row",
           gap: 10,
+          justifyContent: "center",
         },
         loginButtonText: {
-          color: "#ffffff",
-          fontSize: 16,
+          color: "#111111",
           fontFamily: omaTypography.semibold,
-          letterSpacing: 0.2,
+          fontSize: 16,
+          letterSpacing: -0.2,
         },
         formFooter: {
-          marginTop: 18,
-          flexDirection: isWide ? "row" : "column",
           alignItems: isWide ? "center" : "flex-start",
-          justifyContent: "space-between",
+          flexDirection: isWide ? "row" : "column",
           gap: 8,
+          justifyContent: "space-between",
+          marginTop: 14,
         },
         footerPrimary: {
           color: colors.textSecondary,
-          fontSize: 12,
           fontFamily: omaTypography.medium,
+          fontSize: 12,
         },
         footerSecondary: {
           color: colors.textSecondary,
-          fontSize: 12,
           fontFamily: omaTypography.medium,
-        },
-        versionText: {
-          textAlign: "center",
-          color: colors.textSecondary,
           fontSize: 12,
-          fontFamily: omaTypography.medium,
-          marginTop: 16,
-          opacity: 0.85,
         },
       }),
-    [colors, height, isDark, isWide, shellWidth, width]
+    [colors, height, isWide, shellWidth, width]
   );
 
   return (
     <>
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+      <StatusBar barStyle="light-content" />
       <View style={styles.container}>
-        <View style={[styles.ambientOrbPrimary, { pointerEvents: "none" }]} />
-        <View
-          style={[styles.ambientOrbSecondary, { pointerEvents: "none" }]}
-        />
-        <View style={[styles.ambientHalo, { pointerEvents: "none" }]} />
-
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={toggleTheme}
-          style={styles.themeToggle}
-        >
-          <Ionicons
-            color={isDark ? colors.text : colors.navActive}
-            name={isDark ? "sunny-outline" : "moon-outline"}
-            size={21}
-          />
-        </TouchableOpacity>
-
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
@@ -732,314 +560,285 @@ const LoginScreen = () => {
             style={styles.keyboardFrame}
           >
             <View style={styles.shell}>
-              <Animated.View
-                style={{
-                  opacity: showForm ? Animated.subtract(1, formOpacity) : fadeAnim,
-                  transform: [{ translateY: slideAnim }],
-                  position: showForm ? "absolute" : "relative",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  pointerEvents: showForm ? "none" : "auto",
-                }}
-              >
-                <View style={styles.heroSurface}>
-                  <View
-                    style={[styles.heroGlowPrimary, { pointerEvents: "none" }]}
-                  />
-                  <View
-                    style={[styles.heroGlowSecondary, { pointerEvents: "none" }]}
-                  />
-
-                  <View style={styles.heroBadge}>
-                    <Ionicons
-                      color={colors.primary}
-                      name="sparkles-outline"
-                      size={14}
-                    />
-                    <Text style={styles.heroBadgeText}>Order Command Center</Text>
-                  </View>
-
-                  <Image
-                    resizeMode="contain"
-                    source={require("../../assets/images/logo.png")}
-                    style={styles.logoLockup}
-                  />
-
-                  <Text style={styles.heroEyebrow}>Prototype-Driven Redesign</Text>
-                  <Text style={styles.heroTitle}>
-                    A calmer way to enter the OMA workspace.
-                  </Text>
-                  <Text style={styles.heroCopy}>
-                    Sign in to review approvals, create orders, and keep dispatch
-                    moving from a single premium mobile shell.
-                  </Text>
-
-                  <View style={styles.heroHighlights}>
-                    <View style={styles.heroChip}>
-                      <Ionicons
-                        color={colors.accentGreen}
-                        name="checkmark-circle-outline"
-                        size={16}
-                      />
-                      <Text style={styles.heroChipText}>Mobile-first targets</Text>
-                    </View>
-                    <View style={styles.heroChip}>
-                      <Ionicons
-                        color={colors.accentBlue}
-                        name="shield-checkmark-outline"
-                        size={16}
-                      />
-                      <Text style={styles.heroChipText}>Secure demo access</Text>
-                    </View>
-                    <View style={styles.heroChip}>
-                      <Ionicons
-                        color={colors.accentOrange}
-                        name="flash-outline"
-                        size={16}
-                      />
-                      <Text style={styles.heroChipText}>Warm-up in progress</Text>
-                    </View>
-                  </View>
+              <View style={styles.brandRow}>
+                <Image
+                  resizeMode="contain"
+                  source={require("../../assets/images/logo.png")}
+                  style={styles.brandLogo}
+                />
+                <View style={styles.statusPill}>
+                  <View style={styles.statusDot} />
+                  <Text style={styles.statusText}>Demo ready</Text>
                 </View>
-              </Animated.View>
+              </View>
 
-              <Animated.View
-                style={{
-                  opacity: formOpacity,
-                  display: showForm ? "flex" : "none",
-                }}
-              >
-                <View style={styles.formSurface}>
-                  <View style={[styles.formGlow, { pointerEvents: "none" }]} />
-
-                  <View style={styles.formHeaderRow}>
-                    <View style={{ flex: 1 }}>
-                      <View style={styles.formBadge}>
-                        <Ionicons
-                          color={colors.primary}
-                          name="lock-closed-outline"
-                          size={13}
-                        />
-                        <Text style={styles.formBadgeText}>Secure Sign In</Text>
-                      </View>
-                      <Text style={styles.formTitle}>Welcome back</Text>
-                      <Text style={styles.formCopy}>
-                        Use your demo role credentials to enter the redesigned OMA
-                        workspace.
-                      </Text>
+              <View style={styles.formSurface}>
+                <View style={styles.formHeaderRow}>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.formBadge}>
+                      <Ionicons
+                        color={colors.accentGold}
+                        name="lock-closed-outline"
+                        size={13}
+                      />
+                      <Text style={styles.formBadgeText}>Secure sign in</Text>
                     </View>
-
-                    <Image
-                      resizeMode="contain"
-                      source={require("../../assets/images/logo.png")}
-                      style={styles.formLogo}
-                    />
+                    <Text style={styles.formTitle}>Welcome to OMA</Text>
+                    <Text style={styles.formCopy}>
+                      Enter the order workspace for approvals, dispatch, clients,
+                      and live order creation.
+                    </Text>
                   </View>
 
-                  <View style={styles.demoCard}>
-                    <Text style={styles.demoCardLabel}>Demo Access</Text>
+                </View>
 
-                    <View style={styles.demoRow}>
-                      <View style={styles.demoRoleWrap}>
-                        <View style={styles.demoIconWrap}>
-                          <Ionicons
-                            color={colors.accentBlue}
-                            name="briefcase-outline"
-                            size={16}
-                          />
-                        </View>
-                        <View>
-                          <Text style={styles.demoRoleTitle}>Manager</Text>
-                          <Text style={styles.demoRoleHint}>
-                            Approval and control workspace
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.demoValueChip}>
-                        <Text style={styles.demoValueText}>1 / 1</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.demoRow}>
-                      <View style={styles.demoRoleWrap}>
-                        <View style={styles.demoIconWrap}>
-                          <Ionicons
-                            color={colors.accentGreen}
-                            name="person-outline"
-                            size={16}
-                          />
-                        </View>
-                        <View>
-                          <Text style={styles.demoRoleTitle}>User</Text>
-                          <Text style={styles.demoRoleHint}>
-                            Order creation and daily execution
-                          </Text>
-                        </View>
-                      </View>
-                      <View style={styles.demoValueChip}>
-                        <Text style={styles.demoValueText}>0 / 0</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={styles.fieldGroup}>
-                    <View style={styles.fieldBlock}>
-                      <Text style={styles.fieldLabel}>Username</Text>
-                      <View
-                        style={[
-                          styles.inputShell,
-                          focusedField === "username" && styles.inputShellFocused,
-                        ]}
-                      >
-                        <View style={styles.inputIconWrap}>
-                          <Ionicons
-                            color={
-                              focusedField === "username"
-                                ? colors.primary
-                                : colors.textSecondary
-                            }
-                            name="person-outline"
-                            size={18}
-                          />
-                        </View>
-                        <TextInput
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          keyboardType="default"
-                          onBlur={() =>
-                            setFocusedField((current) =>
-                              current === "username" ? null : current
-                            )
-                          }
-                          onChangeText={setUsername}
-                          onFocus={() => setFocusedField("username")}
-                          placeholder="Enter username"
-                          placeholderTextColor={colors.textPlaceholder}
-                          returnKeyType="next"
-                          style={styles.input}
-                          textContentType="username"
-                          value={username}
-                        />
-                      </View>
-                    </View>
-
-                    <View style={styles.fieldBlock}>
-                      <Text style={styles.fieldLabel}>Password</Text>
-                      <View
-                        style={[
-                          styles.inputShell,
-                          focusedField === "password" && styles.inputShellFocused,
-                        ]}
-                      >
-                        <View style={styles.inputIconWrap}>
-                          <Ionicons
-                            color={
-                              focusedField === "password"
-                                ? colors.primary
-                                : colors.textSecondary
-                            }
-                            name="lock-closed-outline"
-                            size={18}
-                          />
-                        </View>
-                        <TextInput
-                          autoCapitalize="none"
-                          autoCorrect={false}
-                          onBlur={() => {
-                            setFocusedField((current) =>
-                              current === "password" ? null : current
-                            );
-                            setPassword((current) => current.trim());
-                          }}
-                          onChangeText={setPassword}
-                          onFocus={() => setFocusedField("password")}
-                          onSubmitEditing={handleLogin}
-                          placeholder="Enter password"
-                          placeholderTextColor={colors.textPlaceholder}
-                          returnKeyType="go"
-                          secureTextEntry={!showPassword}
-                          style={styles.input}
-                          textContentType="password"
-                          value={password}
-                        />
-                        <TouchableOpacity
-                          activeOpacity={0.7}
-                          onPress={togglePasswordVisibility}
-                          style={styles.passwordAction}
-                        >
-                          <Ionicons
-                            color={
-                              showPassword ? colors.primary : colors.textSecondary
-                            }
-                            name={showPassword ? "eye-outline" : "eye-off-outline"}
-                            size={20}
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </View>
-
-                  <View style={styles.rememberRow}>
-                    <TouchableOpacity
-                      activeOpacity={0.75}
-                      onPress={toggleRememberMe}
-                      style={styles.rememberTouch}
-                    >
-                      <View style={styles.rememberIconWrap}>
-                        <Ionicons
-                          color={
-                            rememberMe ? colors.primary : colors.textSecondary
-                          }
-                          name={
-                            rememberMe ? "checkbox-outline" : "square-outline"
-                          }
-                          size={22}
-                        />
-                      </View>
-                      <Text style={styles.rememberText}>Remember username</Text>
-                    </TouchableOpacity>
-
-                    <Text style={styles.rememberHint}>Username / Password</Text>
-                  </View>
+                <View style={styles.demoCard}>
+                  <Text style={styles.demoCardLabel}>Quick demo access</Text>
 
                   <TouchableOpacity
-                    activeOpacity={0.88}
-                    disabled={isLoading}
-                    onPress={handleLogin}
+                    accessibilityLabel="Fill manager demo credentials"
+                    accessibilityRole="button"
+                    activeOpacity={0.86}
+                    onPress={() => fillDemoCredentials("manager")}
                     style={[
-                      styles.loginButton,
-                      isLoading && styles.loginButtonDisabled,
+                      styles.demoRow,
+                      selectedDemoRole === "manager" && styles.demoRowSelected,
                     ]}
                   >
-                    <View style={styles.loginButtonContent}>
-                      {isLoading ? (
-                        <ActivityIndicator color="#ffffff" size="small" />
-                      ) : (
+                    <View style={styles.demoRoleWrap}>
+                      <View style={styles.demoIconWrap}>
                         <Ionicons
-                          color="#ffffff"
-                          name="arrow-forward-outline"
-                          size={18}
+                          color={colors.accentGold}
+                          name="briefcase-outline"
+                          size={16}
                         />
-                      )}
-                      <Text style={styles.loginButtonText}>
-                        {isLoading ? "Logging in..." : "Enter OMA"}
-                      </Text>
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.demoRoleTitle}>Manager</Text>
+                        <Text numberOfLines={1} style={styles.demoRoleHint}>
+                          Approvals, analytics, and order control
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.demoValueChip}>
+                      <Text style={styles.demoValueText}>1 / 1</Text>
                     </View>
                   </TouchableOpacity>
 
-                  <View style={styles.formFooter}>
-                    <Text style={styles.footerPrimary}>
-                      Seeds Solutions order workspace
+                  <TouchableOpacity
+                    accessibilityLabel="Fill user demo credentials"
+                    accessibilityRole="button"
+                    activeOpacity={0.86}
+                    onPress={() => fillDemoCredentials("user")}
+                    style={[
+                      styles.demoRow,
+                      selectedDemoRole === "user" && styles.demoRowSelected,
+                    ]}
+                  >
+                    <View style={styles.demoRoleWrap}>
+                      <View style={styles.demoIconWrap}>
+                        <Ionicons
+                          color={colors.accentGreen}
+                          name="person-outline"
+                          size={16}
+                        />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.demoRoleTitle}>User</Text>
+                        <Text numberOfLines={1} style={styles.demoRoleHint}>
+                          New orders and daily execution
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.demoValueChip}>
+                      <Text style={styles.demoValueText}>0 / 0</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <View style={styles.fieldBlock}>
+                    <Text style={styles.fieldLabel}>Username</Text>
+                    <View
+                      style={[
+                        styles.inputShell,
+                        focusedField === "username" && styles.inputShellFocused,
+                      ]}
+                    >
+                      <View style={styles.inputIconWrap}>
+                        <Ionicons
+                          color={
+                            focusedField === "username"
+                              ? colors.accentGold
+                              : colors.textSecondary
+                          }
+                          name="person-outline"
+                          size={18}
+                        />
+                      </View>
+                      <TextInput
+                        accessibilityHint="Use 1 for manager or 0 for user."
+                        accessibilityLabel="Username"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="default"
+                        onBlur={() =>
+                          setFocusedField((current) =>
+                            current === "username" ? null : current
+                          )
+                        }
+                        onChangeText={handleUsernameChange}
+                        onFocus={() => setFocusedField("username")}
+                        placeholder="0 or 1"
+                        placeholderTextColor={colors.textPlaceholder}
+                        returnKeyType="next"
+                        style={styles.input}
+                        textContentType="username"
+                        value={username}
+                      />
+                    </View>
+                    <Text style={styles.fieldHelp}>
+                      Manager uses 1. User uses 0.
                     </Text>
-                    <Text style={styles.footerSecondary}>
-                      Optimized for phone, tablet, and web
+                  </View>
+
+                  <View style={styles.fieldBlock}>
+                    <Text style={styles.fieldLabel}>Password</Text>
+                    <View
+                      style={[
+                        styles.inputShell,
+                        focusedField === "password" && styles.inputShellFocused,
+                      ]}
+                    >
+                      <View style={styles.inputIconWrap}>
+                        <Ionicons
+                          color={
+                            focusedField === "password"
+                              ? colors.accentGold
+                              : colors.textSecondary
+                          }
+                          name="lock-closed-outline"
+                          size={18}
+                        />
+                      </View>
+                      <TextInput
+                        accessibilityHint="Use the matching password for the selected demo role."
+                        accessibilityLabel="Password"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        onBlur={() => {
+                          setFocusedField((current) =>
+                            current === "password" ? null : current
+                          );
+                          setPassword((current) => current.trim());
+                        }}
+                        onChangeText={handlePasswordChange}
+                        onFocus={() => setFocusedField("password")}
+                        onSubmitEditing={handleLogin}
+                        placeholder="0 or 1"
+                        placeholderTextColor={colors.textPlaceholder}
+                        returnKeyType="go"
+                        secureTextEntry={!showPassword}
+                        style={styles.input}
+                        textContentType="password"
+                        value={password}
+                      />
+                      <TouchableOpacity
+                        accessibilityLabel={
+                          showPassword ? "Hide password" : "Show password"
+                        }
+                        accessibilityRole="button"
+                        activeOpacity={0.7}
+                        hitSlop={{ bottom: 6, left: 6, right: 6, top: 6 }}
+                        onPress={togglePasswordVisibility}
+                        style={styles.passwordAction}
+                      >
+                        <Ionicons
+                          color={
+                            showPassword ? colors.accentGold : colors.textSecondary
+                          }
+                          name={showPassword ? "eye-outline" : "eye-off-outline"}
+                          size={20}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.fieldHelp}>
+                      Password matches the role: 1 for manager, 0 for user.
                     </Text>
                   </View>
                 </View>
 
-                <Text style={styles.versionText}>Version {APP_VERSION}</Text>
-              </Animated.View>
+                {formError ? (
+                  <View accessibilityRole="alert" style={styles.formError}>
+                    <Ionicons
+                      color={colors.accentRed}
+                      name="alert-circle-outline"
+                      size={18}
+                    />
+                    <Text style={styles.formErrorText}>{formError}</Text>
+                  </View>
+                ) : null}
+
+                <View style={styles.rememberRow}>
+                  <TouchableOpacity
+                    accessibilityLabel="Remember username"
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: rememberMe }}
+                    activeOpacity={0.75}
+                    onPress={toggleRememberMe}
+                    style={styles.rememberTouch}
+                  >
+                    <View style={styles.rememberIconWrap}>
+                      <Ionicons
+                        color={rememberMe ? colors.accentGold : colors.textSecondary}
+                        name={rememberMe ? "checkbox-outline" : "square-outline"}
+                        size={22}
+                      />
+                    </View>
+                    <Text style={styles.rememberText}>Remember username</Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.rememberHint}>Demo credentials</Text>
+                </View>
+
+                <TouchableOpacity
+                  accessibilityLabel="Enter OMA"
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    busy: isLoading,
+                    disabled: !isFormReady || isLoading,
+                  }}
+                  activeOpacity={0.88}
+                  disabled={!isFormReady || isLoading}
+                  onPress={handleLogin}
+                  style={[
+                    styles.loginButton,
+                    (!isFormReady || isLoading) && styles.loginButtonDisabled,
+                  ]}
+                >
+                  <View style={styles.loginButtonContent}>
+                    {isLoading ? (
+                      <ActivityIndicator color="#111111" size="small" />
+                    ) : (
+                      <Ionicons
+                        color="#111111"
+                        name="arrow-forward-outline"
+                        size={18}
+                      />
+                    )}
+                    <Text style={styles.loginButtonText}>
+                      {isLoading ? "Logging in..." : "Enter OMA"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <View style={styles.formFooter}>
+                  <Text style={styles.footerPrimary}>
+                    Seeds Solutions order workspace
+                  </Text>
+                  <Text style={styles.footerSecondary}>Version {APP_VERSION}</Text>
+                </View>
+              </View>
             </View>
           </KeyboardAvoidingView>
         </ScrollView>
