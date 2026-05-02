@@ -1,5 +1,6 @@
-import React, { useCallback, useContext, useMemo, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
+  Image,
   Modal,
   RefreshControl,
   ScrollView,
@@ -74,32 +75,54 @@ type MetricTile = {
   tone: ToneKey;
 };
 
+type OwnerAction = {
+  id: string;
+  icon: string;
+  label: string;
+  headline: string;
+  detail: string;
+  value: string;
+  tone: ToneKey;
+  onPress: () => void;
+};
+
+type TargetProgressItem = {
+  label: string;
+  actual: number;
+  target: number;
+  variance: number;
+  tone: ToneKey;
+};
+
+type SheetHealthItem = {
+  label: string;
+  range: string;
+  count: number;
+  tone: ToneKey;
+};
+
 const paletteMap: Record<
   ViewMode,
   {
     accent: string;
     fillStart: string;
     fillEnd: string;
-    glow: string;
   }
 > = {
   overview: {
-    accent: "#0066FF",
-    fillStart: "rgba(0,102,255,0.28)",
-    fillEnd: "rgba(0,102,255,0)",
-    glow: "rgba(0,102,255,0.22)",
+    accent: "#0A84FF",
+    fillStart: "rgba(10,132,255,0.24)",
+    fillEnd: "rgba(10,132,255,0)",
   },
   revenue: {
     accent: "#16a34a",
     fillStart: "rgba(34,197,94,0.24)",
     fillEnd: "rgba(34,197,94,0)",
-    glow: "rgba(34,197,94,0.20)",
   },
   execution: {
     accent: "#fb923c",
     fillStart: "rgba(251,146,60,0.26)",
     fillEnd: "rgba(251,146,60,0)",
-    glow: "rgba(251,146,60,0.22)",
   },
 };
 
@@ -117,8 +140,31 @@ function AnalyticsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const [draftView, setDraftView] = useState<ViewMode>("overview");
+  const [draftTimeframe, setDraftTimeframe] = useState<Timeframe>("QTD");
 
   const isWideLayout = width >= 420;
+  const isDesktop = width >= 900;
+
+  useEffect(() => {
+    if (controlsOpen) {
+      setDraftView(view);
+      setDraftTimeframe(timeframe);
+    }
+  }, [controlsOpen, timeframe, view]);
+
+  const openControls = useCallback(() => {
+    setDraftView(view);
+    setDraftTimeframe(timeframe);
+    setControlsOpen(true);
+  }, [timeframe, view]);
+
+  const applyControls = useCallback(() => {
+    setView(draftView);
+    setTimeframe(draftTimeframe);
+    setControlsOpen(false);
+  }, [draftTimeframe, draftView]);
 
   const loadLegacyAnalytics = useCallback(
     async (forceRefresh = false) => {
@@ -229,9 +275,9 @@ function AnalyticsScreen() {
     () =>
       ({
         blue: {
-          bg: isDark ? "rgba(0,102,255,0.18)" : "rgba(0,102,255,0.10)",
-          text: colors.accentBlue,
-          dot: colors.accentBlue,
+          bg: isDark ? "rgba(234,179,8,0.16)" : "rgba(234,179,8,0.12)",
+          text: colors.accentGold,
+          dot: colors.accentGold,
         },
         green: {
           bg: isDark ? "rgba(74,222,128,0.18)" : "rgba(34,197,94,0.12)",
@@ -384,48 +430,6 @@ function AnalyticsScreen() {
     [formatComparison, model]
   );
 
-  const targetMetrics = useMemo<MetricTile[]>(
-    () =>
-      model.targetSummary
-        ? [
-            {
-              label: "Bookings vs target",
-              value: formatCurrencyLabel(model.summary.totalValue),
-              detail: `Target ${formatCurrencyLabel(
-                model.targetSummary.bookingTarget
-              )} • variance ${formatCurrencyLabel(
-                model.targetSummary.bookingVariance
-              )}`,
-              tone:
-                model.targetSummary.bookingVariance >= 0 ? "green" : "orange",
-            },
-            {
-              label: "Dispatch vs target",
-              value: formatCurrencyLabel(model.summary.dispatchedValue),
-              detail: `Target ${formatCurrencyLabel(
-                model.targetSummary.dispatchTarget
-              )} • variance ${formatCurrencyLabel(
-                model.targetSummary.dispatchVariance
-              )}`,
-              tone:
-                model.targetSummary.dispatchVariance >= 0 ? "green" : "blue",
-            },
-            {
-              label: "Collections vs target",
-              value: formatCurrencyLabel(model.periodFinancial.collectedValue),
-              detail: `Target ${formatCurrencyLabel(
-                model.targetSummary.collectionTarget
-              )} • variance ${formatCurrencyLabel(
-                model.targetSummary.collectionVariance
-              )}`,
-              tone:
-                model.targetSummary.collectionVariance >= 0 ? "green" : "red",
-            },
-          ]
-        : [],
-    [model]
-  );
-
   const revenueMetrics = useMemo<MetricTile[]>(
     () => [
       {
@@ -492,36 +496,162 @@ function AnalyticsScreen() {
     [model]
   );
 
+  const primaryAttention = model.attentionItems[0] || null;
+  const sourceLabel = payload
+    ? "Derived command tabs"
+    : legacyPayload
+    ? "Raw sheet fallback"
+    : "Waiting for sheets";
+
+  const ownerActions = useMemo<OwnerAction[]>(
+    () => [
+      {
+        id: "attention",
+        icon: "alert-circle-outline",
+        label: "Clear first",
+        headline: primaryAttention
+          ? primaryAttention.title
+          : "No critical queue item",
+        detail: primaryAttention
+          ? `${primaryAttention.meta} • ${primaryAttention.detail}`
+          : "Orders, dispatch, and collections are inside expected thresholds.",
+        value: primaryAttention
+          ? formatCurrencyLabel(primaryAttention.amount)
+          : "0 open",
+        tone: primaryAttention?.tone || "green",
+        onPress: () => setSheetOpen(true),
+      },
+      {
+        id: "collections",
+        icon: "cash-outline",
+        label: "Protect cash",
+        headline:
+          model.financial.ninetyExposure > 0
+            ? "90+ receivables need owner follow-up"
+            : "No 90+ receivable exposure",
+        detail: model.financial.topCustomers[0]
+          ? `${model.financial.topCustomers[0].name} leads exposure at ${formatCurrencyLabel(
+              model.financial.topCustomers[0].exposure
+            )}`
+          : "Customer account snapshot has no open exposure.",
+        value: formatCurrencyLabel(model.financial.ninetyExposure),
+        tone: model.financial.ninetyExposure > 0 ? "red" : "green",
+        onPress: () => setView("revenue"),
+      },
+      {
+        id: "dispatch",
+        icon: "flash-outline",
+        label: "Move ops",
+        headline:
+          model.summary.agedDispatchQueue > 0
+            ? "Dispatch queue is aging"
+            : "Dispatch queue is under control",
+        detail: `${model.summary.pendingDispatches} ready orders • ${formatCurrencyLabel(
+          model.summary.pendingDispatchValue
+        )} staged`,
+        value: `${model.summary.agedDispatchQueue} aged`,
+        tone: model.summary.agedDispatchQueue > 0 ? "orange" : "blue",
+        onPress: () => setView("execution"),
+      },
+    ],
+    [model, primaryAttention]
+  );
+
+  const targetProgress = useMemo<TargetProgressItem[]>(
+    () =>
+      model.targetSummary
+        ? [
+            {
+              label: "Bookings",
+              actual: model.summary.totalValue,
+              target: model.targetSummary.bookingTarget,
+              variance: model.targetSummary.bookingVariance,
+              tone:
+                model.targetSummary.bookingVariance >= 0 ? "green" : "orange",
+            },
+            {
+              label: "Dispatch",
+              actual: model.summary.dispatchedValue,
+              target: model.targetSummary.dispatchTarget,
+              variance: model.targetSummary.dispatchVariance,
+              tone: model.targetSummary.dispatchVariance >= 0 ? "green" : "blue",
+            },
+            {
+              label: "Collections",
+              actual: model.periodFinancial.collectedValue,
+              target: model.targetSummary.collectionTarget,
+              variance: model.targetSummary.collectionVariance,
+              tone: model.targetSummary.collectionVariance >= 0 ? "green" : "red",
+            },
+          ]
+        : [],
+    [model]
+  );
+
+  const sheetHealth = useMemo<SheetHealthItem[]>(
+    () => [
+      {
+        label: "Orders",
+        range: "Order_Header_Fact",
+        count: payload?.pipeline.length ?? model.currentOrders.length,
+        tone: model.summary.orderCount > 0 ? "green" : "orange",
+      },
+      {
+        label: "Customers",
+        range: "Customer_Account_Snapshot",
+        count: payload?.customers.length ?? model.financial.topCustomers.length,
+        tone: model.financial.totalExposure > 0 ? "green" : "blue",
+      },
+      {
+        label: "Queue",
+        range: "Attention_Queue_Snapshot",
+        count: payload?.attentionQueue.length ?? model.attentionItems.length,
+        tone: model.attentionItems.length > 0 ? "orange" : "green",
+      },
+      {
+        label: "Targets",
+        range: "Targets",
+        count: payload?.targets.length ?? (model.targetSummary ? 1 : 0),
+        tone: model.targetSummary ? "green" : "orange",
+      },
+    ],
+    [model, payload]
+  );
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
         container: {
           flex: 1,
-          backgroundColor: colors.background,
+          backgroundColor: isDark ? "#111111" : colors.background,
         },
         topGlow: {
           position: "absolute",
           top: 0,
           left: 0,
           right: 0,
-          height: 280,
-          backgroundColor: isDark ? "rgba(0,102,255,0.16)" : "rgba(0,102,255,0.08)",
+          height: 180,
+          backgroundColor: isDark
+            ? "rgba(234,179,8,0.025)"
+            : "rgba(234,179,8,0.025)",
         },
         scrollContent: {
-          paddingTop: insets.top + 12,
+          paddingTop: isDesktop
+            ? Math.max(insets.top, 0) + 32
+            : Math.max(insets.top, 0) + 56,
           paddingBottom: FLOATING_NAV_SPACE + Math.max(insets.bottom, 12) + 14,
         },
         shell: {
           width: "100%",
-          maxWidth: 560,
+          maxWidth: isDesktop ? 1120 : 414,
           alignSelf: "center",
-          paddingHorizontal: 16,
+          paddingHorizontal: isDesktop ? 32 : 24,
         },
         headerCard: {
-          backgroundColor: colors.card,
-          borderRadius: 28,
+          backgroundColor: isDark ? "#1C1C1E" : colors.card,
+          borderRadius: 26,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: isDark ? "rgba(255,255,255,0.05)" : colors.border,
           padding: 18,
           marginBottom: 14,
           shadowColor: colors.shadow,
@@ -558,26 +688,29 @@ function AnalyticsScreen() {
         },
         avatarText: {
           color: colors.primary,
-          fontFamily: omaTypography.extrabold,
-          fontSize: 18,
+          fontFamily: omaTypography.bold,
+          fontSize: 16,
         },
         eyebrow: {
           color: colors.textSecondary,
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
           textTransform: "uppercase",
-          letterSpacing: 0.7,
+          letterSpacing: 0.96,
+          lineHeight: 18,
           marginBottom: 2,
         },
         profileName: {
           color: colors.text,
-          fontFamily: omaTypography.bold,
-          fontSize: 19,
+          fontFamily: omaTypography.semibold,
+          fontSize: 17,
+          letterSpacing: -0.3,
         },
         profileMeta: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
+          lineHeight: 17,
           marginTop: 4,
         },
         headerActions: {
@@ -622,9 +755,10 @@ function AnalyticsScreen() {
         },
         title: {
           color: colors.text,
-          fontFamily: omaTypography.extrabold,
-          fontSize: 24,
-          letterSpacing: -1,
+          fontFamily: omaTypography.bold,
+          fontSize: 22,
+          letterSpacing: -0.6,
+          lineHeight: 27,
         },
         subtitle: {
           color: colors.textSecondary,
@@ -634,16 +768,172 @@ function AnalyticsScreen() {
         },
         headerMetaInline: {
           color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 17,
+        },
+        commandHeader: {
+          backgroundColor: "transparent",
+          borderRadius: 0,
+          borderWidth: 0,
+          borderColor: "transparent",
+          padding: 0,
+          marginBottom: 18,
+          shadowColor: "#000000",
+          shadowOffset: { width: 0, height: 16 },
+          shadowOpacity: 0,
+          shadowRadius: 0,
+          elevation: 0,
+        },
+        commandTopRow: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 4,
+        },
+        ownerIdentityRow: {
+          flex: 1,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          minHeight: 44,
+        },
+        ownerAvatar: {
+          width: 38,
+          height: 38,
+          borderRadius: 19,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? "#242426" : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(255,255,255,0.07)" : colors.border,
+        },
+        ownerAvatarImage: {
+          width: 38,
+          height: 38,
+          borderRadius: 19,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.08)",
+        },
+        ownerAvatarText: {
+          color: "#EAB308",
+          fontFamily: omaTypography.bold,
+          fontSize: 14,
+        },
+        ownerRoleText: {
+          color: "#a1a1aa",
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          marginBottom: 1,
+        },
+        ownerRoleRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+        },
+        ownerNameText: {
+          color: "#ffffff",
           fontFamily: omaTypography.semibold,
-          fontSize: 11,
+          fontSize: 17,
+          letterSpacing: -0.3,
+        },
+        analyticsTitleRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 14,
+          marginBottom: 0,
+        },
+        commandEyebrow: {
+          color: "#EAB308",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
+          letterSpacing: 0.96,
+          textTransform: "uppercase",
+          lineHeight: 18,
+          marginBottom: 2,
+        },
+        commandTitle: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 22,
+          letterSpacing: -0.6,
+          lineHeight: 27,
+        },
+        commandSubtitle: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 19,
+          marginTop: 8,
+          marginBottom: 12,
+        },
+        commandIconButton: {
+          minWidth: 44,
+          minHeight: 44,
+          borderRadius: 22,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? "#242426" : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(255,255,255,0.08)" : colors.border,
+        },
+        utilityPill: {
+          minHeight: 44,
+          borderRadius: 999,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "row",
+          gap: 18,
+          backgroundColor: colors.appChromeMuted,
+        },
+        utilityPillButton: {
+          width: 28,
+          height: 28,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        titleActionCircle: {
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? "#242426" : colors.cardMuted,
+        },
+        commandMetaRow: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 2,
+        },
+        commandMetaPill: {
+          minHeight: 34,
+          borderRadius: 999,
+          paddingHorizontal: 11,
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "row",
+          gap: 6,
+          backgroundColor: isDark ? "#242426" : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(255,255,255,0.07)" : colors.border,
+        },
+        commandMetaText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
         },
         controlCard: {
-          backgroundColor: colors.card,
-          borderRadius: 28,
+          backgroundColor: isDark ? "#1C1C1E" : colors.card,
+          borderRadius: 24,
           borderWidth: 1,
-          borderColor: colors.border,
-          padding: 16,
-          marginBottom: 14,
+          borderColor: isDark ? "rgba(255,255,255,0.05)" : colors.border,
+          padding: 10,
+          marginBottom: 12,
           shadowColor: colors.shadow,
           shadowOffset: { width: 0, height: 16 },
           shadowOpacity: 1,
@@ -651,30 +941,31 @@ function AnalyticsScreen() {
           elevation: 9,
         },
         controlGroup: {
-          marginBottom: 12,
+          marginBottom: 8,
         },
         controlGroupLast: {
           marginBottom: 0,
         },
         controlLabel: {
           color: colors.textSecondary,
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
-          letterSpacing: 0.7,
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
+          letterSpacing: 0.96,
+          lineHeight: 18,
           textTransform: "uppercase",
           marginBottom: 8,
         },
         segmentedRow: {
           flexDirection: "row",
-          gap: 8,
+          gap: 6,
           backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
-          borderRadius: 20,
-          padding: 4,
+          borderRadius: 18,
+          padding: 3,
         },
         segmentButton: {
           flex: 1,
-          minHeight: 42,
-          borderRadius: 16,
+          minHeight: 38,
+          borderRadius: 15,
           justifyContent: "center",
           alignItems: "center",
           paddingHorizontal: 10,
@@ -693,11 +984,13 @@ function AnalyticsScreen() {
           color: isDark ? colors.background : "#ffffff",
         },
         heroCard: {
-          backgroundColor: isDark ? "#09111f" : "#0f172a",
-          borderRadius: 30,
+          backgroundColor: colors.appChromeElevated,
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor: colors.border,
           paddingTop: 20,
-          paddingHorizontal: 20,
-          paddingBottom: 14,
+          paddingHorizontal: 18,
+          paddingBottom: 12,
           marginBottom: 14,
           overflow: "hidden",
           shadowColor: "#000000",
@@ -705,14 +998,6 @@ function AnalyticsScreen() {
           shadowOpacity: isDark ? 0.22 : 0.18,
           shadowRadius: 30,
           elevation: 10,
-        },
-        heroGlow: {
-          position: "absolute",
-          top: -34,
-          right: -18,
-          width: 180,
-          height: 180,
-          borderRadius: 90,
         },
         heroTop: {
           flexDirection: "row",
@@ -722,40 +1007,42 @@ function AnalyticsScreen() {
           marginBottom: 10,
         },
         heroLabel: {
-          color: "rgba(255,255,255,0.72)",
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
-          letterSpacing: 0.9,
+          color: "#71717a",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
+          letterSpacing: 0.96,
+          lineHeight: 18,
           textTransform: "uppercase",
         },
         heroChip: {
           paddingHorizontal: 10,
-          paddingVertical: 7,
+          paddingVertical: 6,
           borderRadius: 999,
-          backgroundColor: "rgba(255,255,255,0.10)",
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.12)",
+          borderColor: colors.border,
         },
         heroChipText: {
-          color: "#ffffff",
+          color: colors.text,
           fontFamily: omaTypography.semibold,
-          fontSize: 10,
-          letterSpacing: 0.4,
+          fontSize: 12,
         },
         heroValue: {
           color: "#ffffff",
-          fontFamily: omaTypography.extrabold,
-          fontSize: 38,
-          letterSpacing: -1.6,
+          fontFamily: omaTypography.bold,
+          fontSize: 22,
+          letterSpacing: -0.6,
+          lineHeight: 27,
           marginBottom: 6,
         },
         heroDelta: {
           fontFamily: omaTypography.semibold,
-          fontSize: 12,
+          fontSize: 13,
+          lineHeight: 17,
           marginBottom: 10,
         },
         heroSubtitle: {
-          color: "rgba(255,255,255,0.74)",
+          color: colors.textSecondary,
           fontFamily: omaTypography.medium,
           fontSize: 13,
           lineHeight: 19,
@@ -764,39 +1051,50 @@ function AnalyticsScreen() {
         },
         heroStatRow: {
           flexDirection: "row",
+          flexWrap: "wrap",
           gap: 10,
           marginBottom: 14,
         },
         heroStatCard: {
-          flex: 1,
-          borderRadius: 18,
-          padding: 12,
-          backgroundColor: "rgba(255,255,255,0.08)",
+          width: isWideLayout ? "31.7%" : "48.3%",
+          minHeight: 62,
+          borderRadius: 17,
+          paddingHorizontal: 12,
+          paddingVertical: 11,
+          justifyContent: "center",
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
           borderWidth: 1,
-          borderColor: "rgba(255,255,255,0.10)",
+          borderColor: colors.border,
+        },
+        heroStatCardWide: {
+          width: isWideLayout ? "31.7%" : "100%",
         },
         heroStatLabel: {
-          color: "rgba(255,255,255,0.56)",
-          fontFamily: omaTypography.medium,
-          fontSize: 10,
+          color: "#71717a",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
           textTransform: "uppercase",
-          marginBottom: 4,
+          letterSpacing: 0.96,
+          lineHeight: 18,
+          marginBottom: 5,
         },
         heroStatValue: {
           color: "#ffffff",
-          fontFamily: omaTypography.semibold,
-          fontSize: 14,
+          fontFamily: omaTypography.bold,
+          fontSize: 15,
+          letterSpacing: -0.2,
+          lineHeight: 24,
         },
         sparklineShell: {
           height: 88,
-          marginHorizontal: -20,
-          marginBottom: -14,
+          marginHorizontal: -18,
+          marginBottom: -12,
         },
         sectionCard: {
-          backgroundColor: colors.card,
-          borderRadius: 26,
+          backgroundColor: isDark ? "#1C1C1E" : colors.card,
+          borderRadius: 24,
           borderWidth: 1,
-          borderColor: colors.border,
+          borderColor: isDark ? "rgba(255,255,255,0.05)" : colors.border,
           padding: 18,
           marginBottom: 14,
           shadowColor: colors.shadow,
@@ -814,14 +1112,263 @@ function AnalyticsScreen() {
         },
         sectionTitle: {
           color: colors.text,
-          fontFamily: omaTypography.semibold,
-          fontSize: 15,
+          fontFamily: omaTypography.bold,
+          fontSize: 17,
+          letterSpacing: -0.4,
+          lineHeight: 24,
         },
         sectionHint: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
+          lineHeight: 17,
           textAlign: "right",
+        },
+        actionDeck: {
+          gap: 10,
+        },
+        ownerActionCard: {
+          borderRadius: 22,
+          padding: 16,
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(255,255,255,0.06)" : colors.border,
+          backgroundColor: isDark ? "#242426" : colors.cardMuted,
+          minHeight: 116,
+        },
+        ownerActionTop: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+          marginBottom: 12,
+        },
+        ownerActionIdentity: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          flex: 1,
+        },
+        ownerActionIcon: {
+          width: 34,
+          height: 34,
+          borderRadius: 17,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        ownerActionLabel: {
+          color: "#71717a",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
+          letterSpacing: 0.96,
+          lineHeight: 18,
+          textTransform: "uppercase",
+        },
+        ownerActionValue: {
+          color: colors.text,
+          fontFamily: omaTypography.bold,
+          fontSize: 15,
+          letterSpacing: -0.2,
+          lineHeight: 24,
+          textAlign: "right",
+        },
+        ownerActionHeadline: {
+          color: colors.text,
+          fontFamily: omaTypography.regular,
+          fontSize: 17,
+          letterSpacing: -0.4,
+          lineHeight: 21,
+          marginBottom: 5,
+        },
+        ownerActionDetail: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 17,
+        },
+        priorityCard: {
+          borderRadius: 22,
+          padding: 16,
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(255,255,255,0.06)" : colors.border,
+          backgroundColor: isDark ? "#1C1C1E" : colors.card,
+          marginBottom: 14,
+          shadowColor: "#000000",
+          shadowOffset: { width: 0, height: 12 },
+          shadowOpacity: isDark ? 0.18 : 0.08,
+          shadowRadius: 20,
+          elevation: 7,
+        },
+        priorityTop: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 12,
+        },
+        priorityIdentity: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          flex: 1,
+        },
+        priorityIcon: {
+          width: 34,
+          height: 34,
+          borderRadius: 17,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        priorityLabel: {
+          color: "#71717a",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
+          letterSpacing: 0.96,
+          lineHeight: 18,
+          textTransform: "uppercase",
+        },
+        priorityCount: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+          lineHeight: 17,
+        },
+        priorityHeadline: {
+          color: colors.text,
+          fontFamily: omaTypography.regular,
+          fontSize: 17,
+          letterSpacing: -0.4,
+          lineHeight: 21,
+          marginBottom: 5,
+        },
+        priorityDetail: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 17,
+        },
+        priorityFooter: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginTop: 14,
+          paddingTop: 12,
+          borderTopWidth: 1,
+          borderTopColor: isDark ? "rgba(255,255,255,0.06)" : colors.border,
+        },
+        priorityFooterText: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+        },
+        shortcutRow: {
+          flexDirection: "row",
+          gap: 10,
+          marginBottom: 14,
+        },
+        shortcutButton: {
+          flex: 1,
+          minHeight: 48,
+          borderRadius: 17,
+          paddingHorizontal: 12,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? "#1C1C1E" : colors.card,
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(255,255,255,0.06)" : colors.border,
+        },
+        shortcutText: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+          marginTop: 4,
+        },
+        targetRow: {
+          paddingVertical: 13,
+          borderTopWidth: 1,
+          borderTopColor: isDark ? "rgba(255,255,255,0.06)" : colors.border,
+        },
+        targetRowFirst: {
+          paddingTop: 0,
+          borderTopWidth: 0,
+        },
+        targetHeader: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+          marginBottom: 10,
+        },
+        targetName: {
+          color: colors.text,
+          fontFamily: omaTypography.regular,
+          fontSize: 17,
+          letterSpacing: -0.4,
+          lineHeight: 21,
+        },
+        targetMeta: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 17,
+          marginTop: 3,
+        },
+        targetValue: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 15,
+          textAlign: "right",
+        },
+        targetVariance: {
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+          lineHeight: 17,
+          textAlign: "right",
+          marginTop: 3,
+        },
+        sheetHealthGrid: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 10,
+        },
+        sheetHealthCard: {
+          width: isWideLayout ? "48.8%" : "48.2%",
+          minHeight: 88,
+          borderRadius: 20,
+          padding: 13,
+          backgroundColor: isDark ? "#242426" : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: isDark ? "rgba(255,255,255,0.06)" : colors.border,
+        },
+        sheetHealthTop: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 9,
+        },
+        sheetHealthDot: {
+          width: 9,
+          height: 9,
+          borderRadius: 5,
+        },
+        sheetHealthLabel: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+        },
+        sheetHealthRange: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 17,
+        },
+        sheetHealthCount: {
+          color: colors.text,
+          fontFamily: omaTypography.bold,
+          fontSize: 15,
+          letterSpacing: -0.2,
+          lineHeight: 24,
+          marginTop: 7,
         },
         signalGrid: {
           flexDirection: "row",
@@ -845,24 +1392,26 @@ function AnalyticsScreen() {
           marginBottom: 12,
         },
         signalLabel: {
-          color: colors.textSecondary,
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
+          color: "#71717a",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
           textTransform: "uppercase",
-          letterSpacing: 0.5,
+          letterSpacing: 0.96,
+          lineHeight: 18,
           marginBottom: 6,
         },
         signalHeadline: {
           color: colors.text,
-          fontFamily: omaTypography.bold,
-          fontSize: 16,
-          lineHeight: 22,
+          fontFamily: omaTypography.regular,
+          fontSize: 17,
+          letterSpacing: -0.4,
+          lineHeight: 21,
           marginBottom: 6,
         },
         signalDetail: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
           lineHeight: 17,
         },
         metricGrid: {
@@ -887,24 +1436,26 @@ function AnalyticsScreen() {
           marginBottom: 10,
         },
         metricLabel: {
-          color: colors.textSecondary,
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
+          color: "#71717a",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
           textTransform: "uppercase",
-          letterSpacing: 0.5,
+          letterSpacing: 0.96,
+          lineHeight: 18,
           marginBottom: 6,
         },
         metricValue: {
           color: colors.text,
-          fontFamily: omaTypography.extrabold,
-          fontSize: 22,
-          letterSpacing: -0.7,
+          fontFamily: omaTypography.bold,
+          fontSize: 15,
+          letterSpacing: -0.2,
+          lineHeight: 24,
           marginBottom: 4,
         },
         metricDetail: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
           lineHeight: 17,
         },
         pipelineRow: {
@@ -920,12 +1471,15 @@ function AnalyticsScreen() {
         pipelineLabel: {
           color: colors.text,
           fontFamily: omaTypography.semibold,
-          fontSize: 14,
+          fontSize: 17,
+          letterSpacing: -0.4,
+          lineHeight: 24,
         },
         pipelineMeta: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
+          lineHeight: 17,
         },
         progressTrack: {
           height: 10,
@@ -958,26 +1512,28 @@ function AnalyticsScreen() {
         },
         listTitle: {
           color: colors.text,
-          fontFamily: omaTypography.semibold,
-          fontSize: 14,
-          lineHeight: 19,
+          fontFamily: omaTypography.regular,
+          fontSize: 17,
+          letterSpacing: -0.4,
+          lineHeight: 21,
           marginBottom: 4,
         },
         listMeta: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
+          lineHeight: 17,
         },
         listDetail: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
           lineHeight: 17,
         },
         listValue: {
           color: colors.text,
-          fontFamily: omaTypography.bold,
-          fontSize: 14,
+          fontFamily: omaTypography.semibold,
+          fontSize: 15,
         },
         pill: {
           paddingHorizontal: 10,
@@ -988,8 +1544,8 @@ function AnalyticsScreen() {
         },
         pillText: {
           fontFamily: omaTypography.semibold,
-          fontSize: 10,
-          letterSpacing: 0.4,
+          fontSize: 12,
+          letterSpacing: 0.96,
           textTransform: "uppercase",
         },
         agingTrack: {
@@ -1016,24 +1572,27 @@ function AnalyticsScreen() {
           backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
         },
         agingLabel: {
-          color: colors.textSecondary,
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
+          color: "#71717a",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
           textTransform: "uppercase",
-          letterSpacing: 0.5,
+          letterSpacing: 0.96,
+          lineHeight: 18,
           marginBottom: 6,
         },
         agingValue: {
           color: colors.text,
-          fontFamily: omaTypography.extrabold,
-          fontSize: 18,
-          letterSpacing: -0.6,
+          fontFamily: omaTypography.bold,
+          fontSize: 15,
+          letterSpacing: -0.2,
+          lineHeight: 24,
           marginBottom: 4,
         },
         agingMeta: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
+          lineHeight: 17,
         },
         rankBadge: {
           width: 28,
@@ -1064,13 +1623,13 @@ function AnalyticsScreen() {
         leaderboardName: {
           color: colors.text,
           fontFamily: omaTypography.semibold,
-          fontSize: 14,
+          fontSize: 15,
           marginBottom: 4,
         },
         leaderboardMeta: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
           lineHeight: 17,
         },
         leaderboardValueWrap: {
@@ -1080,13 +1639,14 @@ function AnalyticsScreen() {
         leaderboardValue: {
           color: colors.text,
           fontFamily: omaTypography.bold,
-          fontSize: 14,
+          fontSize: 15,
           marginBottom: 4,
         },
         leaderboardSecondary: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
+          lineHeight: 17,
           textAlign: "right",
         },
         activityRow: {
@@ -1113,23 +1673,23 @@ function AnalyticsScreen() {
         },
         activityTitle: {
           color: colors.text,
-          fontFamily: omaTypography.semibold,
-          fontSize: 14,
-          marginBottom: 4,
+          fontFamily: omaTypography.medium,
+          fontSize: 15,
+          letterSpacing: -0.3,
+          marginBottom: 2,
         },
         activityDetail: {
           color: colors.textSecondary,
           fontFamily: omaTypography.medium,
-          fontSize: 12,
+          fontSize: 13,
           lineHeight: 17,
           marginBottom: 4,
         },
         activityTime: {
-          color: colors.textSecondary,
-          fontFamily: omaTypography.semibold,
-          fontSize: 11,
-          textTransform: "uppercase",
-          letterSpacing: 0.4,
+          color: "#71717a",
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 17,
         },
         emptyCard: {
           alignItems: "center",
@@ -1144,7 +1704,7 @@ function AnalyticsScreen() {
         emptyTitle: {
           color: colors.text,
           fontFamily: omaTypography.bold,
-          fontSize: 19,
+          fontSize: 17,
           marginTop: 12,
           marginBottom: 8,
         },
@@ -1161,6 +1721,11 @@ function AnalyticsScreen() {
           justifyContent: "flex-end",
           padding: 16,
         },
+        filterBackdrop: {
+          justifyContent: "center",
+          paddingTop: insets.top + 24,
+          paddingBottom: Math.max(insets.bottom, 24),
+        },
         sheetCard: {
           backgroundColor: colors.card,
           borderRadius: 28,
@@ -1168,6 +1733,12 @@ function AnalyticsScreen() {
           borderColor: colors.border,
           maxHeight: "82%",
           overflow: "hidden",
+        },
+        filterSheetCard: {
+          alignSelf: "center",
+          width: "100%",
+          maxWidth: 390,
+          maxHeight: "72%",
         },
         sheetHeader: {
           flexDirection: "row",
@@ -1181,25 +1752,41 @@ function AnalyticsScreen() {
         sheetTitle: {
           color: colors.text,
           fontFamily: omaTypography.bold,
-          fontSize: 18,
+          fontSize: 17,
         },
         sheetAction: {
           color: colors.primary,
           fontFamily: omaTypography.semibold,
-          fontSize: 13,
+          fontSize: 14,
         },
         sheetScroll: {
           padding: 18,
           paddingBottom: Math.max(insets.bottom, 18),
         },
+        filterFooter: {
+          marginTop: 12,
+          paddingTop: 12,
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
+        },
+        filterApplyButton: {
+          minHeight: 48,
+          borderRadius: 18,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? colors.text : "#111111",
+        },
+        filterApplyText: {
+          color: isDark ? colors.background : "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 14,
+        },
       }),
-    [colors, insets.bottom, insets.top, isDark, isWideLayout]
+    [colors, insets.bottom, insets.top, isDark, isDesktop, isWideLayout]
   );
 
   const renderHero = (config: HeroConfig) => (
     <View style={styles.heroCard}>
-      <View style={[styles.heroGlow, { backgroundColor: palette.glow }]} />
-
       <View style={styles.heroTop}>
         <View style={{ flex: 1 }}>
           <Text style={styles.heroLabel}>{config.label}</Text>
@@ -1228,10 +1815,20 @@ function AnalyticsScreen() {
       <Text style={styles.heroSubtitle}>{config.subtitle}</Text>
 
       <View style={styles.heroStatRow}>
-        {config.stats.map((stat) => (
-          <View key={stat.label} style={styles.heroStatCard}>
-            <Text style={styles.heroStatLabel}>{stat.label}</Text>
-            <Text style={styles.heroStatValue}>{stat.value}</Text>
+        {config.stats.map((stat, index) => (
+          <View
+            key={stat.label}
+            style={[
+              styles.heroStatCard,
+              index === 2 && styles.heroStatCardWide,
+            ]}
+          >
+            <Text numberOfLines={1} style={styles.heroStatLabel}>
+              {stat.label}
+            </Text>
+            <Text numberOfLines={1} style={styles.heroStatValue}>
+              {stat.value}
+            </Text>
           </View>
         ))}
       </View>
@@ -1284,6 +1881,174 @@ function AnalyticsScreen() {
     </View>
   );
 
+  const renderControls = () => (
+    <View style={styles.controlCard}>
+      <View style={styles.controlGroup}>
+        <Text style={styles.controlLabel}>Perspective</Text>
+        <View style={styles.segmentedRow}>
+          {[
+            {
+              id: "overview" as const,
+              label: "Overview",
+              icon: "stats-chart-outline" as const,
+            },
+            {
+              id: "revenue" as const,
+              label: "Revenue",
+              icon: "cash-outline" as const,
+            },
+            {
+              id: "execution" as const,
+              label: "Execution",
+              icon: "flash-outline" as const,
+            },
+          ].map((item) => {
+            const active = draftView === item.id;
+            return (
+              <TouchableOpacity
+                key={item.id}
+                activeOpacity={0.88}
+                onPress={() => setDraftView(item.id)}
+                style={[
+                  styles.segmentButton,
+                  active && styles.segmentButtonActive,
+                ]}
+              >
+                <Ionicons
+                  color={
+                    active
+                      ? isDark
+                        ? colors.background
+                        : "#ffffff"
+                      : colors.textSecondary
+                  }
+                  name={item.icon}
+                  size={14}
+                />
+                <Text
+                  style={[
+                    styles.segmentText,
+                    active && styles.segmentTextActive,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.controlGroupLast}>
+        <Text style={styles.controlLabel}>Timeframe</Text>
+        <View style={styles.segmentedRow}>
+          {(["MTD", "QTD", "YTD"] as Timeframe[]).map((item) => {
+            const active = draftTimeframe === item;
+            return (
+              <TouchableOpacity
+                key={item}
+                activeOpacity={0.88}
+                onPress={() => setDraftTimeframe(item)}
+                style={[
+                  styles.segmentButton,
+                  active && styles.segmentButtonActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.segmentText,
+                    active && styles.segmentTextActive,
+                  ]}
+                >
+                  {item}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.filterFooter}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Apply analytics filters"
+          activeOpacity={0.88}
+          onPress={applyControls}
+          style={styles.filterApplyButton}
+        >
+          <Text style={styles.filterApplyText}>Apply filters</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderOwnerActions = () => {
+    const primaryAction = ownerActions[0];
+    const primaryTone = toneStyles[primaryAction.tone];
+
+    return (
+      <>
+        <TouchableOpacity
+          accessibilityLabel="Open priority feed"
+          accessibilityRole="button"
+          activeOpacity={0.9}
+          onPress={primaryAction.onPress}
+          style={styles.priorityCard}
+        >
+          <View style={styles.priorityTop}>
+            <View style={styles.priorityIdentity}>
+              <View
+                style={[
+                  styles.priorityIcon,
+                  { backgroundColor: primaryTone.bg },
+                ]}
+              >
+                <Ionicons
+                  color={primaryTone.text}
+                  name={primaryAction.icon as any}
+                  size={18}
+                />
+              </View>
+              <Text style={styles.priorityLabel}>Priority feed</Text>
+            </View>
+            <Text style={styles.priorityCount}>
+              {model.attentionItems.length} alerts
+            </Text>
+          </View>
+
+          <Text style={styles.priorityHeadline}>{primaryAction.headline}</Text>
+          <Text numberOfLines={2} style={styles.priorityDetail}>
+            {primaryAction.detail}
+          </Text>
+
+          <View style={styles.priorityFooter}>
+            <Text style={styles.priorityFooterText}>Open full queue</Text>
+            <Ionicons color={colors.text} name="arrow-forward" size={16} />
+          </View>
+        </TouchableOpacity>
+
+        <View style={styles.shortcutRow}>
+          {ownerActions.slice(1).map((action) => {
+            const tone = toneStyles[action.tone];
+            return (
+              <TouchableOpacity
+                accessibilityLabel={action.headline}
+                accessibilityRole="button"
+                activeOpacity={0.88}
+                key={action.id}
+                onPress={action.onPress}
+                style={styles.shortcutButton}
+              >
+                <Ionicons color={tone.text} name={action.icon as any} size={17} />
+                <Text style={styles.shortcutText}>{action.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </>
+    );
+  };
+
   const renderFocusSignals = (signals: FocusSignal[]) => (
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
@@ -1333,12 +2098,102 @@ function AnalyticsScreen() {
     model.targetSummary ? (
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Owner targets</Text>
-          <Text style={styles.sectionHint}>{model.targetSummary.period}</Text>
+          <View>
+            <Text style={styles.sectionTitle}>Owner targets</Text>
+            <Text style={[styles.sectionHint, { textAlign: "left", marginTop: 4 }]}>
+              {model.targetSummary.period} • sheet-backed target plan
+            </Text>
+          </View>
+          <Text style={styles.sectionHint}>
+            Margin target {formatRatio(model.targetSummary.marginTarget)}
+          </Text>
         </View>
-        {renderMetrics(targetMetrics)}
+
+        {targetProgress.map((item, index) => {
+          const tone = toneStyles[item.tone];
+          const progress =
+            item.target > 0 ? Math.min((item.actual / item.target) * 100, 100) : 0;
+
+          return (
+            <View
+              key={item.label}
+              style={[styles.targetRow, index === 0 && styles.targetRowFirst]}
+            >
+              <View style={styles.targetHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.targetName}>{item.label}</Text>
+                  <Text style={styles.targetMeta}>
+                    Target {formatCurrencyLabel(item.target)}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={styles.targetValue}>
+                    {formatCurrencyLabel(item.actual)}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.targetVariance,
+                      {
+                        color:
+                          item.variance >= 0
+                            ? toneStyles.green.text
+                            : toneStyles.red.text,
+                      },
+                    ]}
+                  >
+                    {item.variance >= 0 ? "+" : ""}
+                    {formatCurrencyLabel(item.variance)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${Math.max(progress, item.actual > 0 ? 7 : 0)}%`,
+                      backgroundColor: tone.dot,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          );
+        })}
       </View>
     ) : null;
+
+  const renderSheetHealth = () => (
+    <View style={styles.sectionCard}>
+      <View style={styles.sectionHeader}>
+        <View>
+          <Text style={styles.sectionTitle}>Workbook health</Text>
+          <Text style={[styles.sectionHint, { textAlign: "left", marginTop: 4 }]}>
+            {sourceLabel} • rows available for this view
+          </Text>
+        </View>
+        <Text style={styles.sectionHint}>
+          Updated {formatLastUpdated(payload?.summary.lastUpdatedAt || legacyPayload?.lastUpdatedAt || null)}
+        </Text>
+      </View>
+
+      <View style={styles.sheetHealthGrid}>
+        {sheetHealth.map((sheet) => {
+          const tone = toneStyles[sheet.tone];
+          return (
+            <View key={sheet.range} style={styles.sheetHealthCard}>
+              <View style={styles.sheetHealthTop}>
+                <View style={[styles.sheetHealthDot, { backgroundColor: tone.dot }]} />
+                <Text style={styles.sheetHealthLabel}>{sheet.label}</Text>
+              </View>
+              <Text style={styles.sheetHealthRange}>{sheet.range}</Text>
+              <Text style={styles.sheetHealthCount}>{sheet.count} rows</Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
 
   const renderPipeline = () => {
     const peakValue = Math.max(...model.pipeline.map((stage) => stage.value), 1);
@@ -1430,44 +2285,50 @@ function AnalyticsScreen() {
     </View>
   );
 
-  const renderActivityFeed = () => (
-    <View style={styles.sectionCard}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Recent movement</Text>
-        <Text style={styles.sectionHint}>
-          Updated {formatLastUpdated(payload?.summary.lastUpdatedAt || legacyPayload?.lastUpdatedAt || null)}
-        </Text>
-      </View>
+  const renderActivityFeed = () => {
+    const visibleActivities = model.activities.slice(0, 3);
 
-      {model.activities.length ? (
-        model.activities.map((activity, index) => {
-          const tone = toneStyles[activity.tone];
-          return (
-            <View
-              key={activity.id}
-              style={[
-                styles.activityRow,
-                index === 0 && styles.activityRowFirst,
-              ]}
-            >
-              <View style={[styles.activityIconWrap, { backgroundColor: tone.bg }]}>
-                <Ionicons color={tone.text} name={activity.icon as any} size={18} />
+    return (
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recent movement</Text>
+          <Text style={styles.sectionHint}>
+            Updated {formatLastUpdated(payload?.summary.lastUpdatedAt || legacyPayload?.lastUpdatedAt || null)}
+          </Text>
+        </View>
+
+        {visibleActivities.length ? (
+          visibleActivities.map((activity, index) => {
+            const tone = toneStyles[activity.tone];
+            return (
+              <View
+                key={activity.id}
+                style={[
+                  styles.activityRow,
+                  index === 0 && styles.activityRowFirst,
+                ]}
+              >
+                <View style={[styles.activityIconWrap, { backgroundColor: tone.bg }]}>
+                  <Ionicons color={tone.text} name={activity.icon as any} size={18} />
+                </View>
+                <View style={styles.activityContent}>
+                  <Text style={styles.activityTitle}>{activity.title}</Text>
+                  <Text numberOfLines={2} style={styles.activityDetail}>
+                    {activity.detail}
+                  </Text>
+                  <Text style={styles.activityTime}>{activity.timeLabel}</Text>
+                </View>
               </View>
-              <View style={styles.activityContent}>
-                <Text style={styles.activityTitle}>{activity.title}</Text>
-                <Text style={styles.activityDetail}>{activity.detail}</Text>
-                <Text style={styles.activityTime}>{activity.timeLabel}</Text>
-              </View>
-            </View>
-          );
-        })
-      ) : (
-        <Text style={styles.metricDetail}>
-          No tracked order movement in this timeframe yet.
-        </Text>
-      )}
-    </View>
-  );
+            );
+          })
+        ) : (
+          <Text style={styles.metricDetail}>
+            No tracked order movement in this timeframe yet.
+          </Text>
+        )}
+      </View>
+    );
+  };
 
   const renderTopAccounts = (accounts: FinancialAccount[]) => {
     const peakExposure = Math.max(...accounts.map((account) => account.exposure), 1);
@@ -1747,11 +2608,9 @@ function AnalyticsScreen() {
   const renderOverviewView = () => (
     <>
       {renderHero(overviewHero)}
-      {renderFocusSignals(model.focusSignals)}
-      {renderTargetSummary()}
-      {renderMetrics(overviewMetrics)}
-      {renderPipeline()}
-      {renderAttentionQueue(model.attentionItems)}
+      {renderMetrics(overviewMetrics.slice(0, 2))}
+      {renderOwnerActions()}
+      {renderTeamExecution(model.reps)}
       {renderActivityFeed()}
     </>
   );
@@ -1773,7 +2632,6 @@ function AnalyticsScreen() {
       {renderMetrics(executionMetrics)}
       {renderPipeline()}
       {renderTeamExecution(model.reps)}
-      {renderAttentionQueue(model.attentionItems)}
       {renderActivityFeed()}
     </>
   );
@@ -1813,157 +2671,84 @@ function AnalyticsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.shell}>
-          <View style={styles.headerCard}>
-            <View style={styles.headerTop}>
-              <View style={styles.profileBlock}>
-                <View style={styles.profileRow}>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                      {(userRole || "M").slice(0, 1).toUpperCase()}
-                    </Text>
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.eyebrow}>Good morning</Text>
-                    <Text style={styles.profileName}>
-                      {userRole === "Manager" ? "Sarah Jenkins" : `${userRole} Workspace`}
-                    </Text>
-                    <Text style={styles.profileMeta}>
-                      Orders, cash exposure, and execution risk in one place.
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.titleRow}>
-                  <View style={styles.titleIcon}>
+          <View style={styles.commandHeader}>
+            <View style={styles.commandTopRow}>
+              <TouchableOpacity
+                accessibilityLabel="Open owner profile"
+                accessibilityRole="button"
+                activeOpacity={0.88}
+                style={styles.ownerIdentityRow}
+              >
+                <Image
+                  source={{ uri: "https://i.pravatar.cc/150?img=11" }}
+                  style={styles.ownerAvatarImage}
+                />
+                <View style={{ flex: 1 }}>
+                  <View style={styles.ownerRoleRow}>
+                    <Text style={styles.ownerRoleText}>{userRole}</Text>
                     <Ionicons
-                      color={colors.primary}
-                      name="stats-chart-outline"
-                      size={18}
+                      color="rgba(255,255,255,0.48)"
+                      name="chevron-down"
+                      size={14}
                     />
                   </View>
-                  <View style={styles.titleWrap}>
-                    <Text style={styles.title}>Command Centre</Text>
-                    <Text style={styles.subtitle}>
-                      Manager analytics built from orders, ledger, customer, and product sheets.
-                    </Text>
-                  </View>
+                  <Text style={styles.ownerNameText}>
+                    {userRole === "Manager" ? "Alex Carter" : `${userRole} Workspace`}
+                  </Text>
                 </View>
+              </TouchableOpacity>
 
-                <Text style={styles.headerMetaInline}>
-                  Updated {formatLastUpdated(payload?.summary.lastUpdatedAt || legacyPayload?.lastUpdatedAt || null)} •{" "}
-                  {model.summary.orderCount} tracked orders in {timeframe}
-                </Text>
-              </View>
-
-              <View style={styles.headerActions}>
+              <View style={styles.utilityPill}>
                 <TouchableOpacity
-                  activeOpacity={0.88}
-                  onPress={() => router.push("/(app)/customer-summary")}
-                  style={styles.actionButton}
-                >
-                  <Ionicons color={colors.text} name="search-outline" size={18} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.88}
-                  onPress={() => setSheetOpen(true)}
-                  style={styles.actionButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to main dashboard"
+                  activeOpacity={0.86}
+                  onPress={() => router.replace("/(app)/main")}
+                  style={styles.utilityPillButton}
                 >
                   <Ionicons
-                    color={colors.text}
+                    color={colors.accentGold}
+                    name="stats-chart-outline"
+                    size={18}
+                    strokeWidth={2.2}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="Open priority feed"
+                  activeOpacity={0.86}
+                  onPress={() => setSheetOpen(true)}
+                  style={styles.utilityPillButton}
+                >
+                  <Ionicons
+                    color="rgba(255,255,255,0.82)"
                     name="notifications-outline"
                     size={18}
+                    strokeWidth={2.2}
                   />
                   {model.attentionItems.length ? <View style={styles.alertDot} /> : null}
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
 
-          <View style={styles.controlCard}>
-            <View style={styles.controlGroup}>
-              <Text style={styles.controlLabel}>Perspective</Text>
-              <View style={styles.segmentedRow}>
-                {[
-                  {
-                    id: "overview" as const,
-                    label: "Overview",
-                    icon: "stats-chart-outline" as const,
-                  },
-                  {
-                    id: "revenue" as const,
-                    label: "Revenue",
-                    icon: "cash-outline" as const,
-                  },
-                  {
-                    id: "execution" as const,
-                    label: "Execution",
-                    icon: "flash-outline" as const,
-                  },
-                ].map((item) => {
-                  const active = view === item.id;
-                  return (
-                    <TouchableOpacity
-                      key={item.id}
-                      activeOpacity={0.88}
-                      onPress={() => setView(item.id)}
-                      style={[
-                        styles.segmentButton,
-                        active && styles.segmentButtonActive,
-                      ]}
-                    >
-                      <Ionicons
-                        color={
-                          active
-                            ? isDark
-                              ? colors.background
-                              : "#ffffff"
-                            : colors.textSecondary
-                        }
-                        name={item.icon}
-                        size={14}
-                      />
-                      <Text
-                        style={[
-                          styles.segmentText,
-                          active && styles.segmentTextActive,
-                        ]}
-                      >
-                        {item.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+            <View style={styles.analyticsTitleRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.commandEyebrow}>Owner exclusive</Text>
+                <Text style={styles.commandTitle}>Analytics</Text>
               </View>
-            </View>
-
-            <View style={styles.controlGroupLast}>
-              <Text style={styles.controlLabel}>Timeframe</Text>
-              <View style={styles.segmentedRow}>
-                {(["MTD", "QTD", "YTD"] as Timeframe[]).map((item) => {
-                  const active = timeframe === item;
-                  return (
-                    <TouchableOpacity
-                      key={item}
-                      activeOpacity={0.88}
-                      onPress={() => setTimeframe(item)}
-                      style={[
-                        styles.segmentButton,
-                        active && styles.segmentButtonActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.segmentText,
-                          active && styles.segmentTextActive,
-                        ]}
-                      >
-                        {item}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Open analytics filters"
+                activeOpacity={0.86}
+                onPress={openControls}
+                style={styles.titleActionCircle}
+              >
+                <Ionicons
+                  color="rgba(255,255,255,0.82)"
+                  name="pulse-outline"
+                  size={20}
+                />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -1986,6 +2771,34 @@ function AnalyticsScreen() {
           )}
         </View>
       </ScrollView>
+
+      <Modal
+        transparent
+        visible={controlsOpen}
+        animationType="fade"
+        onRequestClose={() => setControlsOpen(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setControlsOpen(false)}
+          style={[styles.modalBackdrop, styles.filterBackdrop]}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => undefined}
+            style={[styles.sheetCard, styles.filterSheetCard]}
+          >
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Analytics filters</Text>
+              <TouchableOpacity onPress={() => setControlsOpen(false)}>
+                <Text style={styles.sheetAction}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.sheetScroll}>{renderControls()}</View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
 
       <Modal
         transparent
@@ -2013,6 +2826,8 @@ function AnalyticsScreen() {
             <ScrollView contentContainerStyle={styles.sheetScroll}>
               {model.focusSignals.length ? renderFocusSignals(model.focusSignals) : null}
               {renderAttentionQueue(model.attentionItems)}
+              {renderTargetSummary()}
+              {renderSheetHealth()}
             </ScrollView>
           </TouchableOpacity>
         </TouchableOpacity>
