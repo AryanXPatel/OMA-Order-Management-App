@@ -7,7 +7,7 @@ const REMOTE_BACKEND_URL = "https://oma-demo-server.onrender.com";
 const resolveBackendUrl = () => {
   const explicitUrl = process.env.EXPO_PUBLIC_BACKEND_URL?.trim();
   if (explicitUrl) {
-    return explicitUrl;
+    return explicitUrl.replace(/\/+$/, "");
   }
 
   if (__DEV__) {
