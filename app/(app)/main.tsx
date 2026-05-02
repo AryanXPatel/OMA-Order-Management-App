@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useMemo, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -117,6 +117,8 @@ type NotificationItem = {
   time: string;
   title: string;
 };
+
+const MAIN_NOTIFICATION_DISMISSED_KEY = "mainDismissedNotificationsV1";
 
 const todayFormatter = new Intl.DateTimeFormat("en-US", {
   day: "numeric",
@@ -712,11 +714,62 @@ export default function MainScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [activeOverlay, setActiveOverlay] = useState<OverlayName>(null);
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<
+    string[]
+  >([]);
 
   const displayName = userRole === "Manager" ? "Alex Carter" : "Sales Workspace";
   const displayRole = userRole === "Manager" ? "Owner" : "User";
   const isDesktop = width >= 900;
   const todayLabel = todayFormatter.format(new Date()).toUpperCase();
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadDismissedNotifications = async () => {
+      try {
+        const storedIds = await AsyncStorage.getItem(
+          MAIN_NOTIFICATION_DISMISSED_KEY
+        );
+
+        if (!storedIds || !mounted) {
+          return;
+        }
+
+        const parsedIds = JSON.parse(storedIds);
+
+        if (Array.isArray(parsedIds)) {
+          setDismissedNotificationIds(
+            parsedIds.filter((id): id is string => typeof id === "string")
+          );
+        }
+      } catch {
+        if (mounted) {
+          setDismissedNotificationIds([]);
+        }
+      }
+    };
+
+    loadDismissedNotifications();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const persistDismissedNotifications = useCallback(async (ids: string[]) => {
+    const uniqueIds = Array.from(new Set(ids));
+    setDismissedNotificationIds(uniqueIds);
+
+    try {
+      await AsyncStorage.setItem(
+        MAIN_NOTIFICATION_DISMISSED_KEY,
+        JSON.stringify(uniqueIds)
+      );
+    } catch {
+      // Local read state is non-critical; the dashboard data remains live.
+    }
+  }, []);
 
   const loadDashboard = useCallback(
     async (forceRefresh = false) => {
@@ -824,7 +877,7 @@ export default function MainScreen() {
 
     if (payload.pendingApprovals > 0) {
       items.push({
-        id: "approvals",
+        id: `approvals-${payload.pendingApprovals}`,
         title: "Approvals waiting",
         body: `${payload.pendingApprovals} orders need attention.`,
         color: colors.accentGold,
@@ -836,7 +889,7 @@ export default function MainScreen() {
 
     if (payload.pendingDispatches > 0) {
       items.push({
-        id: "dispatch",
+        id: `dispatch-${payload.pendingDispatches}`,
         title: "Dispatch queue",
         body: `${payload.pendingDispatches} approved orders are ready to move.`,
         color: colors.accentSky,
@@ -846,20 +899,51 @@ export default function MainScreen() {
       });
     }
 
-    if (payload.currentOrder) {
-      items.push({
-        id: "active",
-        title: "Active order",
-        body: `${formatCompactOrderId(payload.currentOrder.orderId)} is still moving through the workflow.`,
-        color: colors.accentGreen,
-        icon: "time-outline",
-        route: "/(app)/my-orders",
-        time: formatTimeAgo(payload.currentOrder.createdAt),
-      });
-    }
-
     return items;
-  }, [colors.accentGold, colors.accentGreen, colors.accentSky, payload]);
+  }, [colors.accentGold, colors.accentSky, payload]);
+
+  const dismissedNotificationSet = useMemo(
+    () => new Set(dismissedNotificationIds),
+    [dismissedNotificationIds]
+  );
+
+  const activeNotifications = useMemo(
+    () =>
+      notificationItems.filter(
+        (item) => !dismissedNotificationSet.has(item.id)
+      ),
+    [dismissedNotificationSet, notificationItems]
+  );
+
+  const visibleNotifications = useMemo(
+    () => activeNotifications.slice(0, 3),
+    [activeNotifications]
+  );
+
+  const notificationCount = activeNotifications.length;
+
+  const markAllNotificationsRead = useCallback(() => {
+    void persistDismissedNotifications([
+      ...dismissedNotificationIds,
+      ...notificationItems.map((item) => item.id),
+    ]);
+  }, [
+    dismissedNotificationIds,
+    notificationItems,
+    persistDismissedNotifications,
+  ]);
+
+  const handleNotificationPress = useCallback(
+    (item: NotificationItem) => {
+      setActiveOverlay(null);
+      void persistDismissedNotifications([
+        ...dismissedNotificationIds,
+        item.id,
+      ]);
+      router.push(item.route);
+    },
+    [dismissedNotificationIds, persistDismissedNotifications]
+  );
 
   const styles = useMemo(
     () =>
@@ -929,6 +1013,13 @@ export default function MainScreen() {
           gap: 18,
           paddingHorizontal: 14,
           paddingVertical: 10,
+        },
+        utilityPillButton: {
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: 28,
+          minWidth: 28,
+          position: "relative",
         },
         titleSection: {
           marginTop: isDesktop ? 0 : 24,
@@ -1196,12 +1287,17 @@ export default function MainScreen() {
           fontSize: 14,
         },
         notificationCard: {
-          backgroundColor: "rgba(255,255,255,0.06)",
-          borderRadius: 18,
+          alignItems: "center",
+          borderTopColor: "rgba(255,255,255,0.08)",
+          borderTopWidth: 1,
           flexDirection: "row",
           gap: 12,
-          marginBottom: 12,
-          padding: 14,
+          minHeight: 64,
+          paddingVertical: 14,
+        },
+        notificationCardFirst: {
+          borderTopWidth: 0,
+          paddingTop: 2,
         },
         notificationIconWrap: {
           width: 36,
@@ -1210,25 +1306,105 @@ export default function MainScreen() {
           alignItems: "center",
           justifyContent: "center",
         },
+        notificationContent: {
+          flex: 1,
+          minWidth: 0,
+        },
         notificationTitle: {
           color: "#ffffff",
           fontFamily: omaTypography.semibold,
-          fontSize: 14,
+          fontSize: 15,
+          letterSpacing: -0.2,
+          lineHeight: 19,
           marginBottom: 3,
         },
         notificationBody: {
-          color: "rgba(255,255,255,0.6)",
+          color: "rgba(255,255,255,0.58)",
           fontFamily: omaTypography.medium,
-          fontSize: 12,
-          lineHeight: 17,
-          marginBottom: 8,
+          fontSize: 13,
+          letterSpacing: -0.2,
+          lineHeight: 18,
+          marginBottom: 4,
         },
         notificationTime: {
-          color: "rgba(255,255,255,0.4)",
+          color: "rgba(255,255,255,0.42)",
           fontFamily: omaTypography.semibold,
-          fontSize: 11,
-          letterSpacing: 0.8,
+          fontSize: 12,
+          letterSpacing: 0.6,
           textTransform: "uppercase",
+        },
+        notificationActionText: {
+          color: "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+          letterSpacing: -0.15,
+        },
+        notificationMoreText: {
+          color: "rgba(255,255,255,0.48)",
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 18,
+          marginTop: 2,
+          textAlign: "center",
+        },
+        notificationMarkButton: {
+          alignItems: "center",
+          alignSelf: "stretch",
+          backgroundColor: "#ffffff",
+          borderRadius: 18,
+          justifyContent: "center",
+          marginTop: 14,
+          minHeight: 46,
+        },
+        notificationMarkText: {
+          color: "#111111",
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+          letterSpacing: -0.2,
+        },
+        notificationBadge: {
+          alignItems: "center",
+          backgroundColor: colors.accentRed,
+          borderColor: colors.appChromeMuted,
+          borderRadius: 8,
+          borderWidth: 2,
+          height: 16,
+          justifyContent: "center",
+          minWidth: 16,
+          paddingHorizontal: 4,
+          position: "absolute",
+          right: -7,
+          top: -5,
+        },
+        notificationBadgeText: {
+          color: "#111111",
+          fontFamily: omaTypography.bold,
+          fontSize: 10,
+          lineHeight: 12,
+        },
+        notificationEmpty: {
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: 148,
+          paddingHorizontal: 12,
+          paddingVertical: 24,
+        },
+        notificationEmptyTitle: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 17,
+          letterSpacing: -0.4,
+          lineHeight: 22,
+          marginTop: 12,
+          textAlign: "center",
+        },
+        notificationEmptyBody: {
+          color: "rgba(255,255,255,0.56)",
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 18,
+          marginTop: 6,
+          textAlign: "center",
         },
       }),
     [colors, insets.top, isDesktop]
@@ -1303,8 +1479,12 @@ export default function MainScreen() {
             <View style={styles.utilityPill}>
               {userRole === "Manager" ? (
                 <TouchableOpacity
+                  accessibilityLabel="Open analytics"
+                  accessibilityRole="button"
                   activeOpacity={0.86}
+                  hitSlop={{ bottom: 10, left: 8, right: 8, top: 10 }}
                   onPress={() => router.push("/(app)/analytics")}
+                  style={styles.utilityPillButton}
                 >
                   <Ionicons
                     color="rgba(255,255,255,0.75)"
@@ -1315,8 +1495,16 @@ export default function MainScreen() {
                 </TouchableOpacity>
               ) : null}
               <TouchableOpacity
+                accessibilityLabel={
+                  notificationCount
+                    ? `Open notifications, ${notificationCount} unread`
+                    : "Open notifications"
+                }
+                accessibilityRole="button"
                 activeOpacity={0.86}
+                hitSlop={{ bottom: 10, left: 8, right: 8, top: 10 }}
                 onPress={() => setActiveOverlay("notifications")}
+                style={styles.utilityPillButton}
               >
                 <Ionicons
                   color="rgba(255,255,255,0.82)"
@@ -1324,6 +1512,13 @@ export default function MainScreen() {
                   size={18}
                   strokeWidth={2.2}
                 />
+                {notificationCount > 0 ? (
+                  <View style={styles.notificationBadge}>
+                    <Text style={styles.notificationBadgeText}>
+                      {notificationCount > 9 ? "9+" : notificationCount}
+                    </Text>
+                  </View>
+                ) : null}
               </TouchableOpacity>
             </View>
           </View>
@@ -1659,42 +1854,78 @@ export default function MainScreen() {
       <OmaBottomSheet
         maxHeight="56%"
         onClose={() => setActiveOverlay(null)}
-        subtitle="Latest queue pressure and dashboard events."
+        subtitle={
+          notificationCount
+            ? `${notificationCount} unread order alert${notificationCount === 1 ? "" : "s"}.`
+            : "No unread order alerts."
+        }
         title="Notifications"
         visible={activeOverlay === "notifications"}
       >
-        {notificationItems.length > 0 ? (
-          notificationItems.map((item) => (
-            <TouchableOpacity
-              activeOpacity={0.86}
-              key={item.id}
-              onPress={() => {
-                setActiveOverlay(null);
-                router.push(item.route);
-              }}
-              style={styles.notificationCard}
-            >
-              <View
+        {visibleNotifications.length > 0 ? (
+          <>
+            {visibleNotifications.map((item, index) => (
+              <TouchableOpacity
+                accessibilityLabel={`Open ${item.title}`}
+                accessibilityRole="button"
+                activeOpacity={0.86}
+                key={item.id}
+                onPress={() => handleNotificationPress(item)}
                 style={[
-                  styles.notificationIconWrap,
-                  { backgroundColor: `${item.color}20` },
+                  styles.notificationCard,
+                  index === 0 && styles.notificationCardFirst,
                 ]}
               >
-                <Ionicons color={item.color} name={item.icon} size={16} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.notificationTitle}>{item.title}</Text>
-                <Text style={styles.notificationBody}>{item.body}</Text>
-                <Text style={styles.notificationTime}>{item.time}</Text>
-              </View>
+                <View
+                  style={[
+                    styles.notificationIconWrap,
+                    { backgroundColor: `${item.color}20` },
+                  ]}
+                >
+                  <Ionicons color={item.color} name={item.icon} size={16} />
+                </View>
+                <View style={styles.notificationContent}>
+                  <Text numberOfLines={1} style={styles.notificationTitle}>
+                    {item.title}
+                  </Text>
+                  <Text numberOfLines={2} style={styles.notificationBody}>
+                    {item.body}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.notificationTime}>
+                    {item.time}
+                  </Text>
+                </View>
+                <Text style={styles.notificationActionText}>Open</Text>
+              </TouchableOpacity>
+            ))}
+
+            {notificationCount > visibleNotifications.length ? (
+              <Text style={styles.notificationMoreText}>
+                {notificationCount - visibleNotifications.length} more order
+                alerts.
+              </Text>
+            ) : null}
+
+            <TouchableOpacity
+              accessibilityLabel="Mark all main notifications as read"
+              accessibilityRole="button"
+              activeOpacity={0.88}
+              onPress={markAllNotificationsRead}
+              style={styles.notificationMarkButton}
+            >
+              <Text style={styles.notificationMarkText}>Mark all read</Text>
             </TouchableOpacity>
-          ))
+          </>
         ) : (
-          <View style={styles.sheetHero}>
-            <Text style={styles.sheetHeroTitle}>No notifications yet</Text>
-            <Text style={styles.sheetHeroBody}>
-              This feed will show new approvals, dispatch pressure, and recent order
-              events.
+          <View style={styles.notificationEmpty}>
+            <Ionicons
+              color={colors.accentGreen}
+              name="checkmark-circle-outline"
+              size={34}
+            />
+            <Text style={styles.notificationEmptyTitle}>No unread alerts</Text>
+            <Text style={styles.notificationEmptyBody}>
+              New approvals or dispatch pressure will appear here.
             </Text>
           </View>
         )}
