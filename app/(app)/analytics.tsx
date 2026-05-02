@@ -36,7 +36,6 @@ import {
   buildManagerAnalyticsModel,
   ComparisonMetric,
   FinancialAccount,
-  FocusSignal,
   ProductGroupInsight,
   RepInsight,
   SourceInsight,
@@ -58,6 +57,7 @@ import {
 } from "@/utils/commandCenterRepository";
 
 const CACHE_KEY = "analyticsPayloadV2";
+const NOTIFICATION_DISMISSED_KEY = "analyticsDismissedNotificationsV1";
 
 type HeroConfig = {
   label: string;
@@ -86,19 +86,14 @@ type OwnerAction = {
   onPress: () => void;
 };
 
-type TargetProgressItem = {
-  label: string;
-  actual: number;
-  target: number;
-  variance: number;
+type AnalyticsNotification = {
+  id: string;
+  title: string;
+  meta: string;
+  amount: number;
   tone: ToneKey;
-};
-
-type SheetHealthItem = {
-  label: string;
-  range: string;
-  count: number;
-  tone: ToneKey;
+  icon: string;
+  view: ViewMode;
 };
 
 const paletteMap: Record<
@@ -126,6 +121,46 @@ const paletteMap: Record<
   },
 };
 
+const formatAttentionDetail = (detail: string) =>
+  detail
+    .split("•")
+    .map((part) => part.trim().replace(/_/g, " "))
+    .filter(Boolean)
+    .join(" • ");
+
+const getNotificationIcon = (item: AttentionItem) => {
+  const detail = item.detail.toLowerCase();
+
+  if (item.tone === "red" || detail.includes("rejected")) {
+    return "alert-circle-outline";
+  }
+
+  if (detail.includes("dispatch")) {
+    return "cube-outline";
+  }
+
+  if (detail.includes("approval")) {
+    return "shield-checkmark-outline";
+  }
+
+  return "notifications-outline";
+};
+
+const getNotificationView = (item: AttentionItem): ViewMode => {
+  const searchable = `${item.title} ${item.detail}`.toLowerCase();
+
+  if (
+    searchable.includes("receivable") ||
+    searchable.includes("collection") ||
+    searchable.includes("debt") ||
+    searchable.includes("ar")
+  ) {
+    return "revenue";
+  }
+
+  return "execution";
+};
+
 function AnalyticsScreen() {
   const { colors, isDark } = useContext(ThemeContext);
   const { showFeedback } = useFeedback();
@@ -143,6 +178,7 @@ function AnalyticsScreen() {
   const [controlsOpen, setControlsOpen] = useState(false);
   const [draftView, setDraftView] = useState<ViewMode>("overview");
   const [draftTimeframe, setDraftTimeframe] = useState<Timeframe>("QTD");
+  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>([]);
 
   const isWideLayout = width >= 420;
   const isDesktop = width >= 900;
@@ -165,6 +201,43 @@ function AnalyticsScreen() {
     setTimeframe(draftTimeframe);
     setControlsOpen(false);
   }, [draftTimeframe, draftView]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    AsyncStorage.getItem(NOTIFICATION_DISMISSED_KEY)
+      .then((value) => {
+        if (!mounted || !value) {
+          return;
+        }
+
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          setDismissedNotificationIds(
+            parsed.filter((item): item is string => typeof item === "string")
+          );
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const persistDismissedNotifications = useCallback(async (ids: string[]) => {
+    const uniqueIds = Array.from(new Set(ids));
+    setDismissedNotificationIds(uniqueIds);
+
+    try {
+      await AsyncStorage.setItem(
+        NOTIFICATION_DISMISSED_KEY,
+        JSON.stringify(uniqueIds)
+      );
+    } catch {
+      // Notification read state is a convenience; analytics data remains intact.
+    }
+  }, []);
 
   const loadLegacyAnalytics = useCallback(
     async (forceRefresh = false) => {
@@ -497,11 +570,6 @@ function AnalyticsScreen() {
   );
 
   const primaryAttention = model.attentionItems[0] || null;
-  const sourceLabel = payload
-    ? "Derived command tabs"
-    : legacyPayload
-    ? "Raw sheet fallback"
-    : "Waiting for sheets";
 
   const ownerActions = useMemo<OwnerAction[]>(
     () => [
@@ -557,65 +625,63 @@ function AnalyticsScreen() {
     [model, primaryAttention]
   );
 
-  const targetProgress = useMemo<TargetProgressItem[]>(
-    () =>
-      model.targetSummary
-        ? [
-            {
-              label: "Bookings",
-              actual: model.summary.totalValue,
-              target: model.targetSummary.bookingTarget,
-              variance: model.targetSummary.bookingVariance,
-              tone:
-                model.targetSummary.bookingVariance >= 0 ? "green" : "orange",
-            },
-            {
-              label: "Dispatch",
-              actual: model.summary.dispatchedValue,
-              target: model.targetSummary.dispatchTarget,
-              variance: model.targetSummary.dispatchVariance,
-              tone: model.targetSummary.dispatchVariance >= 0 ? "green" : "blue",
-            },
-            {
-              label: "Collections",
-              actual: model.periodFinancial.collectedValue,
-              target: model.targetSummary.collectionTarget,
-              variance: model.targetSummary.collectionVariance,
-              tone: model.targetSummary.collectionVariance >= 0 ? "green" : "red",
-            },
-          ]
-        : [],
-    [model]
+  const dismissedNotificationSet = useMemo(
+    () => new Set(dismissedNotificationIds),
+    [dismissedNotificationIds]
   );
 
-  const sheetHealth = useMemo<SheetHealthItem[]>(
-    () => [
-      {
-        label: "Orders",
-        range: "Order_Header_Fact",
-        count: payload?.pipeline.length ?? model.currentOrders.length,
-        tone: model.summary.orderCount > 0 ? "green" : "orange",
-      },
-      {
-        label: "Customers",
-        range: "Customer_Account_Snapshot",
-        count: payload?.customers.length ?? model.financial.topCustomers.length,
-        tone: model.financial.totalExposure > 0 ? "green" : "blue",
-      },
-      {
-        label: "Queue",
-        range: "Attention_Queue_Snapshot",
-        count: payload?.attentionQueue.length ?? model.attentionItems.length,
-        tone: model.attentionItems.length > 0 ? "orange" : "green",
-      },
-      {
-        label: "Targets",
-        range: "Targets",
-        count: payload?.targets.length ?? (model.targetSummary ? 1 : 0),
-        tone: model.targetSummary ? "green" : "orange",
-      },
-    ],
-    [model, payload]
+  const notificationItems = useMemo<AnalyticsNotification[]>(
+    () =>
+      model.attentionItems.map((item) => ({
+        id: item.id,
+        title: item.title,
+        meta: [formatAttentionDetail(item.detail), item.meta]
+          .filter(Boolean)
+          .join(" • "),
+        amount: item.amount,
+        tone: item.tone,
+        icon: getNotificationIcon(item),
+        view: getNotificationView(item),
+      })),
+    [model.attentionItems]
+  );
+
+  const activeNotifications = useMemo(
+    () =>
+      notificationItems.filter(
+        (item) => !dismissedNotificationSet.has(item.id)
+      ),
+    [dismissedNotificationSet, notificationItems]
+  );
+
+  const visibleNotifications = useMemo(
+    () => activeNotifications.slice(0, 3),
+    [activeNotifications]
+  );
+
+  const notificationCount = activeNotifications.length;
+
+  const markAllNotificationsRead = useCallback(() => {
+    persistDismissedNotifications([
+      ...dismissedNotificationIds,
+      ...notificationItems.map((item) => item.id),
+    ]);
+  }, [
+    dismissedNotificationIds,
+    notificationItems,
+    persistDismissedNotifications,
+  ]);
+
+  const handleNotificationPress = useCallback(
+    (notification: AnalyticsNotification) => {
+      setView(notification.view);
+      setSheetOpen(false);
+      persistDismissedNotifications([
+        ...dismissedNotificationIds,
+        notification.id,
+      ]);
+    },
+    [dismissedNotificationIds, persistDismissedNotifications]
   );
 
   const styles = useMemo(
@@ -727,14 +793,23 @@ function AnalyticsScreen() {
           borderWidth: 1,
           borderColor: colors.border,
         },
-        alertDot: {
+        notificationBadge: {
           position: "absolute",
-          top: 10,
-          right: 10,
-          width: 8,
-          height: 8,
-          borderRadius: 4,
+          top: -3,
+          right: -6,
+          minWidth: 18,
+          height: 18,
+          borderRadius: 9,
+          paddingHorizontal: 5,
+          alignItems: "center",
+          justifyContent: "center",
           backgroundColor: colors.accentRed,
+        },
+        notificationBadgeText: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 12,
+          lineHeight: 14,
         },
         titleRow: {
           flexDirection: "row",
@@ -1763,6 +1838,121 @@ function AnalyticsScreen() {
           padding: 18,
           paddingBottom: Math.max(insets.bottom, 18),
         },
+        notificationSummary: {
+          marginBottom: 14,
+        },
+        notificationSummaryTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.bold,
+          fontSize: 17,
+          letterSpacing: -0.4,
+          lineHeight: 24,
+        },
+        notificationSummaryBody: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 17,
+          marginTop: 3,
+        },
+        notificationRow: {
+          minHeight: 72,
+          borderTopWidth: 1,
+          borderTopColor: isDark ? "rgba(255,255,255,0.06)" : colors.border,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 12,
+          paddingVertical: 14,
+        },
+        notificationRowFirst: {
+          borderTopWidth: 0,
+          paddingTop: 0,
+        },
+        notificationIconWrap: {
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        notificationContent: {
+          flex: 1,
+          minWidth: 0,
+        },
+        notificationTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.medium,
+          fontSize: 15,
+          letterSpacing: -0.3,
+          lineHeight: 19,
+          marginBottom: 3,
+        },
+        notificationMeta: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 17,
+        },
+        notificationValueWrap: {
+          alignItems: "flex-end",
+          minWidth: 86,
+        },
+        notificationValue: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 15,
+          marginBottom: 4,
+        },
+        notificationActionText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 13,
+          lineHeight: 17,
+        },
+        notificationMoreText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 17,
+          paddingTop: 2,
+        },
+        notificationEmpty: {
+          alignItems: "center",
+          justifyContent: "center",
+          paddingVertical: 28,
+        },
+        notificationEmptyTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.bold,
+          fontSize: 17,
+          marginTop: 10,
+        },
+        notificationEmptyBody: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 17,
+          marginTop: 4,
+          textAlign: "center",
+        },
+        notificationFooter: {
+          borderTopWidth: 1,
+          borderTopColor: isDark ? "rgba(255,255,255,0.06)" : colors.border,
+          paddingTop: 12,
+          marginTop: 12,
+        },
+        notificationMarkButton: {
+          minHeight: 44,
+          borderRadius: 16,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
+        },
+        notificationMarkText: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+        },
         filterFooter: {
           marginTop: 12,
           paddingTop: 12,
@@ -2049,149 +2239,99 @@ function AnalyticsScreen() {
     );
   };
 
-  const renderFocusSignals = (signals: FocusSignal[]) => (
-    <View style={styles.sectionCard}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Manager signals</Text>
-        <Text style={styles.sectionHint}>What needs attention first</Text>
-      </View>
-
-      <View style={styles.signalGrid}>
-        {signals.map((signal) => {
-          const tone = toneStyles[signal.tone];
-          return (
-            <View
-              key={signal.id}
-              style={[styles.signalCard, { backgroundColor: tone.bg }]}
-            >
-              <View
-                style={[
-                  styles.signalIconWrap,
-                  { backgroundColor: colors.card },
-                ]}
-              >
-                <Ionicons
-                  color={tone.text}
-                  name={
-                    signal.tone === "red"
-                      ? "alert-circle-outline"
-                      : signal.tone === "orange"
-                      ? "hourglass-outline"
-                      : signal.tone === "blue"
-                      ? "git-compare-outline"
-                      : "checkmark-circle-outline"
-                  }
-                  size={18}
-                />
-              </View>
-              <Text style={styles.signalLabel}>{signal.label}</Text>
-              <Text style={styles.signalHeadline}>{signal.headline}</Text>
-              <Text style={styles.signalDetail}>{signal.detail}</Text>
-            </View>
-          );
-        })}
-      </View>
-    </View>
-  );
-
-  const renderTargetSummary = () =>
-    model.targetSummary ? (
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionTitle}>Owner targets</Text>
-            <Text style={[styles.sectionHint, { textAlign: "left", marginTop: 4 }]}>
-              {model.targetSummary.period} • sheet-backed target plan
-            </Text>
-          </View>
-          <Text style={styles.sectionHint}>
-            Margin target {formatRatio(model.targetSummary.marginTarget)}
-          </Text>
-        </View>
-
-        {targetProgress.map((item, index) => {
-          const tone = toneStyles[item.tone];
-          const progress =
-            item.target > 0 ? Math.min((item.actual / item.target) * 100, 100) : 0;
-
-          return (
-            <View
-              key={item.label}
-              style={[styles.targetRow, index === 0 && styles.targetRowFirst]}
-            >
-              <View style={styles.targetHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.targetName}>{item.label}</Text>
-                  <Text style={styles.targetMeta}>
-                    Target {formatCurrencyLabel(item.target)}
-                  </Text>
-                </View>
-                <View>
-                  <Text style={styles.targetValue}>
-                    {formatCurrencyLabel(item.actual)}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.targetVariance,
-                      {
-                        color:
-                          item.variance >= 0
-                            ? toneStyles.green.text
-                            : toneStyles.red.text,
-                      },
-                    ]}
-                  >
-                    {item.variance >= 0 ? "+" : ""}
-                    {formatCurrencyLabel(item.variance)}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.progressTrack}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    {
-                      width: `${Math.max(progress, item.actual > 0 ? 7 : 0)}%`,
-                      backgroundColor: tone.dot,
-                    },
-                  ]}
-                />
-              </View>
-            </View>
-          );
-        })}
-      </View>
-    ) : null;
-
-  const renderSheetHealth = () => (
-    <View style={styles.sectionCard}>
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.sectionTitle}>Workbook health</Text>
-          <Text style={[styles.sectionHint, { textAlign: "left", marginTop: 4 }]}>
-            {sourceLabel} • rows available for this view
-          </Text>
-        </View>
-        <Text style={styles.sectionHint}>
+  const renderNotificationCenter = () => (
+    <View style={styles.sheetScroll}>
+      <View style={styles.notificationSummary}>
+        <Text style={styles.notificationSummaryTitle}>
+          {notificationCount
+            ? `${notificationCount} unread alert${notificationCount === 1 ? "" : "s"}`
+            : "All caught up"}
+        </Text>
+        <Text style={styles.notificationSummaryBody}>
           Updated {formatLastUpdated(payload?.summary.lastUpdatedAt || legacyPayload?.lastUpdatedAt || null)}
         </Text>
       </View>
 
-      <View style={styles.sheetHealthGrid}>
-        {sheetHealth.map((sheet) => {
-          const tone = toneStyles[sheet.tone];
-          return (
-            <View key={sheet.range} style={styles.sheetHealthCard}>
-              <View style={styles.sheetHealthTop}>
-                <View style={[styles.sheetHealthDot, { backgroundColor: tone.dot }]} />
-                <Text style={styles.sheetHealthLabel}>{sheet.label}</Text>
-              </View>
-              <Text style={styles.sheetHealthRange}>{sheet.range}</Text>
-              <Text style={styles.sheetHealthCount}>{sheet.count} rows</Text>
-            </View>
-          );
-        })}
-      </View>
+      {visibleNotifications.length ? (
+        <>
+          {visibleNotifications.map((notification, index) => {
+            const tone = toneStyles[notification.tone];
+
+            return (
+              <TouchableOpacity
+                accessibilityLabel={`Open ${notification.title}`}
+                accessibilityRole="button"
+                activeOpacity={0.88}
+                key={notification.id}
+                onPress={() => handleNotificationPress(notification)}
+                style={[
+                  styles.notificationRow,
+                  index === 0 && styles.notificationRowFirst,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.notificationIconWrap,
+                    { backgroundColor: tone.bg },
+                  ]}
+                >
+                  <Ionicons
+                    color={tone.text}
+                    name={notification.icon as any}
+                    size={18}
+                  />
+                </View>
+                <View style={styles.notificationContent}>
+                  <Text numberOfLines={2} style={styles.notificationTitle}>
+                    {notification.title}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.notificationMeta}>
+                    {notification.meta}
+                  </Text>
+                </View>
+                <View style={styles.notificationValueWrap}>
+                  <Text style={styles.notificationValue}>
+                    {formatCurrencyLabel(notification.amount)}
+                  </Text>
+                  <Text style={styles.notificationActionText}>View</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+
+          {notificationCount > visibleNotifications.length ? (
+            <Text style={styles.notificationMoreText}>
+              {notificationCount - visibleNotifications.length} more in the
+              attention queue.
+            </Text>
+          ) : null}
+
+          <View style={styles.notificationFooter}>
+            <TouchableOpacity
+              accessibilityLabel="Mark all analytics notifications as read"
+              accessibilityRole="button"
+              activeOpacity={0.88}
+              onPress={markAllNotificationsRead}
+              style={styles.notificationMarkButton}
+            >
+              <Text style={styles.notificationMarkText}>Mark all read</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : (
+        <View style={styles.notificationEmpty}>
+          <Ionicons
+            color={toneStyles.green.text}
+            name="checkmark-circle-outline"
+            size={34}
+          />
+          <Text style={styles.notificationEmptyTitle}>No unread alerts</Text>
+          <Text style={styles.notificationEmptyBody}>
+            New sheet exceptions will appear here when the attention queue
+            updates.
+          </Text>
+        </View>
+      )}
     </View>
   );
 
@@ -2235,55 +2375,6 @@ function AnalyticsScreen() {
       </View>
     );
   };
-
-  const renderAttentionQueue = (items: AttentionItem[]) => (
-    <View style={styles.sectionCard}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Attention queue</Text>
-        <Text style={styles.sectionHint}>Highest-value interruptions first</Text>
-      </View>
-
-      {items.length ? (
-        items.map((item, index) => {
-          const tone = toneStyles[item.tone];
-          return (
-            <View
-              key={item.id}
-              style={[
-                styles.listRow,
-                index === 0 && styles.listRowFirst,
-              ]}
-            >
-              <View style={[styles.pill, { backgroundColor: tone.bg }]}>
-                <Text style={[styles.pillText, { color: tone.text }]}>
-                  {item.tone === "red"
-                    ? "Critical"
-                    : item.tone === "orange"
-                    ? "Watch"
-                    : "Monitor"}
-                </Text>
-              </View>
-
-              <View style={styles.listHeader}>
-                <View style={styles.listTitleWrap}>
-                  <Text style={styles.listTitle}>{item.title}</Text>
-                  <Text style={styles.listMeta}>
-                    {item.orderId} • {item.meta}
-                  </Text>
-                </View>
-                <Text style={styles.listValue}>{formatCurrencyLabel(item.amount)}</Text>
-              </View>
-              <Text style={styles.listDetail}>{item.detail}</Text>
-            </View>
-          );
-        })
-      ) : (
-        <Text style={styles.metricDetail}>
-          Nothing in the action queue right now.
-        </Text>
-      )}
-    </View>
-  );
 
   const renderActivityFeed = () => {
     const visibleActivities = model.activities.slice(0, 3);
@@ -2703,6 +2794,7 @@ function AnalyticsScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Back to main dashboard"
                   activeOpacity={0.86}
+                  hitSlop={{ top: 10, right: 8, bottom: 10, left: 8 }}
                   onPress={() => router.replace("/(app)/main")}
                   style={styles.utilityPillButton}
                 >
@@ -2715,8 +2807,13 @@ function AnalyticsScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   accessibilityRole="button"
-                  accessibilityLabel="Open priority feed"
+                  accessibilityLabel={
+                    notificationCount
+                      ? `Open notifications, ${notificationCount} unread`
+                      : "Open notifications"
+                  }
                   activeOpacity={0.86}
+                  hitSlop={{ top: 10, right: 8, bottom: 10, left: 8 }}
                   onPress={() => setSheetOpen(true)}
                   style={styles.utilityPillButton}
                 >
@@ -2726,7 +2823,13 @@ function AnalyticsScreen() {
                     size={18}
                     strokeWidth={2.2}
                   />
-                  {model.attentionItems.length ? <View style={styles.alertDot} /> : null}
+                  {notificationCount ? (
+                    <View style={styles.notificationBadge}>
+                      <Text style={styles.notificationBadgeText}>
+                        {notificationCount > 9 ? "9+" : notificationCount}
+                      </Text>
+                    </View>
+                  ) : null}
                 </TouchableOpacity>
               </View>
             </View>
@@ -2817,18 +2920,13 @@ function AnalyticsScreen() {
             style={styles.sheetCard}
           >
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Priority feed</Text>
+              <Text style={styles.sheetTitle}>Notifications</Text>
               <TouchableOpacity onPress={() => setSheetOpen(false)}>
                 <Text style={styles.sheetAction}>Close</Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={styles.sheetScroll}>
-              {model.focusSignals.length ? renderFocusSignals(model.focusSignals) : null}
-              {renderAttentionQueue(model.attentionItems)}
-              {renderTargetSummary()}
-              {renderSheetHealth()}
-            </ScrollView>
+            {renderNotificationCenter()}
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
