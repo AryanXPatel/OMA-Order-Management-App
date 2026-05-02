@@ -705,7 +705,7 @@ function RecentOrderCard({
 }
 
 export default function MainScreen() {
-  const { colors, isDark, toggleTheme } = useContext(ThemeContext);
+  const { colors } = useContext(ThemeContext);
   const { showFeedback } = useFeedback();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -1252,39 +1252,143 @@ export default function MainScreen() {
           marginTop: 14,
           textAlign: "center",
         },
-        sheetHero: {
+        profilePanel: {
+          alignItems: "center",
           backgroundColor: "rgba(255,255,255,0.06)",
           borderRadius: 22,
-          marginBottom: 18,
-          padding: 18,
+          flexDirection: "row",
+          gap: 14,
+          marginBottom: 12,
+          padding: 14,
         },
-        sheetHeroTitle: {
+        profileSheetAvatar: {
+          borderColor: "rgba(255,255,255,0.1)",
+          borderRadius: 27,
+          borderWidth: 1,
+          height: 54,
+          width: 54,
+        },
+        profileIdentity: {
+          flex: 1,
+          minWidth: 0,
+        },
+        profileRoleLine: {
+          alignItems: "center",
+          flexDirection: "row",
+          gap: 8,
+          marginBottom: 3,
+        },
+        profileRoleText: {
+          color: "rgba(255,255,255,0.56)",
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          letterSpacing: -0.2,
+        },
+        profileBadge: {
+          backgroundColor: "rgba(250,204,21,0.12)",
+          borderRadius: 999,
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+        },
+        profileBadgeText: {
+          color: colors.accentGold,
+          fontFamily: omaTypography.bold,
+          fontSize: 10,
+          letterSpacing: 0.5,
+          textTransform: "uppercase",
+        },
+        profileName: {
+          color: "#ffffff",
+          fontFamily: omaTypography.bold,
+          fontSize: 19,
+          letterSpacing: -0.55,
+          lineHeight: 23,
+        },
+        profileCaption: {
+          color: "rgba(255,255,255,0.52)",
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          letterSpacing: -0.2,
+          lineHeight: 18,
+          marginTop: 3,
+        },
+        profileMetaGrid: {
+          backgroundColor: "rgba(255,255,255,0.05)",
+          borderRadius: 18,
+          flexDirection: "row",
+          marginBottom: 14,
+          overflow: "hidden",
+        },
+        profileMetaItem: {
+          flex: 1,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+        },
+        profileMetaDivider: {
+          borderLeftColor: "rgba(255,255,255,0.07)",
+          borderLeftWidth: 1,
+        },
+        profileMetaLabel: {
+          color: "rgba(255,255,255,0.4)",
+          fontFamily: omaTypography.bold,
+          fontSize: 10,
+          letterSpacing: 0.7,
+          marginBottom: 5,
+          textTransform: "uppercase",
+        },
+        profileMetaValue: {
           color: "#ffffff",
           fontFamily: omaTypography.bold,
           fontSize: 17,
-          marginBottom: 4,
+          letterSpacing: -0.35,
+          lineHeight: 21,
         },
-        sheetHeroBody: {
-          color: "rgba(255,255,255,0.6)",
-          fontFamily: omaTypography.medium,
-          fontSize: 13,
-          lineHeight: 18,
+        actionList: {
+          backgroundColor: "rgba(255,255,255,0.05)",
+          borderRadius: 22,
+          overflow: "hidden",
         },
         actionRow: {
           alignItems: "center",
-          backgroundColor: "rgba(255,255,255,0.06)",
-          borderRadius: 18,
+          borderBottomColor: "rgba(255,255,255,0.07)",
+          borderBottomWidth: 1,
           flexDirection: "row",
           gap: 12,
-          marginBottom: 10,
+          minHeight: 66,
           paddingHorizontal: 14,
-          paddingVertical: 14,
+          paddingVertical: 12,
+        },
+        actionRowLast: {
+          borderBottomWidth: 0,
+        },
+        actionIconWrap: {
+          alignItems: "center",
+          borderRadius: 18,
+          height: 36,
+          justifyContent: "center",
+          width: 36,
+        },
+        actionTextWrap: {
+          flex: 1,
+          minWidth: 0,
         },
         actionLabel: {
           color: "#ffffff",
-          flex: 1,
           fontFamily: omaTypography.semibold,
-          fontSize: 14,
+          fontSize: 15,
+          letterSpacing: -0.25,
+          lineHeight: 19,
+          marginBottom: 2,
+        },
+        actionDescription: {
+          color: "rgba(255,255,255,0.48)",
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          letterSpacing: -0.2,
+          lineHeight: 18,
+        },
+        actionDangerLabel: {
+          color: colors.accentRed,
         },
         notificationCard: {
           alignItems: "center",
@@ -1454,6 +1558,8 @@ export default function MainScreen() {
       >
         <View style={styles.header}>
           <TouchableOpacity
+            accessibilityLabel="Open profile"
+            accessibilityRole="button"
             activeOpacity={0.86}
             onPress={() => setActiveOverlay("profile")}
             style={styles.profileButton}
@@ -1934,85 +2040,140 @@ export default function MainScreen() {
       <OmaBottomSheet
         maxHeight="58%"
         onClose={() => setActiveOverlay(null)}
-        subtitle="Workspace controls and quick exits."
-        title="Workspace"
+        subtitle="Account and workspace shortcuts."
+        title="Profile"
         visible={activeOverlay === "profile"}
       >
-        <View style={styles.sheetHero}>
-          <Text style={styles.sheetHeroTitle}>{displayName}</Text>
-          <Text style={styles.sheetHeroBody}>
-            {displayRole} session using the redesigned OMA workspace.
-          </Text>
+        <View style={styles.profilePanel}>
+          <Image
+            source={{ uri: "https://i.pravatar.cc/150?img=11" }}
+            style={styles.profileSheetAvatar}
+          />
+          <View style={styles.profileIdentity}>
+            <View style={styles.profileRoleLine}>
+              <Text style={styles.profileRoleText}>{displayRole}</Text>
+              {userRole === "Manager" ? (
+                <View style={styles.profileBadge}>
+                  <Text style={styles.profileBadgeText}>Owner exclusive</Text>
+                </View>
+              ) : null}
+            </View>
+            <Text numberOfLines={1} style={styles.profileName}>
+              {displayName}
+            </Text>
+            <Text numberOfLines={1} style={styles.profileCaption}>
+              Live OMA workspace session
+            </Text>
+          </View>
         </View>
 
-        {[
-          {
-            id: "analytics",
-            label: "Open analytics",
-            icon: "stats-chart-outline" as const,
-            hidden: userRole !== "Manager",
-            onPress: () => {
-              setActiveOverlay(null);
-              router.push("/(app)/analytics");
+        <View style={styles.profileMetaGrid}>
+          <View style={styles.profileMetaItem}>
+            <Text style={styles.profileMetaLabel}>Approvals</Text>
+            <Text style={styles.profileMetaValue}>
+              {payload.pendingApprovals}
+            </Text>
+          </View>
+          <View style={[styles.profileMetaItem, styles.profileMetaDivider]}>
+            <Text style={styles.profileMetaLabel}>Dispatch</Text>
+            <Text style={styles.profileMetaValue}>
+              {payload.pendingDispatches}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.actionList}>
+          {[
+            {
+              id: "analytics",
+              label: "Analytics",
+              description: "Owner command center",
+              icon: "stats-chart-outline" as const,
+              color: colors.accentGold,
+              hidden: userRole !== "Manager",
+              onPress: () => {
+                setActiveOverlay(null);
+                router.push("/(app)/analytics");
+              },
             },
-          },
-          {
-            id: "customers",
-            label: "Open clients",
-            icon: "people-outline" as const,
-            hidden: false,
-            onPress: () => {
-              setActiveOverlay(null);
-              router.push("/(app)/customers");
+            {
+              id: "customers",
+              label: "Clients",
+              description: "Customer accounts and balances",
+              icon: "people-outline" as const,
+              color: colors.accentSky,
+              hidden: false,
+              onPress: () => {
+                setActiveOverlay(null);
+                router.push("/(app)/customers");
+              },
             },
-          },
-          {
-            id: "theme",
-            label: isDark ? "Switch to light mode" : "Switch to dark mode",
-            icon: isDark ? "sunny-outline" : "moon-outline",
-            hidden: false,
-            onPress: () => {
-              toggleTheme();
-              setActiveOverlay(null);
+            {
+              id: "logout",
+              label: "Sign out",
+              description: "Return to the demo login",
+              icon: "log-out-outline" as const,
+              color: colors.accentRed,
+              hidden: false,
+              danger: true,
+              onPress: async () => {
+                setActiveOverlay(null);
+                await AsyncStorage.multiRemove([
+                  "userRole",
+                  "username",
+                  "lastLogin",
+                ]);
+                router.replace("/(auth)/login");
+              },
             },
-          },
-          {
-            id: "logout",
-            label: "Sign out",
-            icon: "log-out-outline" as const,
-            hidden: false,
-            onPress: async () => {
-              setActiveOverlay(null);
-              await AsyncStorage.multiRemove([
-                "userRole",
-                "username",
-                "lastLogin",
-              ]);
-              router.replace("/(auth)/login");
-            },
-          },
-        ]
-          .filter((action) => !action.hidden)
-          .map((action) => (
-            <TouchableOpacity
-              activeOpacity={0.86}
-              key={action.id}
-              onPress={action.onPress}
-              style={styles.actionRow}
-            >
-              <Ionicons
-                color="#ffffff"
-                name={action.icon as keyof typeof Ionicons.glyphMap}
-                size={16}
-              />
-              <Text style={styles.actionLabel}>{action.label}</Text>
-              <Ionicons
-                color="rgba(255,255,255,0.34)"
-                name="chevron-forward"
-                size={16}
-              />
-            </TouchableOpacity>
-          ))}
+          ]
+            .filter((action) => !action.hidden)
+            .map((action, index, actions) => (
+              <TouchableOpacity
+                accessibilityLabel={action.label}
+                accessibilityRole="button"
+                activeOpacity={0.86}
+                key={action.id}
+                onPress={action.onPress}
+                style={[
+                  styles.actionRow,
+                  index === actions.length - 1 && styles.actionRowLast,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.actionIconWrap,
+                    { backgroundColor: `${action.color}20` },
+                  ]}
+                >
+                  <Ionicons
+                    color={action.color}
+                    name={action.icon as keyof typeof Ionicons.glyphMap}
+                    size={17}
+                  />
+                </View>
+                <View style={styles.actionTextWrap}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.actionLabel,
+                      action.danger && styles.actionDangerLabel,
+                    ]}
+                  >
+                    {action.label}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.actionDescription}>
+                    {action.description}
+                  </Text>
+                </View>
+                <Ionicons
+                  color="rgba(255,255,255,0.34)"
+                  name="chevron-forward"
+                  size={16}
+                />
+              </TouchableOpacity>
+            ))}
+        </View>
       </OmaBottomSheet>
     </View>
   );
