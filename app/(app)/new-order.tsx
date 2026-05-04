@@ -3299,7 +3299,8 @@ const NewSalesOrderScreen = () => {
         >
           <Ionicons
             name="add-circle-outline"
-            size={18}
+            size={20}
+            strokeWidth={2.5}
             color={isDark ? colors.background : "#ffffff"}
           />
           <Text style={styles.addLineButtonText}>{addLineButtonLabel}</Text>
