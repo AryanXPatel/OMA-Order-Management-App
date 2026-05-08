@@ -1,0 +1,1155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OMA Order Management App Poster - 30 x 56 in</title>
+  <style>
+    @page {
+      size: 30in 56in;
+      margin: 0;
+    }
+
+    :root {
+      --ink: #1d1d1f;
+      --graphite: #707070;
+      --slate: #474747;
+      --ash: #333333;
+      --fog: #f5f5f7;
+      --snow: #ffffff;
+      --obsidian: #000000;
+      --silver-mist: #e8e8ed;
+      --azure: #0071e3;
+      --cobalt-link: #0066cc;
+      --citrus-gradient: #dddc8c;
+      --indigo-gradient: #2535e2;
+      --blush-gradient: #cc29bc;
+      --citrus-finish: #dddc8c;
+      --blush-finish: #e8d0d0;
+      --indigo-finish: #596680;
+      --caution: #b64400;
+      --college-blue: #13558c;
+      --green: #06a75a;
+      --teal: #008b91;
+      --amber: #f6a900;
+      --purple: #4b22b8;
+      --rose: #d32264;
+      --orange: #f05a24;
+      --display: "SF Pro Display", "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      --text: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      --rule: rgba(19, 85, 140, 0.2);
+      --shadow: 0 18px 48px rgba(13, 36, 64, 0.14);
+      --hard-shadow: 0 30px 80px rgba(0, 0, 0, 0.26);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 30in;
+      height: 56in;
+      margin: 0;
+      overflow: hidden;
+      background: #dfe5ee;
+      color: var(--ink);
+      font-family: var(--text);
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .poster {
+      position: relative;
+      width: 30in;
+      height: 56in;
+      overflow: hidden;
+      padding: 40px 52px;
+      display: grid;
+      grid-template-rows: 350px 1030px 2440px 1060px 344px;
+      gap: 18px;
+      background:
+        radial-gradient(circle at 7% 13%, rgba(0, 113, 227, 0.16), transparent 18%),
+        radial-gradient(circle at 88% 8%, rgba(204, 41, 188, 0.11), transparent 20%),
+        linear-gradient(180deg, #f8fbff 0%, #eef5ff 41%, #ffffff 67%, #f8fbff 100%);
+      border: 1px solid rgba(19, 85, 140, 0.28);
+    }
+
+    .poster::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(0, 113, 227, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 113, 227, 0.045) 1px, transparent 1px);
+      background-size: 96px 96px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.65), transparent 58%);
+    }
+
+    .poster > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .top {
+      display: grid;
+      grid-template-rows: 210px 68px 52px;
+      gap: 10px;
+    }
+
+    .top-panel {
+      display: grid;
+      grid-template-columns: 1.2fr 1.18fr 1.2fr;
+      align-items: center;
+      padding: 18px 32px;
+      border: 2px solid rgba(19, 85, 140, 0.24);
+      border-radius: 26px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: var(--shadow);
+    }
+
+    .brand-lockup {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      min-width: 0;
+    }
+
+    .brand-lockup.right {
+      justify-content: flex-end;
+      text-align: right;
+    }
+
+    .logo-img {
+      width: 116px;
+      height: 116px;
+      flex: 0 0 116px;
+      object-fit: contain;
+      border-radius: 16px;
+    }
+
+    .gtu-logo {
+      width: 122px;
+      height: 122px;
+    }
+
+    .sal-logo {
+      width: 354px;
+      height: 132px;
+      object-fit: contain;
+      justify-self: center;
+    }
+
+    .brand-title {
+      color: var(--ink);
+      font-family: var(--display);
+      font-size: 25px;
+      line-height: 1.08;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.012em;
+    }
+
+    .brand-title small {
+      display: block;
+      margin-top: 8px;
+      color: var(--graphite);
+      font-size: 18px;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+    }
+
+    .college-band {
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #0c4373, #1d649b 50%, #0c4373);
+      color: #fff;
+      font-family: var(--display);
+      font-size: 41px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      box-shadow: 0 12px 28px rgba(12, 67, 115, 0.19);
+    }
+
+    .poster-line {
+      display: grid;
+      place-items: center;
+      color: #285d8b;
+      font-family: var(--display);
+      font-size: 36px;
+      line-height: 1;
+      font-weight: 850;
+      letter-spacing: 0.045em;
+      text-decoration: underline;
+      text-underline-offset: 9px;
+      text-decoration-thickness: 3px;
+      text-transform: uppercase;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 0.92fr 1.45fr;
+      gap: 22px;
+    }
+
+    .hero-title {
+      position: relative;
+      overflow: hidden;
+      padding: 52px 54px;
+      border-radius: 34px;
+      color: #fff;
+      background:
+        radial-gradient(circle at 85% 18%, rgba(0, 113, 227, 0.55), transparent 35%),
+        radial-gradient(circle at 3% 93%, rgba(221, 220, 140, 0.22), transparent 35%),
+        linear-gradient(135deg, #05070e 0%, #07152d 54%, #111827 100%);
+      border: 2px solid rgba(255, 255, 255, 0.12);
+      box-shadow: var(--hard-shadow);
+    }
+
+    .hero-title::after {
+      content: "";
+      position: absolute;
+      right: -180px;
+      bottom: -220px;
+      width: 560px;
+      height: 560px;
+      border-radius: 50%;
+      border: 74px solid rgba(0, 113, 227, 0.12);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      height: 56px;
+      padding: 0 28px;
+      border-radius: 999px;
+      background: var(--azure);
+      color: #fff;
+      font-size: 25px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      position: relative;
+      z-index: 1;
+      margin: 52px 0 0;
+      max-width: 830px;
+      color: #fff;
+      font-family: var(--display);
+      font-size: 96px;
+      line-height: 0.96;
+      font-weight: 900;
+      letter-spacing: -0.025em;
+    }
+
+    .hero-kicker {
+      position: relative;
+      z-index: 1;
+      max-width: 760px;
+      margin: 34px 0 0;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 36px;
+      line-height: 1.16;
+      font-weight: 520;
+    }
+
+    .hero-stats {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 52px;
+    }
+
+    .stat {
+      min-height: 136px;
+      padding: 23px 24px;
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      backdrop-filter: blur(10px);
+    }
+
+    .stat b {
+      display: block;
+      color: #fff;
+      font-size: 34px;
+      line-height: 1;
+      font-weight: 900;
+    }
+
+    .stat span {
+      display: block;
+      margin-top: 12px;
+      color: rgba(255, 255, 255, 0.66);
+      font-size: 18px;
+      line-height: 1.12;
+      font-weight: 850;
+      letter-spacing: 0.075em;
+      text-transform: uppercase;
+    }
+
+    .hero-screen {
+      position: relative;
+      overflow: hidden;
+      border-radius: 34px;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.97), rgba(245, 245, 247, 0.86)),
+        radial-gradient(circle at 50% 50%, rgba(0, 113, 227, 0.13), transparent 45%);
+      border: 1px solid rgba(29, 29, 31, 0.1);
+      box-shadow: var(--shadow);
+    }
+
+    .screen-stage {
+      position: absolute;
+      inset: 62px 54px;
+      border-radius: 58px;
+      background: linear-gradient(135deg, #070707, #1a1b20);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 38px 80px rgba(0, 0, 0, 0.26);
+    }
+
+    .phone-wall {
+      position: absolute;
+      inset: 98px 74px 96px;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 26px;
+      align-items: end;
+    }
+
+    .phone {
+      position: relative;
+      height: 710px;
+      padding: 12px;
+      border-radius: 42px;
+      background: linear-gradient(180deg, #050505, #25262b);
+      box-shadow: 0 30px 58px rgba(0, 0, 0, 0.42);
+    }
+
+    .phone:nth-child(2),
+    .phone:nth-child(4) {
+      transform: translateY(-34px);
+    }
+
+    .phone img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+      border-radius: 31px;
+    }
+
+    .phone figcaption {
+      position: absolute;
+      left: 50%;
+      bottom: -46px;
+      transform: translateX(-50%);
+      min-width: 150px;
+      padding: 11px 18px 12px;
+      border-radius: 999px;
+      color: #fff;
+      background: var(--azure);
+      font-size: 19px;
+      line-height: 1;
+      font-weight: 900;
+      text-align: center;
+      box-shadow: 0 13px 28px rgba(0, 113, 227, 0.36);
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 500px 620px 1284px;
+      gap: 18px;
+    }
+
+    .panel {
+      position: relative;
+      overflow: hidden;
+      padding: 92px 34px 30px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.96);
+      border: 2px solid rgba(19, 85, 140, 0.18);
+      box-shadow: var(--shadow);
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.88), transparent 46%);
+    }
+
+    .panel > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .panel.workflow-panel {
+      grid-column: 1 / -1;
+      padding-top: 105px;
+    }
+
+    .panel-title {
+      position: absolute;
+      top: 18px;
+      left: 34px;
+      right: 34px;
+      height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 17px;
+      padding: 0 28px 0 76px;
+      border-radius: 999px;
+      color: #fff;
+      background: linear-gradient(90deg, var(--college-blue), var(--azure));
+      box-shadow: 0 16px 34px rgba(0, 113, 227, 0.21);
+    }
+
+    .panel-title.green {
+      background: linear-gradient(90deg, #007b51, #12b465);
+    }
+
+    .panel-title.amber {
+      background: linear-gradient(90deg, #c66a00, #f6a900);
+    }
+
+    .panel-title.purple {
+      background: linear-gradient(90deg, #32128f, #6026d9);
+    }
+
+    .panel-title.teal {
+      background: linear-gradient(90deg, #005f76, #00a5ac);
+    }
+
+    .panel-title.rose {
+      background: linear-gradient(90deg, #9c1745, #d32264);
+    }
+
+    .badge-icon {
+      position: absolute;
+      left: -8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 76px;
+      height: 76px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: inherit;
+      border: 6px solid #fff;
+      box-shadow: 0 16px 30px rgba(0, 0, 0, 0.18);
+    }
+
+    .badge-icon svg {
+      width: 40px;
+      height: 40px;
+      stroke-width: 2.6;
+    }
+
+    h2 {
+      margin: 0;
+      color: #fff;
+      font-family: var(--display);
+      font-size: 34px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0.035em;
+      text-transform: uppercase;
+    }
+
+    p {
+      margin: 0;
+      color: var(--ash);
+      font-size: 28px;
+      line-height: 1.28;
+      font-weight: 560;
+      letter-spacing: -0.003em;
+    }
+
+    p + p {
+      margin-top: 16px;
+    }
+
+    ul,
+    ol {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    li {
+      color: var(--ash);
+      font-size: 27px;
+      line-height: 1.24;
+      font-weight: 560;
+    }
+
+    .check-list li,
+    .dot-list li {
+      position: relative;
+      padding-left: 42px;
+      margin-bottom: 16px;
+    }
+
+    .dot-list li::before {
+      content: "";
+      position: absolute;
+      left: 6px;
+      top: 13px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--azure);
+      box-shadow: 0 0 0 6px rgba(0, 113, 227, 0.12);
+    }
+
+    .check-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 4px;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 8px 18px rgba(6, 167, 90, 0.18);
+    }
+
+    .check-list li::after {
+      content: "";
+      position: absolute;
+      left: 8px;
+      top: 12px;
+      width: 13px;
+      height: 7px;
+      border-left: 4px solid #fff;
+      border-bottom: 4px solid #fff;
+      transform: rotate(-45deg);
+    }
+
+    .stack-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .stack-row {
+      display: grid;
+      grid-template-columns: 58px 1fr;
+      gap: 16px;
+      min-height: 112px;
+      align-items: center;
+      padding: 18px 20px;
+      border-radius: 20px;
+      background: var(--fog);
+      border: 1px solid rgba(19, 85, 140, 0.13);
+    }
+
+    .stack-row svg,
+    .module svg {
+      width: 42px;
+      height: 42px;
+      color: var(--azure);
+      stroke-width: 2.4;
+    }
+
+    .stack-row b,
+    .module b {
+      display: block;
+      color: var(--ink);
+      font-family: var(--display);
+      font-size: 25px;
+      line-height: 1.05;
+      font-weight: 900;
+    }
+
+    .stack-row span,
+    .module span {
+      display: block;
+      margin-top: 7px;
+      color: var(--graphite);
+      font-size: 20px;
+      line-height: 1.18;
+      font-weight: 650;
+    }
+
+    .module-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .module {
+      min-height: 228px;
+      padding: 24px 22px;
+      border-radius: 22px;
+      background: linear-gradient(180deg, #fff, #f4f7fb);
+      border: 1px solid rgba(19, 85, 140, 0.15);
+    }
+
+    .module .icon-chip {
+      width: 64px;
+      height: 64px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 18px;
+      border-radius: 18px;
+      background: rgba(0, 113, 227, 0.1);
+      color: var(--azure);
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 20px;
+      height: 1060px;
+      align-items: stretch;
+    }
+
+    .flow-card {
+      position: relative;
+      display: grid;
+      grid-template-rows: 372px 1fr;
+      padding: 26px 18px 22px;
+      border-radius: 28px;
+      background: linear-gradient(180deg, #ffffff, #f7fbff);
+      border: 2px solid rgba(0, 113, 227, 0.16);
+      text-align: center;
+      box-shadow: 0 12px 28px rgba(13, 36, 64, 0.06);
+    }
+
+    .flow-card:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      right: -24px;
+      top: 250px;
+      width: 40px;
+      height: 24px;
+      background: linear-gradient(90deg, var(--azure), var(--college-blue));
+      clip-path: polygon(0 30%, 64% 30%, 64% 0, 100% 50%, 64% 100%, 64% 70%, 0 70%);
+      z-index: 3;
+    }
+
+    .flow-thumb {
+      position: relative;
+      width: 166px;
+      height: 348px;
+      margin: 0 auto;
+      padding: 8px;
+      border-radius: 33px;
+      background: linear-gradient(180deg, #050505, #28292e);
+      box-shadow: 0 20px 34px rgba(0, 0, 0, 0.27);
+    }
+
+    .flow-thumb img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 25px;
+    }
+
+    .flow-card b {
+      display: block;
+      color: var(--ink);
+      font-family: var(--display);
+      font-size: 24px;
+      line-height: 1.08;
+      font-weight: 900;
+    }
+
+    .flow-card span {
+      display: block;
+      margin-top: 14px;
+      color: var(--graphite);
+      font-size: 19px;
+      line-height: 1.18;
+      font-weight: 650;
+    }
+
+    .lower {
+      display: grid;
+      grid-template-columns: 1.28fr 0.82fr;
+      gap: 18px;
+    }
+
+    .prototype {
+      overflow: hidden;
+      padding: 30px;
+      border-radius: 30px;
+      color: #fff;
+      background:
+        radial-gradient(circle at 18% 18%, rgba(0, 113, 227, 0.46), transparent 32%),
+        radial-gradient(circle at 88% 70%, rgba(221, 220, 140, 0.16), transparent 30%),
+        linear-gradient(135deg, #05070d, #101827 58%, #0a0d12);
+      box-shadow: var(--hard-shadow);
+      border: 2px solid rgba(255, 255, 255, 0.11);
+    }
+
+    .proto-title {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      color: #fff;
+      font-family: var(--display);
+      font-size: 38px;
+      line-height: 1;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.035em;
+    }
+
+    .proto-title .badge-icon {
+      position: static;
+      transform: none;
+      flex: 0 0 auto;
+      width: 76px;
+      height: 76px;
+      background: linear-gradient(135deg, var(--college-blue), var(--azure));
+    }
+
+    .proto-phones {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 18px;
+      align-items: end;
+      margin-top: 30px;
+    }
+
+    .proto-phone {
+      position: relative;
+      height: 782px;
+      padding: 10px;
+      border-radius: 38px;
+      background: linear-gradient(180deg, #000, #2a2b31);
+      box-shadow: 0 24px 44px rgba(0, 0, 0, 0.46);
+    }
+
+    .proto-phone:nth-child(2),
+    .proto-phone:nth-child(5) {
+      transform: translateY(-26px);
+    }
+
+    .proto-phone img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 28px;
+    }
+
+    .side-stack {
+      display: grid;
+      grid-template-rows: 1fr 1fr 1fr;
+      gap: 18px;
+    }
+
+    .mini-panel {
+      position: relative;
+      padding: 82px 28px 25px;
+      border-radius: 28px;
+      background: rgba(255, 255, 255, 0.96);
+      border: 2px solid rgba(19, 85, 140, 0.18);
+      box-shadow: var(--shadow);
+    }
+
+    .mini-panel .panel-title {
+      left: 28px;
+      right: 28px;
+      top: 18px;
+      height: 54px;
+    }
+
+    .mini-panel .panel-title h2 {
+      font-size: 28px;
+    }
+
+    .mini-panel li {
+      font-size: 23px;
+      margin-bottom: 12px;
+      line-height: 1.18;
+    }
+
+    .mini-panel p {
+      font-size: 24px;
+      line-height: 1.22;
+      font-weight: 600;
+    }
+
+    .references {
+      columns: 2;
+      column-gap: 28px;
+      counter-reset: refs;
+    }
+
+    .references li {
+      position: relative;
+      break-inside: avoid;
+      padding-left: 34px;
+      color: var(--ash);
+      font-size: 20px;
+      margin-bottom: 9px;
+    }
+
+    .references li::before {
+      counter-increment: refs;
+      content: counter(refs) ".";
+      position: absolute;
+      left: 0;
+      color: var(--azure);
+      font-weight: 900;
+    }
+
+    .footer {
+      display: grid;
+      grid-template-columns: 1.55fr 0.72fr 0.72fr 0.82fr 0.6fr;
+      gap: 0;
+      overflow: hidden;
+      border-radius: 26px;
+      background: linear-gradient(135deg, #061229, #08295a 60%, #061229);
+      border: 2px solid rgba(255, 255, 255, 0.14);
+      box-shadow: var(--hard-shadow);
+      color: #fff;
+    }
+
+    .foot-cell {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: 16px;
+      align-items: center;
+      padding: 26px 28px;
+      border-right: 1px solid rgba(255, 255, 255, 0.16);
+    }
+
+    .foot-cell:last-child {
+      border-right: 0;
+    }
+
+    .foot-icon {
+      width: 72px;
+      height: 72px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--azure);
+      color: #fff;
+    }
+
+    .foot-icon svg {
+      width: 38px;
+      height: 38px;
+      stroke-width: 2.4;
+    }
+
+    .foot-label {
+      color: var(--citrus-finish);
+      font-family: var(--display);
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .foot-value {
+      margin-top: 10px;
+      color: #fff;
+      font-size: 22px;
+      line-height: 1.18;
+      font-weight: 700;
+    }
+
+    .student-list {
+      columns: 2;
+      column-gap: 24px;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    svg {
+      display: block;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    figure {
+      margin: 0;
+    }
+
+    @media print {
+      html,
+      body {
+        background: #fff;
+      }
+
+      .poster {
+        border: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="poster" aria-label="OMA order management app 30 by 56 inch poster">
+    <header class="top" aria-label="Institution header">
+      <div class="top-panel">
+        <div class="brand-lockup">
+          <img class="logo-img" src="iste.png" alt="ISTE logo">
+          <div class="brand-title">Indian Society for Technical Education<small>Student Chapter</small></div>
+        </div>
+        <img class="sal-logo" src="sal.jpg" alt="SAL Education logo">
+        <div class="brand-lockup right">
+          <div class="brand-title">Gujarat Technological University<small>Affiliated Institute</small></div>
+          <img class="logo-img gtu-logo" src="gtu.jpg" alt="GTU logo">
+        </div>
+      </div>
+      <div class="college-band">SAL College of Engineering</div>
+      <div class="poster-line">Poster Presentation 2026</div>
+    </header>
+
+    <section class="hero">
+      <div class="hero-title">
+        <span class="eyebrow">OMA</span>
+        <h1>React Native Order &amp; Sales Management App</h1>
+        <p class="hero-kicker">Mobile-first workflow for orders, approvals, dispatch, customer ledgers, and live business analytics.</p>
+        <div class="hero-stats">
+          <div class="stat"><b>60 sec</b><span>Target order creation</span></div>
+          <div class="stat"><b>&lt; 2 min</b><span>Approval handoff</span></div>
+          <div class="stat"><b>1 app</b><span>Sales to warehouse loop</span></div>
+        </div>
+      </div>
+
+      <div class="hero-screen" aria-label="Large OMA app screen showcase">
+        <div class="screen-stage"></div>
+        <div class="phone-wall">
+          <figure class="phone">
+            <img src="assets/dashboard.png" alt="OMA dashboard mobile screen">
+            <figcaption>Dashboard</figcaption>
+          </figure>
+          <figure class="phone">
+            <img src="assets/orders.png" alt="OMA orders mobile screen">
+            <figcaption>Orders</figcaption>
+          </figure>
+          <figure class="phone">
+            <img src="assets/clients.png" alt="OMA clients mobile screen">
+            <figcaption>Clients</figcaption>
+          </figure>
+          <figure class="phone">
+            <img src="assets/analytics-ar.png" alt="OMA analytics mobile screen">
+            <figcaption>Analytics</figcaption>
+          </figure>
+          <figure class="phone">
+            <img src="assets/dispatch.png" alt="OMA dispatch mobile screen">
+            <figcaption>Dispatch</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="info-grid" aria-label="Poster details">
+      <article class="panel">
+        <div class="panel-title">
+          <span class="badge-icon">
+            <svg viewBox="0 0 24 24"><path d="M4 19.5V5a2 2 0 0 1 2-2h11v18H6a2 2 0 0 1-2-1.5Z"/><path d="M8 7h5"/><path d="M8 11h6"/><path d="M8 15h4"/></svg>
+          </span>
+          <h2>Abstract</h2>
+        </div>
+        <p>OMA is a React Native mobile application that modernizes the order lifecycle for distributors and wholesalers. It replaces notebook-to-desktop workflows with mobile order creation, manager approvals, dispatch tracking, customer ledger visibility, and real-time analytics.</p>
+        <p>The project shows how one shared mobile workspace can connect sales representatives, managers, and warehouse teams in a faster operating loop.</p>
+      </article>
+
+      <article class="panel">
+        <div class="panel-title green">
+          <span class="badge-icon">
+            <svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/><path d="M21 12a9 9 0 1 1-2.64-6.36"/></svg>
+          </span>
+          <h2>Objectives</h2>
+        </div>
+        <ul class="check-list">
+          <li>Digitize and automate field order creation.</li>
+          <li>Provide embedded customer ledger and credit visibility.</li>
+          <li>Support approval, recheck, dispatch, and fulfillment workflows.</li>
+          <li>Enable real-time order status tracking across roles.</li>
+          <li>Improve coordination between sales, managers, and warehouse users.</li>
+        </ul>
+      </article>
+
+      <article class="panel">
+        <div class="panel-title amber">
+          <span class="badge-icon">
+            <svg viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="m10.29 3.86-8.3 14.5A2 2 0 0 0 3.73 21h16.54a2 2 0 0 0 1.74-2.64l-8.3-14.5a2 2 0 0 0-3.42 0Z"/></svg>
+          </span>
+          <h2>Problem / Introduction</h2>
+        </div>
+        <ul class="dot-list">
+          <li>Sales representatives often record orders manually and re-enter them later.</li>
+          <li>Managers need customer risk, ledger exposure, and terms before approval.</li>
+          <li>Warehouse teams rely on delayed updates for dispatch readiness.</li>
+          <li>Existing workflows lack real-time visibility into approvals and receivables.</li>
+        </ul>
+        <p>OMA solves these bottlenecks through a connected mobile workflow for create, review, fulfill, and analyze operations.</p>
+      </article>
+
+      <article class="panel">
+        <div class="panel-title purple">
+          <span class="badge-icon">
+            <svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+          </span>
+          <h2>Technology Stack</h2>
+        </div>
+        <div class="stack-grid">
+          <div class="stack-row">
+            <svg viewBox="0 0 24 24"><path d="M18 16.5 22 12l-4-4.5"/><path d="M6 7.5 2 12l4 4.5"/><path d="m14 4-4 16"/></svg>
+            <div><b>Frontend</b><span>React Native, Expo, TypeScript, Expo Router</span></div>
+          </div>
+          <div class="stack-row">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8"/><path d="M12 18v2"/></svg>
+            <div><b>Backend</b><span>Node.js, Express.js, REST APIs</span></div>
+          </div>
+          <div class="stack-row">
+            <svg viewBox="0 0 24 24"><path d="M3 7h18"/><path d="M3 12h18"/><path d="M3 17h18"/><path d="M7 3v18"/></svg>
+            <div><b>Cloud Data</b><span>Google Sheets API and workbook tabs</span></div>
+          </div>
+          <div class="stack-row">
+            <svg viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3v8Z"/><path d="m9 12 2 2 4-4"/></svg>
+            <div><b>Security</b><span>Role-based demo login and JWT-ready APIs</span></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel workflow-panel">
+        <div class="panel-title teal">
+          <span class="badge-icon">
+            <svg viewBox="0 0 24 24"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+          </span>
+          <h2>Workflow / Process Flow Chart</h2>
+        </div>
+        <div class="flow">
+          <div class="flow-card">
+            <span class="flow-thumb"><img src="assets/select-client.png" alt="Select client workflow screen"></span>
+            <div><b>Create Order</b><span>Capture customer, products, quantities, and notes.</span></div>
+          </div>
+          <div class="flow-card">
+            <span class="flow-thumb"><img src="assets/orders.png" alt="Orders workflow screen"></span>
+            <div><b>Submit</b><span>Send the order for manager review.</span></div>
+          </div>
+          <div class="flow-card">
+            <span class="flow-thumb"><img src="assets/clients.png" alt="Client review workflow screen"></span>
+            <div><b>Manager Review</b><span>Check value, credit, ledger, and terms.</span></div>
+          </div>
+          <div class="flow-card">
+            <span class="flow-thumb"><img src="assets/approvals.png" alt="Approvals workflow screen"></span>
+            <div><b>Approve / Recheck</b><span>Approve fulfillment or request changes.</span></div>
+          </div>
+          <div class="flow-card">
+            <span class="flow-thumb"><img src="assets/dashboard.png" alt="Dashboard workflow screen"></span>
+            <div><b>Warehouse</b><span>Pick, pack, and prepare approved items.</span></div>
+          </div>
+          <div class="flow-card">
+            <span class="flow-thumb"><img src="assets/dispatch.png" alt="Dispatch workflow screen"></span>
+            <div><b>Dispatch</b><span>Ship order and update fulfillment status.</span></div>
+          </div>
+          <div class="flow-card">
+            <span class="flow-thumb"><img src="assets/analytics-ar.png" alt="Analytics workflow screen"></span>
+            <div><b>Analytics</b><span>Monitor revenue, receivables, alerts, and status.</span></div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="lower" aria-label="Prototype and outcome">
+      <article class="prototype">
+        <div class="proto-title">
+          <span class="badge-icon"><svg viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg></span>
+          Prototype Showcase
+        </div>
+        <div class="proto-phones">
+          <figure class="proto-phone"><img src="assets/login.png" alt="Login prototype"></figure>
+          <figure class="proto-phone"><img src="assets/select-client.png" alt="Select client prototype"></figure>
+          <figure class="proto-phone"><img src="assets/notifications.png" alt="Notifications prototype"></figure>
+          <figure class="proto-phone"><img src="assets/analytics-qtd.png" alt="Analytics prototype"></figure>
+          <figure class="proto-phone"><img src="assets/profile.png" alt="Profile prototype"></figure>
+          <figure class="proto-phone"><img src="assets/approvals.png" alt="Approvals prototype"></figure>
+        </div>
+      </article>
+
+      <div class="side-stack">
+        <article class="mini-panel">
+          <div class="panel-title green">
+            <span class="badge-icon"><svg viewBox="0 0 24 24"><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10v4a5 5 0 0 1-10 0V4Z"/><path d="M5 4H3v3a3 3 0 0 0 3 3h1"/><path d="M19 4h2v3a3 3 0 0 1-3 3h-1"/></svg></span>
+            <h2>Results / Outcome</h2>
+          </div>
+          <ul class="check-list">
+            <li>Order creation target under 60 seconds.</li>
+            <li>Approval workflow target under 2 minutes.</li>
+            <li>Less duplicate entry between sales and dispatch.</li>
+            <li>Clear visibility for managers and workers.</li>
+          </ul>
+        </article>
+        <article class="mini-panel">
+          <div class="panel-title rose">
+            <span class="badge-icon"><svg viewBox="0 0 24 24"><path d="M5 13c0 5 7 9 7 9s7-4 7-9a7 7 0 1 0-14 0Z"/><circle cx="12" cy="13" r="2"/></svg></span>
+            <h2>Conclusion</h2>
+          </div>
+          <p>OMA demonstrates a practical mobile-first approach for order and sales management. It improves speed, transparency, and coordination by connecting creation, approval, dispatch, client records, and analytics in one workflow.</p>
+        </article>
+        <article class="mini-panel">
+          <div class="panel-title amber">
+            <span class="badge-icon"><svg viewBox="0 0 24 24"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09Z"/><path d="m12 15-3-3a22 22 0 0 1 2-6.5A6.5 6.5 0 0 1 18.5 1c.7 2.3.3 4.6-1.1 6.7A22 22 0 0 1 12 15Z"/><path d="m9 12 3 3"/><path d="M14.5 6.5h.01"/></svg></span>
+            <h2>Future Scope</h2>
+          </div>
+          <ul class="dot-list">
+            <li>Offline order capture and synchronization.</li>
+            <li>Push notifications for approvals and dispatch.</li>
+            <li>ERP / Tally / CSV integration pipeline.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="foot-cell">
+        <span class="foot-icon"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-8 0v2"/><circle cx="12" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M2 21v-2a4 4 0 0 1 3-3.87"/></svg></span>
+        <div>
+          <div class="foot-label">Presented By:</div>
+          <div class="foot-value student-list">
+            Patel Aryan Sureshkumar (231130107046)<br>
+            Divy Nileshkumar Patel (231130107050)<br>
+            Padmrajsinh Arjunsinh Barad (231130107036)<br>
+            Smit Avinash Kuhikar (231130107027)<br>
+            Umerrran Khan (231130107066)
+          </div>
+        </div>
+      </div>
+      <div class="foot-cell">
+        <span class="foot-icon"><svg viewBox="0 0 24 24"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c3 2 9 2 12 0v-5"/></svg></span>
+        <div><div class="foot-label">Guided By:</div><div class="foot-value">Prof. Janki Patel</div></div>
+      </div>
+      <div class="foot-cell">
+        <span class="foot-icon"><svg viewBox="0 0 24 24"><path d="M18 20a6 6 0 0 0-12 0"/><circle cx="12" cy="10" r="4"/><path d="M12 2v2"/></svg></span>
+        <div><div class="foot-label">Head of Department:</div><div class="foot-value">Prof. Vijaysinh Jadeja</div></div>
+      </div>
+      <div class="foot-cell">
+        <span class="foot-icon"><svg viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-8h6v8"/></svg></span>
+        <div><div class="foot-label">Department:</div><div class="foot-value">Computer Engineering<br>Academic Year: 2026-2027</div></div>
+      </div>
+      <div class="foot-cell">
+        <span class="foot-icon"><svg viewBox="0 0 24 24"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v18H6a2 2 0 0 1-2-1.5Z"/><path d="M8 7h7"/><path d="M8 11h7"/></svg></span>
+        <div><div class="foot-label">Subject:</div><div class="foot-value">Design Engineering II B<br>3150001</div></div>
+      </div>
+    </footer>
+  </main>
+</body>
+</html>

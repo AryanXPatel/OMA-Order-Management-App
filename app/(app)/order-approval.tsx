@@ -19,7 +19,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Activity as ActivityIcon,
   AlertTriangle,
-  BadgeDollarSign,
   Box,
   CheckCircle2,
   ChevronLeft,
@@ -739,11 +738,11 @@ export default function OrderApprovalScreen() {
                   const isRecheck = order.approvalStatus === "R";
                   const hasNote = Boolean(order.orderComments?.trim());
                   const tone = isRecheck ? RED : hasNote ? AMBER : BLUE;
-                  const reasonTitle = isRecheck
-                    ? "Risk Override Needed"
+                  const statusLabel = isRecheck
+                    ? "Recheck"
                     : hasNote
-                    ? "Manager Follow-Up"
-                    : "Manager Review";
+                    ? "Follow-up"
+                    : "Needs Approval";
 
                   return (
                     <TouchableOpacity
@@ -753,28 +752,24 @@ export default function OrderApprovalScreen() {
                       style={styles.approvalCard}
                     >
                       <View style={styles.approvalHeader}>
-                        <View style={styles.approvalIdentity}>
-                          <View style={[styles.approvalIcon, { backgroundColor: `${tone}22` }]}>
-                            <BadgeDollarSign color={tone} size={18} strokeWidth={2.5} />
-                          </View>
-                          <View style={styles.approvalNameBlock}>
-                            <Text numberOfLines={2} style={styles.approvalName}>
-                              {order.customerName}
-                            </Text>
-                            <Text numberOfLines={1} style={styles.approvalId}>
-                              Order #{formatCompactOrderId(order.orderId)}
-                            </Text>
-                          </View>
+                        <View style={styles.approvalTopLeft}>
+                          <Text style={styles.approvalId}>
+                            #{formatCompactOrderId(order.orderId)}
+                          </Text>
+                          <Text numberOfLines={1} style={[styles.approvalStatus, { color: tone }]}>
+                            • {statusLabel}
+                          </Text>
                         </View>
                         <Text style={styles.approvalAmount}>
-                          ₹{formatIndianNumber(order.totalAmount)}
+                          Rs {formatIndianNumber(order.totalAmount)}
                         </Text>
                       </View>
 
-                      <View style={[styles.reasonBox, { borderColor: `${tone}33` }]}>
-                        <Text style={[styles.reasonTitle, { color: tone }]}>
-                          {reasonTitle}
-                        </Text>
+                      <Text numberOfLines={2} style={styles.approvalName}>
+                        {order.customerName}
+                      </Text>
+
+                      <View style={[styles.reasonBox, { borderLeftColor: tone }]}>
                         <Text numberOfLines={3} style={styles.reasonBody}>
                           {order.orderComments ||
                             `${order.items.length} line${
@@ -844,15 +839,15 @@ export default function OrderApprovalScreen() {
 
                 <View style={styles.profileCard}>
                   <View style={styles.profileAccent} />
-                  <Text style={styles.profileEyebrow}>Live Approval Profile</Text>
-                  <Text numberOfLines={2} style={styles.profileId}>
-                    #{compactSelectedId}
-                  </Text>
+                  <Text style={styles.profileEyebrow}>Approval Snapshot</Text>
                   <Text numberOfLines={2} style={styles.profileCustomer}>
                     {selectedOrder.customerName}
                   </Text>
+                  <Text numberOfLines={1} style={styles.profileId}>
+                    Order #{compactSelectedId}
+                  </Text>
                   <Text style={styles.profileAmount}>
-                    ₹{formatIndianNumber(selectedOrder.totalAmount)}
+                    Rs {formatIndianNumber(selectedOrder.totalAmount)}
                   </Text>
                   <Text style={styles.profileMeta}>
                     {selectedOrder.items.length} line item
@@ -917,13 +912,13 @@ export default function OrderApprovalScreen() {
                         <View style={styles.ledgerMetricRow}>
                           <Text style={styles.ledgerMetricLabel}>Total Credits</Text>
                           <Text style={styles.ledgerMetricValue}>
-                            ₹{customerStats.totalCredit}
+                            Rs {customerStats.totalCredit}
                           </Text>
                         </View>
                         <View style={styles.ledgerMetricRow}>
                           <Text style={styles.ledgerMetricLabel}>Total Debits</Text>
                           <Text style={[styles.ledgerMetricValue, { color: RED }]}>
-                            ₹{customerStats.totalDebit}
+                            Rs {customerStats.totalDebit}
                           </Text>
                         </View>
                         <View style={styles.ledgerMetricRowWarning}>
@@ -932,13 +927,13 @@ export default function OrderApprovalScreen() {
                             <Text style={styles.ledgerMetricLabel}>Requested Order</Text>
                           </View>
                           <Text style={[styles.ledgerMetricValue, { color: AMBER }]}>
-                            + ₹{formatIndianNumber(selectedOrder.totalAmount)}
+                            + Rs {formatIndianNumber(selectedOrder.totalAmount)}
                           </Text>
                         </View>
                         <View style={styles.ledgerMetricRowFinal}>
                           <Text style={styles.projectedLabel}>Projected Exposure</Text>
                           <Text style={styles.projectedValue}>
-                            ₹{formatIndianNumber(projectedExposure)}
+                            Rs {formatIndianNumber(projectedExposure)}
                           </Text>
                         </View>
                       </View>
@@ -988,7 +983,7 @@ export default function OrderApprovalScreen() {
                             </View>
                             <View style={styles.transactionAmountBlock}>
                               <Text style={styles.transactionAmount}>
-                                ₹{formatIndianNumber(entry.Amount)}
+                                Rs {formatIndianNumber(entry.Amount)}
                               </Text>
                               <Text
                                 style={[
@@ -1025,11 +1020,11 @@ export default function OrderApprovalScreen() {
                           {item.productName}
                         </Text>
                         <Text style={styles.itemMeta}>
-                          ₹{formatIndianNumber(item.rate)} / {item.unit || "unit"}
+                          Rs {formatIndianNumber(item.rate)} / {item.unit || "unit"}
                         </Text>
                       </View>
                       <Text style={styles.itemAmount}>
-                        ₹{formatIndianNumber(item.amount)}
+                        Rs {formatIndianNumber(item.amount)}
                       </Text>
                     </View>
                   ))}
@@ -1037,7 +1032,7 @@ export default function OrderApprovalScreen() {
                   <View style={styles.totalRow}>
                     <Text style={styles.totalLabel}>Total Purchase</Text>
                     <Text style={styles.totalValue}>
-                      ₹{formatIndianNumber(selectedOrder.totalAmount)}
+                      Rs {formatIndianNumber(selectedOrder.totalAmount)}
                     </Text>
                   </View>
                 </View>
@@ -1059,7 +1054,7 @@ export default function OrderApprovalScreen() {
                   style={[styles.approveButton, approvalLoading && styles.disabledAction]}
                 >
                   <Text style={styles.approveButtonText}>
-                    {approvalLoading ? "Processing..." : "Override & Approve"}
+                    {approvalLoading ? "Processing..." : "Approve"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1169,7 +1164,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     lineHeight: 34,
     letterSpacing: -0.8,
-    marginBottom: 18,
+    marginBottom: 16,
   },
   filterRail: {
     paddingBottom: 16,
@@ -1194,89 +1189,78 @@ const styles = StyleSheet.create({
     color: "#000000",
   },
   cardStack: {
-    gap: 16,
+    gap: 14,
   },
   approvalCard: {
     backgroundColor: CARD,
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: BORDER,
-    padding: 20,
+    borderColor: "rgba(255,255,255,0.02)",
+    padding: 16,
   },
   approvalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 16,
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 12,
   },
-  approvalIdentity: {
+  approvalTopLeft: {
     flex: 1,
     flexDirection: "row",
-    gap: 12,
-    paddingRight: 12,
-  },
-  approvalIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     alignItems: "center",
-    justifyContent: "center",
-  },
-  approvalNameBlock: {
-    flex: 1,
+    gap: 12,
+    minWidth: 0,
   },
   approvalName: {
     color: TEXT,
     fontFamily: omaTypography.bold,
-    fontSize: 18,
-    lineHeight: 22,
+    fontSize: 16,
+    lineHeight: 20,
     letterSpacing: -0.45,
+    marginBottom: 8,
   },
   approvalId: {
-    color: TEXT_SECONDARY,
-    fontFamily: omaTypography.medium,
-    fontSize: 14,
-    lineHeight: 20,
-    letterSpacing: -0.35,
-    marginTop: 2,
+    color: "#d4d4d8",
+    fontFamily: omaTypography.bold,
+    fontSize: 13,
+    lineHeight: 17,
+    letterSpacing: -0.3,
+    backgroundColor: "#27272a",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    overflow: "hidden",
+  },
+  approvalStatus: {
+    flex: 1,
+    fontFamily: omaTypography.semibold,
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: -0.3,
   },
   approvalAmount: {
     color: TEXT,
     fontFamily: omaTypography.bold,
-    fontSize: 17,
-    lineHeight: 22,
-    letterSpacing: -0.425,
+    fontSize: 14,
+    lineHeight: 20,
+    letterSpacing: -0.35,
     textAlign: "right",
   },
   reasonBox: {
-    backgroundColor: CARD_MUTED,
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 8,
-  },
-  reasonTitle: {
-    fontFamily: omaTypography.bold,
-    fontSize: 13,
-    letterSpacing: 0.65,
-    textTransform: "uppercase",
-    marginBottom: 4,
+    borderLeftWidth: 3,
+    paddingLeft: 12,
+    marginTop: 0,
   },
   reasonBody: {
-    color: "#d4d4d8",
-    fontFamily: omaTypography.medium,
-    fontSize: 14,
-    lineHeight: 19,
-    letterSpacing: -0.35,
-  },
-  reviewHint: {
     color: TEXT_MUTED,
-    fontFamily: omaTypography.bold,
+    fontFamily: omaTypography.medium,
     fontSize: 13,
     lineHeight: 18,
-    letterSpacing: -0.325,
-    textAlign: "center",
-    paddingTop: 8,
+    letterSpacing: -0.3,
+  },
+  reviewHint: {
+    display: "none",
   },
   emptyCard: {
     borderRadius: 24,
@@ -1354,54 +1338,50 @@ const styles = StyleSheet.create({
   },
   detailContent: {
     alignSelf: "center",
-    paddingTop: 26,
+    paddingTop: 24,
   },
   exceptionBanner: {
-    backgroundColor: "rgba(248,113,113,0.10)",
+    backgroundColor: CARD,
     borderColor: "rgba(248,113,113,0.20)",
     borderWidth: 1,
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 24,
+    borderLeftWidth: 3,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 16,
   },
   exceptionHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   exceptionTitle: {
     color: RED,
     fontFamily: omaTypography.bold,
-    fontSize: 15,
-    lineHeight: 21,
-    letterSpacing: 0.75,
+    fontSize: 13,
+    lineHeight: 17,
+    letterSpacing: 0.7,
     textTransform: "uppercase",
   },
   exceptionBody: {
     color: "rgba(248,113,113,0.92)",
     fontFamily: omaTypography.medium,
-    fontSize: 15,
-    lineHeight: 20,
-    letterSpacing: -0.375,
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: -0.25,
   },
   profileCard: {
-    borderRadius: 28,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: BORDER,
     backgroundColor: CARD,
-    padding: 22,
+    padding: 20,
     overflow: "hidden",
-    marginBottom: 26,
+    marginBottom: 22,
   },
   profileAccent: {
-    position: "absolute",
-    right: -58,
-    top: -72,
-    width: 190,
-    height: 190,
-    borderRadius: 95,
-    backgroundColor: "rgba(234,179,8,0.18)",
+    display: "none",
   },
   profileEyebrow: {
     color: TEXT_SECONDARY,
@@ -1410,30 +1390,30 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     letterSpacing: 1.2,
     textTransform: "uppercase",
-    marginBottom: 8,
-  },
-  profileId: {
-    color: TEXT,
-    fontFamily: omaTypography.bold,
-    fontSize: 28,
-    lineHeight: 32,
-    letterSpacing: -0.8,
+    marginBottom: 7,
   },
   profileCustomer: {
     color: TEXT,
     fontFamily: omaTypography.bold,
-    fontSize: 20,
-    lineHeight: 26,
-    letterSpacing: -0.5,
-    marginTop: 26,
+    fontSize: 16,
+    lineHeight: 21,
+    letterSpacing: -0.45,
+  },
+  profileId: {
+    color: TEXT_SECONDARY,
+    fontFamily: omaTypography.semibold,
+    fontSize: 13,
+    lineHeight: 18,
+    letterSpacing: -0.25,
+    marginTop: 4,
   },
   profileAmount: {
     color: TEXT,
-    fontFamily: omaTypography.bold,
-    fontSize: 36,
-    lineHeight: 43,
-    letterSpacing: -1,
-    marginTop: 14,
+    fontFamily: omaTypography.semibold,
+    fontSize: 20,
+    lineHeight: 25,
+    letterSpacing: -0.45,
+    marginTop: 12,
   },
   profileMeta: {
     color: TEXT_SECONDARY,
@@ -1441,13 +1421,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     letterSpacing: -0.325,
-    marginTop: 4,
+    marginTop: 3,
   },
   profileChips: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
-    marginTop: 22,
+    marginTop: 14,
   },
   profileChip: {
     borderRadius: 999,
@@ -1460,7 +1440,7 @@ const styles = StyleSheet.create({
   },
   profileChipText: {
     color: TEXT_SECONDARY,
-    fontFamily: omaTypography.bold,
+    fontFamily: omaTypography.semibold,
     fontSize: 12,
     letterSpacing: -0.3,
   },
@@ -1468,22 +1448,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   sectionHeading: {
     color: TEXT,
     fontFamily: omaTypography.bold,
-    fontSize: 18,
-    lineHeight: 27,
-    letterSpacing: -0.45,
+    fontSize: 17,
+    lineHeight: 22,
+    letterSpacing: -0.35,
   },
   ledgerCard: {
     borderRadius: 24,
     borderWidth: 1,
     borderColor: BORDER,
     backgroundColor: CARD,
-    padding: 24,
-    marginBottom: 28,
+    padding: 18,
+    marginBottom: 24,
   },
   loadingBlock: {
     paddingVertical: 28,
@@ -1519,7 +1499,7 @@ const styles = StyleSheet.create({
     backgroundColor: RED,
   },
   ledgerRows: {
-    gap: 12,
+    gap: 10,
   },
   ledgerMetricRow: {
     flexDirection: "row",
@@ -1549,27 +1529,31 @@ const styles = StyleSheet.create({
   ledgerMetricLabel: {
     color: TEXT_SECONDARY,
     fontFamily: omaTypography.medium,
-    fontSize: 15,
-    letterSpacing: -0.375,
+    fontSize: 14,
+    lineHeight: 19,
+    letterSpacing: -0.3,
   },
   ledgerMetricValue: {
     color: TEXT,
-    fontFamily: omaTypography.bold,
-    fontSize: 15,
-    letterSpacing: -0.375,
+    fontFamily: omaTypography.semibold,
+    fontSize: 14,
+    lineHeight: 19,
+    letterSpacing: -0.3,
     textAlign: "right",
   },
   projectedLabel: {
     color: "#e4e4e7",
-    fontFamily: omaTypography.bold,
-    fontSize: 16,
-    letterSpacing: -0.4,
+    fontFamily: omaTypography.semibold,
+    fontSize: 14,
+    lineHeight: 19,
+    letterSpacing: -0.3,
   },
   projectedValue: {
     color: RED,
-    fontFamily: omaTypography.bold,
-    fontSize: 16,
-    letterSpacing: -0.4,
+    fontFamily: omaTypography.semibold,
+    fontSize: 14,
+    lineHeight: 19,
+    letterSpacing: -0.3,
     textAlign: "right",
   },
   transactionsCard: {
@@ -1578,7 +1562,7 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
     backgroundColor: CARD,
     padding: 8,
-    marginBottom: 28,
+    marginBottom: 24,
     gap: 4,
   },
   transactionRow: {
@@ -1586,7 +1570,8 @@ const styles = StyleSheet.create({
     backgroundColor: CARD_MUTED,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.02)",
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -1599,9 +1584,9 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   transactionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     borderWidth: 1,
     borderColor: BORDER,
     alignItems: "center",
@@ -1613,9 +1598,9 @@ const styles = StyleSheet.create({
   transactionTitle: {
     color: TEXT,
     fontFamily: omaTypography.bold,
-    fontSize: 16,
-    lineHeight: 21,
-    letterSpacing: -0.4,
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: -0.35,
   },
   transactionMeta: {
     color: TEXT_MUTED,
@@ -1651,7 +1636,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
     backgroundColor: CARD,
-    padding: 18,
+    padding: 8,
     marginBottom: 24,
   },
   itemRow: {
@@ -1659,6 +1644,12 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 12,
+    borderRadius: 20,
+    backgroundColor: CARD_MUTED,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.02)",
+    marginBottom: 6,
+    paddingHorizontal: 14,
     paddingVertical: 12,
   },
   qtyBox: {
@@ -1705,9 +1696,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: BORDER_STRONG,
     backgroundColor: CARD_MUTED,
-    marginHorizontal: -18,
-    marginBottom: -18,
-    marginTop: 12,
+    marginHorizontal: -8,
+    marginBottom: -8,
+    marginTop: 8,
     paddingHorizontal: 18,
     paddingVertical: 16,
     flexDirection: "row",
@@ -1716,16 +1707,17 @@ const styles = StyleSheet.create({
   },
   totalLabel: {
     color: TEXT_SECONDARY,
-    fontFamily: omaTypography.bold,
-    fontSize: 15,
-    letterSpacing: -0.375,
+    fontFamily: omaTypography.semibold,
+    fontSize: 14,
+    lineHeight: 19,
+    letterSpacing: -0.3,
   },
   totalValue: {
     color: TEXT,
-    fontFamily: omaTypography.bold,
-    fontSize: 22,
-    lineHeight: 33,
-    letterSpacing: -0.55,
+    fontFamily: omaTypography.semibold,
+    fontSize: 18,
+    lineHeight: 24,
+    letterSpacing: -0.4,
   },
   actionDock: {
     position: "absolute",
@@ -1751,8 +1743,8 @@ const styles = StyleSheet.create({
   declineButtonText: {
     color: TEXT,
     fontFamily: omaTypography.bold,
-    fontSize: 16,
-    letterSpacing: -0.4,
+    fontSize: 15,
+    letterSpacing: -0.35,
   },
   approveButton: {
     flex: 1.35,
@@ -1766,8 +1758,8 @@ const styles = StyleSheet.create({
   approveButtonText: {
     color: "#08130f",
     fontFamily: omaTypography.bold,
-    fontSize: 16,
-    letterSpacing: -0.4,
+    fontSize: 15,
+    letterSpacing: -0.35,
     textAlign: "center",
   },
   disabledAction: {
@@ -1825,9 +1817,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.03)",
     color: TEXT,
     fontFamily: omaTypography.medium,
-    fontSize: 16,
-    lineHeight: 24,
-    letterSpacing: -0.4,
+    fontSize: 15,
+    lineHeight: 22,
+    letterSpacing: -0.35,
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 14,
@@ -1846,8 +1838,8 @@ const styles = StyleSheet.create({
   sheetPrimaryText: {
     color: "#08130f",
     fontFamily: omaTypography.bold,
-    fontSize: 16,
-    letterSpacing: -0.4,
+    fontSize: 15,
+    letterSpacing: -0.35,
   },
   sheetDangerButton: {
     minHeight: 58,
@@ -1860,7 +1852,7 @@ const styles = StyleSheet.create({
   sheetDangerText: {
     color: "#1a0b0b",
     fontFamily: omaTypography.bold,
-    fontSize: 16,
-    letterSpacing: -0.4,
+    fontSize: 15,
+    letterSpacing: -0.35,
   },
 });

@@ -1,6 +1,5 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Platform } from "react-native";
 
 const REMOTE_BACKEND_URL = "https://oma-demo-server.onrender.com";
 
@@ -8,14 +7,6 @@ const resolveBackendUrl = () => {
   const explicitUrl = process.env.EXPO_PUBLIC_BACKEND_URL?.trim();
   if (explicitUrl) {
     return explicitUrl.replace(/\/+$/, "");
-  }
-
-  if (__DEV__) {
-    if (Platform.OS === "android") {
-      return "http://10.0.2.2:3011";
-    }
-
-    return "http://localhost:3011";
   }
 
   return REMOTE_BACKEND_URL;

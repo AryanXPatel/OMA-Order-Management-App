@@ -159,6 +159,17 @@ const buildTranscriptFromOperations = (operations: Record<string, any>[]) => {
     .join(" and ");
 };
 
+const readVoiceOperationProductQuery = (operation: Record<string, any>) =>
+  String(
+    operation.productQuery ??
+      operation.product_query ??
+      operation.productName ??
+      operation.product_name ??
+      operation.targetProductQuery ??
+      operation.target_product_query ??
+      ""
+  ).trim();
+
 const getSheetValue = (
   record: SheetRecord | null | undefined,
   keys: string[],
@@ -1982,11 +1993,38 @@ const NewSalesOrderScreen = () => {
       )
         ? voiceDisambiguation.response.normalizedCommand.operations
         : [];
+      const normalizedDisambiguationQuery = String(
+        voiceDisambiguation.query || ""
+      )
+        .toLowerCase()
+        .trim();
       const operation =
         voiceDisambiguation.kind === "product"
           ? operations.find(
+              (entry: Record<string, any>) =>
+                entry.type === "add_line" &&
+                readVoiceOperationProductQuery(entry)
+                  .toLowerCase()
+                  .trim() === normalizedDisambiguationQuery
+            ) ||
+            operations.find(
+              (entry: Record<string, any>) =>
+                entry.type === "add_line" &&
+                readVoiceOperationProductQuery(entry)
+                  .toLowerCase()
+                  .includes(normalizedDisambiguationQuery)
+            ) ||
+            operations.find(
+              (entry: Record<string, any>) =>
+                entry.type === "add_line" &&
+                normalizedDisambiguationQuery.includes(
+                  readVoiceOperationProductQuery(entry).toLowerCase().trim()
+                )
+            ) ||
+            operations.find(
               (entry: Record<string, any>) => entry.type === "add_line"
-            ) || null
+            ) ||
+            null
           : operations.find(
               (entry: Record<string, any>) => entry.type === "set_customer"
             ) || operations[0] || null;

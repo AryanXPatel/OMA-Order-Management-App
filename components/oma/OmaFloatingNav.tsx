@@ -210,7 +210,13 @@ export default function OmaFloatingNav() {
           onPress={() => router.push("/(app)/new-order")}
           style={styles.ctaButton}
         >
-          <Ionicons color="#111111" name="add" size={32} strokeWidth={2} />
+          <Ionicons
+            absoluteStrokeWidth
+            color="#111111"
+            name="add"
+            size={32}
+            strokeWidth={2}
+          />
         </Pressable>
       </View>
     </View>
