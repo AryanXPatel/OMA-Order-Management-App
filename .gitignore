@@ -25,6 +25,9 @@ yarn-debug.*
 yarn-error.*
 .omx/
 .playwright-cli/
+.codex-chrome-poster/
+.codex-expo*.log
+.voice-web*.log
 
 # macOS
 .DS_Store

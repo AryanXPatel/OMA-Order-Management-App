@@ -33,6 +33,7 @@
     "axios": "^1.8.2",
     "date-fns": "^4.1.0",
     "expo": "~52.0.38",
+    "expo-audio": "~0.3.5",
     "expo-blur": "~14.0.3",
     "expo-constants": "~17.0.7",
     "expo-dev-client": "~5.0.20",

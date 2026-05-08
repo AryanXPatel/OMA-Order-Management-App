@@ -40,6 +40,14 @@ import { AppIcon as Ionicons } from "@/components/AppIcon";
 import NetInfo from "@react-native-community/netinfo";
 import { isManagerRole, normalizeAppRole } from "@/utils/roles";
 import { omaTypography } from "@/utils/typography";
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from "expo-audio";
+import { useFeedback } from "@/context/FeedbackContext";
 registerTranslation("en", {}); // English locale
 
 const webTextInputReset =
@@ -58,6 +66,98 @@ const webTextInputReset =
     : {};
 
 type SheetRecord = Record<string, string>;
+type OrderLine = {
+  lineId: string;
+  productName: string;
+  productCode: string;
+  productGroup: string;
+  productBrand: string;
+  productSubcategory: string;
+  productMargin: string;
+  quantity: number;
+  unit: string;
+  rate: number;
+  formattedRate: string;
+  orderAmount: string;
+  numericAmount: number;
+};
+
+type VoiceMutation = Record<string, any> & { type: string };
+type VoiceStatus =
+  | "idle"
+  | "recording"
+  | "processing"
+  | "applied"
+  | "needs_disambiguation"
+  | "error";
+
+type VoiceDraftSnapshot = {
+  customerName: string;
+  customerCode: string;
+  orderComments: string;
+  orderSource: string;
+  orderDateIso: string;
+  lastTouchedProductCode: string;
+  products: OrderLine[];
+  selectedCustomer: SheetRecord | null;
+};
+
+type VoiceDisambiguationCandidate = {
+  id: string;
+  label: string;
+  customerCode?: string;
+  customerName?: string;
+  city?: string;
+  zone?: string;
+  channel?: string;
+  industry?: string;
+  paymentTermsDays?: string;
+  creditLimit?: string;
+  riskTier?: string;
+  productCode?: string;
+  productGroup?: string;
+  uom?: string;
+  rate?: string;
+  lineIndex?: number;
+};
+
+type VoiceDisambiguationState = {
+  kind: "customer" | "product" | "draft_line";
+  query: string;
+  candidates: VoiceDisambiguationCandidate[];
+  response: any;
+};
+
+const VOICE_ORDER_SOURCE_OPTIONS = ["Phone", "Email", "WhatsApp"] as const;
+const createLocalLineId = () =>
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const buildTranscriptFromOperations = (operations: Record<string, any>[]) => {
+  return operations
+    .map((operation) => {
+      switch (operation.type) {
+        case "add_line":
+          return `add ${operation.quantity ?? operation.qty ?? ""} ${
+            operation.product_query ||
+            operation.productName ||
+            operation.product_name ||
+            ""
+          }`;
+        case "append_note":
+          return `append note ${operation.note ?? operation.note_text ?? operation.text ?? ""}`;
+        case "overwrite_note":
+          return `replace note with ${
+            operation.note ?? operation.note_text ?? operation.text ?? ""
+          }`;
+        case "set_order_source":
+          return `set source ${operation.source || operation.order_source || ""}`;
+        default:
+          return "";
+      }
+    })
+    .filter(Boolean)
+    .join(" and ");
+};
 
 const getSheetValue = (
   record: SheetRecord | null | undefined,
@@ -156,6 +256,9 @@ const getProductMarginLabel = (product: SheetRecord | null | undefined) => {
 
 const NewSalesOrderScreen = () => {
   const { colors, isDark } = useContext(ThemeContext);
+  const { showFeedback } = useFeedback();
+  const audioRecorder = useAudioRecorder(RecordingPresets.LOW_QUALITY);
+  const audioRecorderState = useAudioRecorderState(audioRecorder, 250);
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Core state
@@ -202,10 +305,21 @@ const NewSalesOrderScreen = () => {
 
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [timePickerVisible, setTimePickerVisible] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle");
+  const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [voiceFeedbackMessage, setVoiceFeedbackMessage] = useState("");
+  const [voiceErrorMessage, setVoiceErrorMessage] = useState("");
+  const [voiceDisambiguation, setVoiceDisambiguation] =
+    useState<VoiceDisambiguationState | null>(null);
+  const [lastVoiceSnapshot, setLastVoiceSnapshot] =
+    useState<VoiceDraftSnapshot | null>(null);
+  const [lastTouchedProductCode, setLastTouchedProductCode] = useState("");
 
   // References
   const scrollViewRef = useRef(null);
   const quantityInputRef = useRef(null);
+  const voiceAbortControllerRef = useRef<AbortController | null>(null);
+  const draftRevisionRef = useRef(0);
 
   // Add these callback functions for the date picker
   const onDismissDatePicker = useCallback(() => {
@@ -265,6 +379,59 @@ const NewSalesOrderScreen = () => {
       return "0.00";
     }
   };
+
+  const inferAudioMimeType = (uri: string) => {
+    const normalizedUri = String(uri || "").toLowerCase();
+
+    if (normalizedUri.includes(".m4a")) {
+      return "audio/m4a";
+    }
+
+    if (normalizedUri.includes(".mp3")) {
+      return "audio/mpeg";
+    }
+
+    if (normalizedUri.includes(".wav")) {
+      return "audio/wav";
+    }
+
+    return Platform.OS === "web" ? "audio/webm" : "audio/m4a";
+  };
+
+  const readUriAsBase64 = useCallback(async (uri: string) => {
+    return await new Promise<{ audioBase64: string; mimeType: string }>(
+      (resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.onerror = () => reject(new Error("Failed to read audio file"));
+        xhr.onload = () => {
+          const responseBlob = xhr.response;
+          const reader = new FileReader();
+
+          reader.onerror = () => reject(new Error("Failed to encode audio"));
+          reader.onloadend = () => {
+            const result = String(reader.result || "");
+            const match = result.match(/^data:(.*?);base64,(.*)$/);
+
+            if (!match?.[2]) {
+              reject(new Error("Audio encoding returned an empty payload"));
+              return;
+            }
+
+            resolve({
+              mimeType: match[1] || inferAudioMimeType(uri),
+              audioBase64: match[2],
+            });
+          };
+
+          reader.readAsDataURL(responseBlob);
+        };
+
+        xhr.responseType = "blob";
+        xhr.open("GET", uri, true);
+        xhr.send();
+      }
+    );
+  }, []);
 
   // Add this useEffect to initialize date/time text when component loads
   useEffect(() => {
@@ -885,6 +1052,7 @@ const NewSalesOrderScreen = () => {
 
     // Add product to list
     const newProduct = {
+      lineId: createLocalLineId(),
       productName: selectedProduct["Product NAME"],
       productCode: selectedProduct["Product CODE"] || "",
       productGroup: getProductGroup(selectedProduct),
@@ -900,6 +1068,7 @@ const NewSalesOrderScreen = () => {
     };
 
     setProducts([...products, newProduct]);
+    setLastTouchedProductCode(newProduct.productCode);
 
     // Reset fields for next product
     setSelectedProduct(null);
@@ -925,6 +1094,27 @@ const NewSalesOrderScreen = () => {
         },
       ]
     );
+  };
+
+  const updateProductQuantity = (index, nextQuantity) => {
+    const safeQuantity = Math.max(1, Number.parseFloat(String(nextQuantity || 1)));
+    if (!Number.isFinite(safeQuantity) || !products[index]) {
+      return;
+    }
+
+    const updatedProducts = [...products];
+    const existingProduct = updatedProducts[index];
+    const nextAmount = existingProduct.rate * safeQuantity;
+
+    updatedProducts[index] = {
+      ...existingProduct,
+      quantity: safeQuantity,
+      numericAmount: nextAmount,
+      orderAmount: formatIndianNumber(nextAmount),
+    };
+
+    setProducts(updatedProducts);
+    setLastTouchedProductCode(existingProduct.productCode || "");
   };
 
   // Calculate total order amount
@@ -1095,6 +1285,844 @@ const NewSalesOrderScreen = () => {
         .map((part) => part.charAt(0).toUpperCase())
         .join("")
     : "NA";
+
+  const buildVoiceDraftSnapshot = useCallback((): VoiceDraftSnapshot => {
+    return {
+      customerName,
+      customerCode: selectedCustomerCode,
+      orderComments,
+      orderSource,
+      orderDateIso: orderDate.toISOString(),
+      lastTouchedProductCode,
+      products: products.map((product) => ({ ...product })),
+      selectedCustomer,
+    };
+  }, [
+    customerName,
+    lastTouchedProductCode,
+    orderComments,
+    orderDate,
+    orderSource,
+    products,
+    selectedCustomer,
+    selectedCustomerCode,
+  ]);
+
+  const restoreVoiceSnapshot = useCallback(
+    (snapshot: VoiceDraftSnapshot) => {
+      setCustomerName(snapshot.customerName);
+      setSelectedCustomerCode(snapshot.customerCode);
+      setSelectedCustomer(snapshot.selectedCustomer);
+      setProducts(snapshot.products);
+      setOrderComments(snapshot.orderComments);
+      setOrderSource(snapshot.orderSource);
+      setLastTouchedProductCode(snapshot.lastTouchedProductCode);
+
+      if (snapshot.orderDateIso) {
+        const parsedDate = new Date(snapshot.orderDateIso);
+        if (!Number.isNaN(parsedDate.getTime())) {
+          setOrderDate(parsedDate);
+          updateDateTimeText(parsedDate);
+        }
+      }
+    },
+    []
+  );
+
+  const buildSelectedCustomerRecord = useCallback((mutation: VoiceMutation) => {
+    return {
+      "Customer NAME": mutation.customerName || "",
+      "Customer CODE": mutation.customerCode || "",
+      city: mutation.city || "",
+      zone: mutation.zone || "",
+      channel: mutation.channel || "",
+      industry: mutation.industry || "",
+      payment_terms_days: mutation.paymentTermsDays || "",
+      credit_limit: mutation.creditLimit || "",
+      risk_tier: mutation.riskTier || "",
+    } as SheetRecord;
+  }, []);
+
+  const buildOrderLineFromVoiceMutation = useCallback(
+    (mutation: VoiceMutation): OrderLine => {
+      const productRecord =
+        productList.find(
+          (product) =>
+            product["Product CODE"] === mutation.productCode ||
+            product["Product NAME"] === mutation.productName
+        ) || null;
+
+      const productRate = Number.parseFloat(
+        mutation.rate ||
+          productRecord?.["Rate"] ||
+          String(getProductRate(productRecord))
+      );
+      const numericRate = Number.isFinite(productRate) ? productRate : 0;
+      const numericQuantity = Number.parseFloat(String(mutation.quantity || "0"));
+      const safeQuantity = Number.isFinite(numericQuantity) ? numericQuantity : 0;
+      const rawAmount = safeQuantity * numericRate;
+
+      return {
+        lineId: mutation.lineId || createLocalLineId(),
+        productName:
+          mutation.productName || productRecord?.["Product NAME"] || "Unknown item",
+        productCode: mutation.productCode || productRecord?.["Product CODE"] || "",
+        productGroup:
+          mutation.productGroup ||
+          getProductGroup(productRecord) ||
+          productRecord?.["Product Group Name"] ||
+          "",
+        productBrand: getSheetValue(productRecord, ["brand"]),
+        productSubcategory: getSheetValue(productRecord, ["subcategory"]),
+        productMargin:
+          mutation.productMargin ||
+          getSheetValue(productRecord, ["margin_pct"]) ||
+          "",
+        quantity: safeQuantity,
+        unit: mutation.unit || getProductUnit(productRecord),
+        rate: numericRate,
+        formattedRate: formatIndianNumber(numericRate),
+        orderAmount: formatIndianNumber(rawAmount),
+        numericAmount: rawAmount,
+      };
+    },
+    [productList]
+  );
+
+  const applyVoiceMutations = useCallback(
+    (mutations: VoiceMutation[], options?: { recordUndo?: boolean }) => {
+      const shouldRecordUndo = options?.recordUndo !== false;
+      const snapshot = shouldRecordUndo ? buildVoiceDraftSnapshot() : null;
+
+      let nextCustomerName = customerName;
+      let nextCustomerCode = selectedCustomerCode;
+      let nextCustomerRecord = selectedCustomer;
+      let nextProducts = products.map((product) => ({ ...product }));
+      let nextOrderComments = orderComments;
+      let nextOrderSource = orderSource;
+      let nextOrderDate = orderDate;
+      let nextLastTouchedProductCode = lastTouchedProductCode;
+      let shouldMarkCustomDate = false;
+      let touchedCustomer = false;
+      let touchedProducts = false;
+      let touchedReviewFields = false;
+
+      mutations.forEach((mutation) => {
+        switch (mutation.type) {
+          case "set_customer": {
+            touchedCustomer = true;
+            const customerRecord = buildSelectedCustomerRecord(mutation);
+            nextCustomerName = mutation.customerName || customerRecord["Customer NAME"] || "";
+            nextCustomerCode = mutation.customerCode || customerRecord["Customer CODE"] || "";
+            nextCustomerRecord = customerRecord;
+            break;
+          }
+          case "add_line": {
+            touchedProducts = true;
+            const nextLine = buildOrderLineFromVoiceMutation(mutation);
+            const existingIndex = nextProducts.findIndex(
+              (product) =>
+                product.productCode &&
+                product.productCode === nextLine.productCode
+            );
+
+            if (existingIndex >= 0) {
+              const existing = nextProducts[existingIndex];
+              const mergedQuantity = existing.quantity + nextLine.quantity;
+              const mergedAmount = mergedQuantity * existing.rate;
+              nextProducts[existingIndex] = {
+                ...existing,
+                quantity: mergedQuantity,
+                numericAmount: mergedAmount,
+                orderAmount: formatIndianNumber(mergedAmount),
+              };
+            } else {
+              nextProducts = [...nextProducts, nextLine];
+            }
+
+            nextLastTouchedProductCode = nextLine.productCode;
+            break;
+          }
+          case "increase_qty":
+          case "decrease_qty":
+          case "set_qty": {
+            touchedProducts = true;
+            const lineIndex =
+              (mutation.lineId
+                ? nextProducts.findIndex(
+                    (product) => product.lineId === mutation.lineId
+                  )
+                : -1) >= 0
+                ? nextProducts.findIndex(
+                    (product) => product.lineId === mutation.lineId
+                  )
+                :
+              typeof mutation.lineIndex === "number"
+                ? mutation.lineIndex
+                : nextProducts.findIndex(
+                    (product) => product.productCode === mutation.productCode
+                  );
+
+            if (lineIndex < 0 || !nextProducts[lineIndex]) {
+              return;
+            }
+
+            const existing = nextProducts[lineIndex];
+            const delta = Number.parseFloat(String(mutation.quantity || "0"));
+            const safeDelta = Number.isFinite(delta) ? delta : 0;
+            const nextQuantity =
+              mutation.type === "increase_qty"
+                ? existing.quantity + safeDelta
+                : mutation.type === "decrease_qty"
+                ? existing.quantity - safeDelta
+                : safeDelta;
+
+            if (nextQuantity <= 0) {
+              nextProducts.splice(lineIndex, 1);
+            } else {
+              const nextAmount = nextQuantity * existing.rate;
+              nextProducts[lineIndex] = {
+                ...existing,
+                quantity: nextQuantity,
+                numericAmount: nextAmount,
+                orderAmount: formatIndianNumber(nextAmount),
+              };
+              nextLastTouchedProductCode = nextProducts[lineIndex].productCode;
+            }
+            break;
+          }
+          case "remove_line": {
+            touchedProducts = true;
+            const lineIndex =
+              (mutation.lineId
+                ? nextProducts.findIndex(
+                    (product) => product.lineId === mutation.lineId
+                  )
+                : -1) >= 0
+                ? nextProducts.findIndex(
+                    (product) => product.lineId === mutation.lineId
+                  )
+                :
+              typeof mutation.lineIndex === "number"
+                ? mutation.lineIndex
+                : nextProducts.findIndex(
+                    (product) => product.productCode === mutation.productCode
+                  );
+
+            if (lineIndex >= 0) {
+              const removed = nextProducts[lineIndex];
+              nextProducts.splice(lineIndex, 1);
+              if (removed?.productCode === nextLastTouchedProductCode) {
+                nextLastTouchedProductCode =
+                  nextProducts[nextProducts.length - 1]?.productCode || "";
+              }
+            }
+            break;
+          }
+          case "replace_line": {
+            touchedProducts = true;
+            const lineIndex =
+              (mutation.lineId
+                ? nextProducts.findIndex(
+                    (product) => product.lineId === mutation.lineId
+                  )
+                : -1) >= 0
+                ? nextProducts.findIndex(
+                    (product) => product.lineId === mutation.lineId
+                  )
+                :
+              typeof mutation.lineIndex === "number"
+                ? mutation.lineIndex
+                : nextProducts.findIndex(
+                    (product) =>
+                      product.productCode === mutation.previousProductCode
+                  );
+
+            if (lineIndex < 0 || !nextProducts[lineIndex]) {
+              return;
+            }
+
+            const replacement = buildOrderLineFromVoiceMutation({
+              ...mutation.replacement,
+              quantity:
+                mutation.quantity ||
+                nextProducts[lineIndex].quantity ||
+                mutation.replacement?.quantity,
+            });
+
+            nextProducts[lineIndex] = replacement;
+            nextLastTouchedProductCode = replacement.productCode;
+            break;
+          }
+          case "append_note": {
+            touchedReviewFields = true;
+            const nextText = String(mutation.noteText || "").trim();
+            if (nextText) {
+              nextOrderComments = nextOrderComments
+                ? `${nextOrderComments}\n${nextText}`
+                : nextText;
+            }
+            break;
+          }
+          case "overwrite_note": {
+            touchedReviewFields = true;
+            nextOrderComments = String(mutation.noteText || "").trim();
+            break;
+          }
+          case "clear_note": {
+            touchedReviewFields = true;
+            nextOrderComments = "";
+            break;
+          }
+          case "set_order_source": {
+            touchedReviewFields = true;
+            if (VOICE_ORDER_SOURCE_OPTIONS.includes(mutation.source)) {
+              nextOrderSource = mutation.source;
+            }
+            break;
+          }
+          case "set_order_date_time": {
+            touchedReviewFields = true;
+            const candidateValue =
+              mutation.isoDateTime ||
+              mutation.orderDateIso ||
+              mutation.datetimeText ||
+              mutation.displayText;
+            const parsedDate = new Date(candidateValue);
+            if (!Number.isNaN(parsedDate.getTime())) {
+              nextOrderDate = parsedDate;
+              shouldMarkCustomDate = true;
+            }
+            break;
+          }
+          case "clear_draft": {
+            touchedProducts = true;
+            nextProducts = [];
+            nextOrderComments = "";
+            nextLastTouchedProductCode = "";
+            break;
+          }
+          default:
+            break;
+        }
+      });
+
+      if (snapshot) {
+        setLastVoiceSnapshot(snapshot);
+      }
+
+      setCustomerName(nextCustomerName);
+      setSelectedCustomerCode(nextCustomerCode);
+      setSelectedCustomer(nextCustomerRecord);
+      setProducts(nextProducts);
+      setOrderComments(nextOrderComments);
+      setOrderSource(nextOrderSource);
+      setLastTouchedProductCode(nextLastTouchedProductCode);
+
+      if (touchedReviewFields && nextCustomerName) {
+        setStep(3);
+      } else if (nextCustomerName && (touchedProducts || nextProducts.length > 0)) {
+        setStep(2);
+      } else if (touchedCustomer && nextCustomerName) {
+        setStep(2);
+      }
+
+      if (shouldMarkCustomDate) {
+        setOrderDate(nextOrderDate);
+        setIsCustomDate(true);
+        updateDateTimeText(nextOrderDate);
+      }
+    },
+    [
+      buildOrderLineFromVoiceMutation,
+      buildSelectedCustomerRecord,
+      buildVoiceDraftSnapshot,
+      customerName,
+      lastTouchedProductCode,
+      orderComments,
+      orderDate,
+      orderSource,
+      products,
+      selectedCustomer,
+      selectedCustomerCode,
+    ]
+  );
+
+  const submitVoiceOrderDraft = useCallback(
+    async (payload: {
+      audioBase64?: string;
+      mimeType?: string;
+      transcriptOverride?: string;
+      draftOverride?: Partial<VoiceDraftSnapshot>;
+      skipDraftRevisionGuard?: boolean;
+    }) => {
+      const abortController = new AbortController();
+      const requestRevision = draftRevisionRef.current;
+      voiceAbortControllerRef.current = abortController;
+      setVoiceStatus("processing");
+      setVoiceErrorMessage("");
+      setVoiceDisambiguation(null);
+      setVoiceFeedbackMessage("Turning your voice note into draft changes...");
+
+      try {
+        const draftPayload = {
+          customerName: payload.draftOverride?.customerName ?? customerName,
+          customerCode: payload.draftOverride?.customerCode ?? selectedCustomerCode,
+          products:
+            payload.draftOverride?.products?.map((product) => ({
+              lineId: product.lineId,
+              productCode: product.productCode,
+              productName: product.productName,
+              quantity: product.quantity,
+              unit: product.unit,
+              orderAmount: product.orderAmount,
+            })) ||
+            products.map((product) => ({
+              lineId: product.lineId,
+              productCode: product.productCode,
+              productName: product.productName,
+              quantity: product.quantity,
+              unit: product.unit,
+              orderAmount: product.orderAmount,
+            })),
+          orderComments:
+            payload.draftOverride?.orderComments ?? orderComments,
+          orderSource: payload.draftOverride?.orderSource ?? orderSource,
+          orderDateIso:
+            payload.draftOverride?.orderDateIso ?? orderDate.toISOString(),
+          lastTouchedProductCode:
+            payload.draftOverride?.lastTouchedProductCode ?? lastTouchedProductCode,
+          draftRevision: requestRevision,
+        };
+
+        const response = await fetch(`${BACKEND_URL}/api/voice-order/draft`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          signal: abortController.signal,
+          body: JSON.stringify({
+            draft: draftPayload,
+            audioBase64: payload.audioBase64,
+            mimeType: payload.mimeType,
+            transcriptOverride: payload.transcriptOverride,
+          }),
+        });
+
+        const responseBody = await response.json();
+
+        if (!payload.skipDraftRevisionGuard && requestRevision !== draftRevisionRef.current) {
+          setVoiceStatus("idle");
+          setVoiceFeedbackMessage(
+            "The draft changed while voice processing was running, so this result was skipped."
+          );
+          return;
+        }
+
+        setVoiceTranscript(responseBody?.transcript || "");
+
+        if (response.status === 409 && responseBody?.disambiguation) {
+          setVoiceDisambiguation({
+            kind: responseBody.disambiguation.kind,
+            query: responseBody.disambiguation.query,
+            candidates: responseBody.disambiguation.candidates || [],
+            response: responseBody,
+          });
+          setVoiceStatus("needs_disambiguation");
+          setVoiceFeedbackMessage(
+            `Choose the right ${responseBody.disambiguation.kind} for "${responseBody.disambiguation.query}".`
+          );
+          return;
+        }
+
+        if (!response.ok) {
+          const details =
+            responseBody?.details || responseBody?.error || "Voice draft failed";
+          throw new Error(details);
+        }
+
+        const responseMutations = Array.isArray(responseBody?.mutations)
+          ? responseBody.mutations
+          : [];
+        const destructiveTypes = new Set([
+          "remove_line",
+          "replace_line",
+          "decrease_qty",
+          "overwrite_note",
+          "clear_note",
+          "clear_draft",
+        ]);
+        const guardedMutation = responseMutations.find(
+          (mutation: VoiceMutation) =>
+            mutation.requiresConfirmation || destructiveTypes.has(mutation.type)
+        );
+
+        const finalizeVoiceSuccess = () => {
+          setVoiceStatus("applied");
+          setVoiceDisambiguation(null);
+          setVoiceFeedbackMessage(
+            responseBody?.confirmationMessage || "Updated the order draft."
+          );
+          showFeedback({
+            type: "success",
+            title: "Voice update applied",
+            message:
+              responseBody?.confirmationMessage ||
+              "The order draft was updated.",
+          });
+        };
+
+        if (guardedMutation?.type === "clear_note") {
+          Alert.alert("Clear note", "Remove the current order note?", [
+            { text: "Keep note", style: "cancel" },
+            {
+              text: "Clear",
+              style: "destructive",
+              onPress: () => {
+                applyVoiceMutations(responseMutations);
+                finalizeVoiceSuccess();
+              },
+            },
+          ]);
+          setVoiceStatus("idle");
+          setVoiceFeedbackMessage("Confirm the note removal to continue.");
+          return;
+        } else if (guardedMutation?.type === "clear_draft") {
+          Alert.alert("Clear draft", "Remove all current line items and notes?", [
+            { text: "Keep draft", style: "cancel" },
+            {
+              text: "Clear",
+              style: "destructive",
+              onPress: () => {
+                applyVoiceMutations(responseMutations);
+                finalizeVoiceSuccess();
+              },
+            },
+          ]);
+          setVoiceStatus("idle");
+          setVoiceFeedbackMessage("Confirm the draft clear to continue.");
+          return;
+        } else if (guardedMutation) {
+          Alert.alert(
+            "Confirm voice change",
+            responseBody?.confirmationMessage ||
+              "Apply this voice update to the order draft?",
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Apply",
+                onPress: () => {
+                  applyVoiceMutations(responseMutations);
+                  finalizeVoiceSuccess();
+                },
+              },
+            ]
+          );
+          setVoiceStatus("idle");
+          setVoiceFeedbackMessage("Confirm the voice edit to apply it.");
+          return;
+        } else {
+          applyVoiceMutations(responseMutations);
+          finalizeVoiceSuccess();
+        }
+      } catch (error: any) {
+        if (error?.name === "AbortError") {
+          setVoiceStatus("idle");
+          setVoiceFeedbackMessage("Voice update cancelled.");
+          return;
+        }
+
+        const message =
+          error?.message || "Could not turn that recording into an order update.";
+        setVoiceStatus("error");
+        setVoiceErrorMessage(message);
+        setVoiceFeedbackMessage("");
+        showFeedback({
+          type: "error",
+          title: "Voice draft failed",
+          message,
+        });
+      } finally {
+        voiceAbortControllerRef.current = null;
+      }
+    },
+    [
+      applyVoiceMutations,
+      customerName,
+      lastTouchedProductCode,
+      orderComments,
+      orderDate,
+      orderSource,
+      products,
+      selectedCustomerCode,
+      showFeedback,
+    ]
+  );
+
+  const startVoiceRecording = useCallback(async () => {
+    try {
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        showFeedback({
+          type: "error",
+          title: "Mic permission needed",
+          message: "Allow microphone access to create orders by voice.",
+          autoDismiss: false,
+        });
+        return;
+      }
+
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: true,
+        shouldPlayInBackground: false,
+        interruptionMode: "duckOthers",
+      });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      setVoiceStatus("recording");
+      setVoiceErrorMessage("");
+      setVoiceDisambiguation(null);
+      setVoiceFeedbackMessage("Listening. Tap stop when you finish speaking.");
+    } catch (error: any) {
+      const message = error?.message || "Could not start voice recording.";
+      setVoiceStatus("error");
+      setVoiceErrorMessage(message);
+      showFeedback({
+        type: "error",
+        title: "Recording failed",
+        message,
+      });
+    }
+  }, [audioRecorder, showFeedback]);
+
+  const stopVoiceRecording = useCallback(async () => {
+    try {
+      await audioRecorder.stop();
+      const audioUri = audioRecorder.uri || audioRecorderState.url;
+
+      if (!audioUri) {
+        throw new Error("The recording finished without an audio file.");
+      }
+
+      const encodedAudio = await readUriAsBase64(audioUri);
+      await submitVoiceOrderDraft(encodedAudio);
+    } catch (error: any) {
+      const message =
+        error?.message || "Could not finish and upload the voice recording.";
+      setVoiceStatus("error");
+      setVoiceErrorMessage(message);
+      setVoiceFeedbackMessage("");
+      showFeedback({
+        type: "error",
+        title: "Voice upload failed",
+        message,
+      });
+    }
+  }, [audioRecorder, audioRecorderState.url, readUriAsBase64, showFeedback, submitVoiceOrderDraft]);
+
+  const cancelVoiceInteraction = useCallback(async () => {
+    if (voiceStatus === "recording") {
+      try {
+        await audioRecorder.stop();
+      } catch {
+        // Ignore recorder stop failures on cancel.
+      }
+      setVoiceStatus("idle");
+      setVoiceFeedbackMessage("Recording discarded.");
+      setVoiceDisambiguation(null);
+      return;
+    }
+
+    if (voiceStatus === "processing") {
+      voiceAbortControllerRef.current?.abort();
+      return;
+    }
+
+    setVoiceDisambiguation(null);
+    setVoiceErrorMessage("");
+    setVoiceFeedbackMessage("");
+    setVoiceStatus("idle");
+  }, [audioRecorder, voiceStatus]);
+
+  const handleVoicePrimaryAction = useCallback(async () => {
+    if (voiceStatus === "processing") {
+      return;
+    }
+
+    if (voiceStatus === "recording") {
+      await stopVoiceRecording();
+      return;
+    }
+
+    await startVoiceRecording();
+  }, [startVoiceRecording, stopVoiceRecording, voiceStatus]);
+
+  const undoLastVoiceChange = useCallback(() => {
+    if (!lastVoiceSnapshot) {
+      return;
+    }
+
+    restoreVoiceSnapshot(lastVoiceSnapshot);
+    setLastVoiceSnapshot(null);
+    setVoiceStatus("idle");
+    setVoiceFeedbackMessage("Reverted the last voice update.");
+    setVoiceErrorMessage("");
+    setVoiceDisambiguation(null);
+  }, [lastVoiceSnapshot, restoreVoiceSnapshot]);
+
+  const handleVoiceDisambiguationSelect = useCallback(
+    async (candidate: VoiceDisambiguationCandidate) => {
+      if (!voiceDisambiguation) {
+        return;
+      }
+
+      const operations = Array.isArray(
+        voiceDisambiguation.response?.normalizedCommand?.operations
+      )
+        ? voiceDisambiguation.response.normalizedCommand.operations
+        : [];
+      const operation =
+        voiceDisambiguation.kind === "product"
+          ? operations.find(
+              (entry: Record<string, any>) => entry.type === "add_line"
+            ) || null
+          : operations.find(
+              (entry: Record<string, any>) => entry.type === "set_customer"
+            ) || operations[0] || null;
+
+      if (voiceDisambiguation.kind === "customer") {
+        const selectedCustomerMutation = {
+          type: "set_customer",
+          customerCode: candidate.customerCode,
+          customerName: candidate.customerName || candidate.label,
+          city: candidate.city,
+          zone: candidate.zone,
+          channel: candidate.channel,
+          industry: candidate.industry,
+          paymentTermsDays: candidate.paymentTermsDays,
+          creditLimit: candidate.creditLimit,
+          riskTier: candidate.riskTier,
+        };
+        const resumedDraft = {
+          ...buildVoiceDraftSnapshot(),
+          customerName:
+            candidate.customerName || candidate.label || customerName,
+          customerCode: candidate.customerCode || selectedCustomerCode,
+          selectedCustomer: buildSelectedCustomerRecord(selectedCustomerMutation),
+        };
+
+        applyVoiceMutations([
+          selectedCustomerMutation,
+        ]);
+        setVoiceStatus("processing");
+        setVoiceDisambiguation(null);
+        setVoiceFeedbackMessage(`Selected ${candidate.label}. Continuing the draft...`);
+
+        const remainingTranscript = buildTranscriptFromOperations(
+          operations.filter((entry: Record<string, any>) => entry.type !== "set_customer")
+        );
+
+        if (remainingTranscript) {
+          await submitVoiceOrderDraft({
+            transcriptOverride: remainingTranscript,
+            draftOverride: resumedDraft,
+            skipDraftRevisionGuard: true,
+          });
+          return;
+        }
+
+        setVoiceStatus("applied");
+        setVoiceFeedbackMessage(`Selected ${candidate.label}.`);
+        return;
+      }
+
+      if (voiceDisambiguation.kind === "product" && operation?.type === "add_line") {
+        const quantity = Number.parseFloat(
+          String(operation.quantity ?? operation.qty ?? 0)
+        );
+        const selectedProductMutation = {
+          type: "add_line",
+          quantity,
+          productCode: candidate.productCode,
+          productName: candidate.label,
+          productGroup: candidate.productGroup,
+          unit: candidate.uom,
+          rate: candidate.rate,
+        };
+
+        applyVoiceMutations([
+          selectedProductMutation,
+        ]);
+        setVoiceStatus("processing");
+        setVoiceDisambiguation(null);
+        setVoiceFeedbackMessage(`Added ${candidate.label}. Continuing the draft...`);
+
+        const remainingTranscript = buildTranscriptFromOperations(
+          operations.filter((entry: Record<string, any>, index: number) =>
+            !(entry.type === "add_line" && index === operations.indexOf(operation))
+          )
+        );
+
+        if (remainingTranscript) {
+          const resumedDraft = buildVoiceDraftSnapshot();
+          resumedDraft.products = [
+            ...resumedDraft.products,
+            buildOrderLineFromVoiceMutation(selectedProductMutation),
+          ];
+          resumedDraft.lastTouchedProductCode = candidate.productCode || "";
+
+          await submitVoiceOrderDraft({
+            transcriptOverride: remainingTranscript,
+            draftOverride: resumedDraft,
+            skipDraftRevisionGuard: true,
+          });
+          return;
+        }
+
+        setVoiceStatus("applied");
+        setVoiceFeedbackMessage(`Added ${candidate.label} to the order.`);
+        return;
+      }
+
+      showFeedback({
+        type: "error",
+        title: "Retry that voice change",
+        message:
+          "This clarification needs a more specific follow-up command for now.",
+      });
+    },
+    [
+      applyVoiceMutations,
+      buildOrderLineFromVoiceMutation,
+      buildSelectedCustomerRecord,
+      buildVoiceDraftSnapshot,
+      customerName,
+      selectedCustomerCode,
+      showFeedback,
+      submitVoiceOrderDraft,
+      voiceDisambiguation,
+    ]
+  );
+
+  useEffect(() => {
+    return () => {
+      voiceAbortControllerRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    draftRevisionRef.current += 1;
+  }, [
+    customerName,
+    lastTouchedProductCode,
+    orderComments,
+    orderDate,
+    orderSource,
+    products,
+    selectedCustomerCode,
+  ]);
+
   const openProductPicker = () => {
     setProductModalVisible(true);
 
@@ -1241,6 +2269,169 @@ const NewSalesOrderScreen = () => {
           color: colors.text,
           fontFamily: omaTypography.bold,
           fontSize: 12,
+        },
+        voiceAgentCard: {
+          marginBottom: 20,
+          padding: 18,
+          borderRadius: 26,
+          backgroundColor: colors.card,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        voiceAgentHeader: {
+          flexDirection: "row",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 10,
+        },
+        voiceAgentCopy: {
+          flex: 1,
+        },
+        voiceAgentEyebrow: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 10,
+          letterSpacing: 0.7,
+          textTransform: "uppercase",
+          marginBottom: 6,
+        },
+        voiceAgentTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.extrabold,
+          fontSize: 18,
+          letterSpacing: -0.4,
+          marginBottom: 4,
+        },
+        voiceAgentBody: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 19,
+        },
+        voiceStatusPill: {
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderRadius: 999,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        voiceStatusPillActive: {
+          backgroundColor: "rgba(246,198,76,0.12)",
+          borderColor: colors.accentGold,
+        },
+        voiceStatusPillError: {
+          backgroundColor: isDark ? "rgba(239,68,68,0.14)" : "#fee2e2",
+          borderColor: colors.error,
+        },
+        voiceStatusText: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 11,
+        },
+        voiceStatusTextActive: {
+          color: colors.accentGold,
+        },
+        voiceStatusTextError: {
+          color: colors.error,
+        },
+        voiceTranscriptCard: {
+          borderRadius: 20,
+          padding: 14,
+          marginBottom: 12,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+        },
+        voiceTranscriptLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 10,
+          letterSpacing: 0.6,
+          textTransform: "uppercase",
+          marginBottom: 6,
+        },
+        voiceTranscriptText: {
+          color: colors.text,
+          fontFamily: omaTypography.medium,
+          fontSize: 14,
+          lineHeight: 20,
+        },
+        voiceFeedbackText: {
+          color: colors.primary,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 18,
+          marginBottom: 12,
+        },
+        voiceErrorText: {
+          color: colors.error,
+          fontFamily: omaTypography.medium,
+          fontSize: 13,
+          lineHeight: 18,
+          marginBottom: 12,
+        },
+        voiceActionRow: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 10,
+        },
+        voicePrimaryButton: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          minHeight: 48,
+          paddingHorizontal: 18,
+          borderRadius: 18,
+          backgroundColor: isDark ? colors.text : "#111111",
+        },
+        voicePrimaryButtonDisabled: {
+          opacity: 0.5,
+        },
+        voicePrimaryButtonText: {
+          color: isDark ? colors.background : "#ffffff",
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+        },
+        voiceSecondaryButton: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          minHeight: 48,
+          paddingHorizontal: 16,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+        },
+        voiceSecondaryButtonText: {
+          color: colors.text,
+          fontFamily: omaTypography.semibold,
+          fontSize: 14,
+        },
+        voiceChoiceList: {
+          marginTop: 4,
+          gap: 10,
+        },
+        voiceChoiceButton: {
+          padding: 14,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: isDark ? colors.surfaceVariant : colors.cardMuted,
+        },
+        voiceChoiceTitle: {
+          color: colors.text,
+          fontFamily: omaTypography.bold,
+          fontSize: 14,
+          marginBottom: 4,
+        },
+        voiceChoiceMeta: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.medium,
+          fontSize: 12,
+          lineHeight: 17,
         },
         progressShell: {
           display: "none",
@@ -1980,6 +3171,28 @@ const NewSalesOrderScreen = () => {
           lineHeight: 19,
           textAlign: "center",
         },
+        draftNoteCard: {
+          backgroundColor: colors.appChromeElevated,
+          borderRadius: 24,
+          borderWidth: 1,
+          borderColor: "rgba(255,255,255,0.05)",
+          padding: 16,
+          marginBottom: 14,
+        },
+        draftNoteLabel: {
+          color: colors.textSecondary,
+          fontFamily: omaTypography.semibold,
+          fontSize: 10,
+          letterSpacing: 0.7,
+          textTransform: "uppercase",
+          marginBottom: 8,
+        },
+        draftNoteText: {
+          color: colors.text,
+          fontFamily: omaTypography.medium,
+          fontSize: 14,
+          lineHeight: 20,
+        },
         lineItemCard: {
           backgroundColor: colors.appChromeElevated,
           borderRadius: 24,
@@ -2035,10 +3248,42 @@ const NewSalesOrderScreen = () => {
         },
         lineItemBottomRow: {
           flexDirection: "row",
-          alignItems: "center",
+          alignItems: "flex-end",
           justifyContent: "space-between",
           gap: 12,
           paddingTop: 4,
+        },
+        lineItemControls: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          marginTop: 10,
+        },
+        lineItemQuantityButton: {
+          width: 34,
+          height: 34,
+          borderRadius: 12,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        lineItemQuantityValue: {
+          minWidth: 52,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderRadius: 12,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: isDark ? colors.appChromeMuted : colors.cardMuted,
+          borderWidth: 1,
+          borderColor: colors.border,
+        },
+        lineItemQuantityText: {
+          color: colors.text,
+          fontFamily: omaTypography.bold,
+          fontSize: 13,
         },
         lineItemAmount: {
           color: colors.text,
@@ -2627,6 +3872,152 @@ const NewSalesOrderScreen = () => {
     [colors, headerTopPadding, isDark, isWideLayout, quantityError]
   );
 
+  const renderVoiceAgentCard = () => {
+    const primaryLabel =
+      voiceStatus === "recording"
+        ? "Stop recording"
+        : voiceStatus === "processing"
+        ? "Processing..."
+        : "Start voice order";
+    const statusLabel =
+      voiceStatus === "recording"
+        ? `Recording${audioRecorderState.durationMillis ? ` • ${Math.floor(audioRecorderState.durationMillis / 1000)}s` : ""}`
+        : voiceStatus === "processing"
+        ? "Processing"
+        : voiceStatus === "needs_disambiguation"
+        ? "Need choice"
+        : voiceStatus === "error"
+        ? "Needs retry"
+        : voiceStatus === "applied"
+        ? "Draft updated"
+        : "Ready";
+
+    return (
+      <View style={styles.voiceAgentCard}>
+        <View style={styles.voiceAgentHeader}>
+          <View style={styles.voiceAgentCopy}>
+            <Text style={styles.voiceAgentEyebrow}>Voice order agent</Text>
+            <Text style={styles.voiceAgentTitle}>Speak the order naturally</Text>
+            <Text style={styles.voiceAgentBody}>
+              Say the customer, products, quantities, or notes. Follow-ups like
+              “add 2 more” and “append urgent delivery to the note” update the
+              same draft.
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.voiceStatusPill,
+              (voiceStatus === "recording" ||
+                voiceStatus === "processing" ||
+                voiceStatus === "needs_disambiguation") &&
+                styles.voiceStatusPillActive,
+              voiceStatus === "error" && styles.voiceStatusPillError,
+            ]}
+          >
+            <Text
+              style={[
+                styles.voiceStatusText,
+                (voiceStatus === "recording" ||
+                  voiceStatus === "processing" ||
+                  voiceStatus === "needs_disambiguation") &&
+                  styles.voiceStatusTextActive,
+                voiceStatus === "error" && styles.voiceStatusTextError,
+              ]}
+            >
+              {statusLabel}
+            </Text>
+          </View>
+        </View>
+
+        {voiceTranscript ? (
+          <View style={styles.voiceTranscriptCard}>
+            <Text style={styles.voiceTranscriptLabel}>Last transcript</Text>
+            <Text style={styles.voiceTranscriptText}>{voiceTranscript}</Text>
+          </View>
+        ) : null}
+
+        {voiceFeedbackMessage ? (
+          <Text style={styles.voiceFeedbackText}>{voiceFeedbackMessage}</Text>
+        ) : null}
+        {voiceErrorMessage ? (
+          <Text style={styles.voiceErrorText}>{voiceErrorMessage}</Text>
+        ) : null}
+
+        <View style={styles.voiceActionRow}>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            disabled={voiceStatus === "processing"}
+            onPress={handleVoicePrimaryAction}
+            style={[
+              styles.voicePrimaryButton,
+              voiceStatus === "processing" && styles.voicePrimaryButtonDisabled,
+            ]}
+          >
+            <Ionicons
+              name={
+                voiceStatus === "recording" ? "stop-circle-outline" : "mic-outline"
+              }
+              size={18}
+              color={isDark ? colors.background : "#ffffff"}
+            />
+            <Text style={styles.voicePrimaryButtonText}>{primaryLabel}</Text>
+          </TouchableOpacity>
+
+          {(voiceStatus === "recording" || voiceStatus === "processing") && (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={cancelVoiceInteraction}
+              style={styles.voiceSecondaryButton}
+            >
+              <Ionicons name="close-circle-outline" size={18} color={colors.text} />
+              <Text style={styles.voiceSecondaryButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          )}
+
+          {lastVoiceSnapshot && voiceStatus !== "recording" && voiceStatus !== "processing" ? (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={undoLastVoiceChange}
+              style={styles.voiceSecondaryButton}
+            >
+              <Ionicons name="arrow-undo-outline" size={18} color={colors.text} />
+              <Text style={styles.voiceSecondaryButtonText}>Undo last voice change</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {voiceDisambiguation ? (
+          <View style={styles.voiceChoiceList}>
+            {voiceDisambiguation.candidates.map((candidate) => (
+              <TouchableOpacity
+                key={candidate.id}
+                activeOpacity={0.9}
+                onPress={() => handleVoiceDisambiguationSelect(candidate)}
+                style={styles.voiceChoiceButton}
+              >
+                <Text style={styles.voiceChoiceTitle}>{candidate.label}</Text>
+                <Text style={styles.voiceChoiceMeta}>
+                  {[
+                    candidate.customerCode
+                      ? `Code ${candidate.customerCode}`
+                      : candidate.productCode
+                      ? `Code ${candidate.productCode}`
+                      : "",
+                    candidate.city || candidate.productGroup || "",
+                    candidate.zone || candidate.uom || "",
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
   const renderCustomerSelectionModal = () => (
     <Modal
       visible={customerModalVisible}
@@ -2970,6 +4361,7 @@ const NewSalesOrderScreen = () => {
   const renderCustomerStep = () => (
     <>
       <Text style={styles.stepPageTitle}>Select Client</Text>
+      {renderVoiceAgentCard()}
 
       <View style={styles.referenceSearchShell}>
         <Ionicons
@@ -3099,6 +4491,7 @@ const NewSalesOrderScreen = () => {
 
   const renderProductsStep = () => (
     <>
+      {renderVoiceAgentCard()}
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionEyebrow}>Step 2</Text>
         <Text style={styles.sectionHeading}>Add Products</Text>
@@ -3316,6 +4709,13 @@ const NewSalesOrderScreen = () => {
         </View>
       </View>
 
+      {orderComments ? (
+        <View style={styles.draftNoteCard}>
+          <Text style={styles.draftNoteLabel}>Order note</Text>
+          <Text style={styles.draftNoteText}>{orderComments}</Text>
+        </View>
+      ) : null}
+
       {products.length === 0 ? (
         <View style={styles.emptyStateCard}>
           <View style={styles.emptyStateIconWrap}>
@@ -3374,9 +4774,38 @@ const NewSalesOrderScreen = () => {
             </View>
 
             <View style={styles.lineItemBottomRow}>
-              <Text style={styles.lineItemMeta} numberOfLines={1}>
-                {product.quantity} {product.unit} × ₹{product.formattedRate}
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.lineItemMeta} numberOfLines={1}>
+                  {product.quantity} {product.unit} × ₹{product.formattedRate}
+                </Text>
+                <View style={styles.lineItemControls}>
+                  <TouchableOpacity
+                    accessibilityLabel={`Decrease quantity for ${product.productName}`}
+                    accessibilityRole="button"
+                    onPress={() =>
+                      updateProductQuantity(index, Math.max(1, product.quantity - 1))
+                    }
+                    style={styles.lineItemQuantityButton}
+                  >
+                    <Ionicons name="remove" size={16} color={colors.text} />
+                  </TouchableOpacity>
+
+                  <View style={styles.lineItemQuantityValue}>
+                    <Text style={styles.lineItemQuantityText}>
+                      {product.quantity} {product.unit}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    accessibilityLabel={`Increase quantity for ${product.productName}`}
+                    accessibilityRole="button"
+                    onPress={() => updateProductQuantity(index, product.quantity + 1)}
+                    style={styles.lineItemQuantityButton}
+                  >
+                    <Ionicons name="add" size={16} color={colors.text} />
+                  </TouchableOpacity>
+                </View>
+              </View>
               <Text style={styles.lineItemAmount}>₹{product.orderAmount}</Text>
             </View>
           </Animated.View>
@@ -3387,6 +4816,7 @@ const NewSalesOrderScreen = () => {
 
   const renderReviewStep = () => (
     <>
+      {renderVoiceAgentCard()}
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionEyebrow}>Step 3</Text>
         <Text style={styles.sectionHeading}>Review & Details</Text>
@@ -3402,7 +4832,7 @@ const NewSalesOrderScreen = () => {
         </View>
 
         <View style={styles.sourceButtonsRow}>
-          {["Phone", "Email", "WhatsApp"].map((source) => {
+          {VOICE_ORDER_SOURCE_OPTIONS.map((source) => {
             const active = orderSource === source;
 
             return (
